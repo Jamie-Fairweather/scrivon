@@ -1,16 +1,19 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { isComposingKeyEvent, isModifierKey, normalizeChord, physicalKeyFallback, typesAltGraphCharacter } from '@/lib/settings/chord-utils'
+import { isComposingKeyEvent, isModifierKey, typesAltGraphCharacter } from '@/lib/settings/chord-utils'
 import { describeDisallowedChord } from '@/lib/settings/conflicts'
 import { formatChords } from '@/lib/settings/format-keybind'
-import type { KeybindChord } from '@/lib/settings/types'
+import { recordedChord } from '@/lib/settings/match-keybind'
+import type { KeybindBindings, KeybindChord } from '@/lib/settings/types'
 import { Button } from '@/components/ui/button'
 
 type KeybindCaptureProps = {
     active: boolean
     /** The action being recorded, for screen readers. */
     label: string
+    /** Every action's shortcuts, to tell when the key as typed is already one. */
+    bindings: KeybindBindings
     onCapture: (chord: KeybindChord | null) => void
     /**
      * Called on Esc, Tab, or a click on the recorder or Cancel (refocus true), and when focus moves
@@ -23,7 +26,7 @@ type KeybindCaptureProps = {
     onReject: (message: string) => void
 }
 
-export function KeybindCapture({ active, label, onCapture, onCancel, onReject }: KeybindCaptureProps) {
+export function KeybindCapture({ active, label, bindings, onCapture, onCancel, onReject }: KeybindCaptureProps) {
     const buttonRef = useRef<HTMLButtonElement>(null)
 
     useEffect(() => {
@@ -53,14 +56,8 @@ export function KeybindCapture({ active, label, onCapture, onCancel, onReject }:
                 return
             }
 
-            const chord = normalizeChord({
-                // Record the physical key on non-Latin layouts and for Shift+digit, so it matches on any layout.
-                key: physicalKeyFallback(event) ?? event.key,
-                ctrl: event.ctrlKey || undefined,
-                meta: event.metaKey || undefined,
-                shift: event.shiftKey || undefined,
-                alt: event.altKey || undefined,
-            })
+            // The physical key on non-Latin layouts and for the digit keys, unless the key as typed is already a shortcut.
+            const chord = recordedChord(event, bindings)
 
             const problem = describeDisallowedChord(chord)
             if (problem) {
@@ -73,7 +70,7 @@ export function KeybindCapture({ active, label, onCapture, onCancel, onReject }:
 
         window.addEventListener('keydown', handleKeyDown, { capture: true })
         return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
-    }, [active, onCapture, onCancel, onReject])
+    }, [active, bindings, onCapture, onCancel, onReject])
 
     if (!active) return null
 

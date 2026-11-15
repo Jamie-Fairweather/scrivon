@@ -48,8 +48,7 @@ declare module 'monaco-editor/editor/browser/config/tabFocus.js' {
     }
 }
 
-// Monaco's shared command registry, used by lib/monaco/editor-keybindings.test.ts to check that
-// Scrivon's 'Command Palette' replaces Monaco's own for the editor's right-click menu.
+// Monaco's shared command registry, used by lib/monaco/paste-command.ts to take over Monaco's Paste.
 declare module 'monaco-editor/platform/commands/common/commands.js' {
     import type { IDisposable } from 'monaco-editor'
     export const CommandsRegistry: {
@@ -58,9 +57,42 @@ declare module 'monaco-editor/platform/commands/common/commands.js' {
     }
 }
 
+// What the editor notes about text it copies (copied from several cursors, a whole line), used by
+// lib/monaco/paste-command.ts to paste it back the way Ctrl+V does.
+declare module 'monaco-editor/editor/browser/controller/editContext/clipboardUtils.js' {
+    export type ClipboardStoredMetadata = {
+        isFromEmptySelection: boolean | undefined
+        multicursorText: string[] | null | undefined
+        mode: string | null
+    }
+    export const InMemoryClipboardMetadataManager: {
+        readonly INSTANCE: {
+            set(lastCopiedValue: string, data: ClipboardStoredMetadata): void
+            /** The notes on `pastedText` when it is what the editor copied last, or null. */
+            get(pastedText: string): ClipboardStoredMetadata | null
+        }
+    }
+}
+
+// Monaco's clipboard commands and editor extensions, used by lib/monaco/paste-command.test.ts to check that Paste
+// stays a plain command, which editor.trigger hands to the shared command registry (where Scrivon's Paste is).
+declare module 'monaco-editor/editor/contrib/clipboard/browser/clipboard.js'
+
+declare module 'monaco-editor/editor/browser/editorExtensions.js' {
+    export const EditorExtensionsRegistry: {
+        getEditorActions(): ReadonlyArray<{ readonly id: string }>
+        getEditorCommand(commandId: string): { readonly id: string } | null
+    }
+}
+
 declare module 'monaco-editor/editor/standalone/browser/standaloneServices.js' {
     export namespace StandaloneServices {
         function get<T>(serviceId: { readonly type: T }): T
+        /**
+         * Sets Monaco's services up, with each of `overrides` (keyed by the service's name) in place of Monaco's
+         * own. Only the first call does anything, and `get` makes that call when nothing has yet.
+         */
+        function initialize(overrides: Record<string, unknown>): unknown
     }
 }
 
@@ -74,53 +106,70 @@ declare module 'monaco-editor/editor/browser/services/openerService.js' {
     }
 }
 
-// Monaco's keybinding table, used by lib/monaco/editor-keybindings.test.ts to check that the editor's
-// right-click 'Command Palette' no longer shows F1 once Scrivon's palette has taken it over.
-declare module 'monaco-editor/base/common/keybindings.js' {
-    export class Keybinding {
-        private readonly _keybindingBrand: undefined
-    }
-    export function decodeKeybinding(keybinding: number, os: number): Keybinding | null
+// Monaco's Monarch lexer, used by vitest/monarch.ts to check the Mermaid grammar the way the editor colours it.
+declare module 'monaco-editor/editor/standalone/common/monarch/monarchCompile.js' {
+    import type { languages } from 'monaco-editor'
+    export type CompiledLexer = { readonly languageId: string }
+    export function compile(languageId: string, json: languages.IMonarchLanguage): CompiledLexer
 }
 
-declare module 'monaco-editor/platform/keybinding/common/usLayoutResolvedKeybinding.js' {
-    import type { Keybinding } from 'monaco-editor/base/common/keybindings.js'
-    export class USLayoutResolvedKeybinding {
-        static resolveKeybinding(keybinding: Keybinding, os: number): USLayoutResolvedKeybinding[]
-    }
-}
-
-declare module 'monaco-editor/platform/contextkey/common/contextkey.js' {
-    export class ContextKeyExpression {
-        private readonly _contextKeyExpressionBrand: undefined
-    }
-    export const ContextKeyExpr: {
-        has(key: string): ContextKeyExpression
-    }
-}
-
-declare module 'monaco-editor/platform/keybinding/common/resolvedKeybindingItem.js' {
-    import type { ContextKeyExpression } from 'monaco-editor/platform/contextkey/common/contextkey.js'
-    import type { USLayoutResolvedKeybinding } from 'monaco-editor/platform/keybinding/common/usLayoutResolvedKeybinding.js'
-    export class ResolvedKeybindingItem {
+declare module 'monaco-editor/editor/standalone/common/monarch/monarchLexer.js' {
+    import type { languages } from 'monaco-editor'
+    import type { CompiledLexer } from 'monaco-editor/editor/standalone/common/monarch/monarchCompile.js'
+    export class MonarchTokenizer {
         constructor(
-            resolvedKeybinding: USLayoutResolvedKeybinding | undefined,
-            command: string | null,
-            commandArgs: unknown,
-            when: ContextKeyExpression | undefined,
-            isDefault: boolean,
-            extensionId: string | null,
-            isBuiltinExtension: boolean
+            languageService: unknown,
+            standaloneThemeService: unknown,
+            languageId: string,
+            lexer: CompiledLexer,
+            configurationService: unknown
         )
-        readonly command: string | null
+        getInitialState(): languages.IState
+        tokenize(line: string, hasEOL: boolean, state: languages.IState): { tokens: { offset: number; type: string }[]; endState: languages.IState }
     }
 }
 
-declare module 'monaco-editor/platform/keybinding/common/keybindingResolver.js' {
-    import type { ResolvedKeybindingItem } from 'monaco-editor/platform/keybinding/common/resolvedKeybindingItem.js'
-    export class KeybindingResolver {
-        constructor(defaults: ResolvedKeybindingItem[], overrides: ResolvedKeybindingItem[], log: (message: string) => void)
-        /** The key the editor's menus show next to `commandId`, or null when it has none. */
-        lookupPrimaryKeybinding(commandId: string, context: unknown): ResolvedKeybindingItem | null
+declare module 'monaco-editor/editor/common/languages.js' {
+    import type { IDisposable } from 'monaco-editor'
+    export const TokenizationRegistry: {
+        register(languageId: string, support: unknown): IDisposable
     }
 }
+
+// Monaco's Markdown grammar, used by lib/monaco/mermaid-language.test.ts to check ```mermaid blocks.
+declare module 'monaco-editor/languages/definitions/markdown/markdown.js' {
+    import type { languages } from 'monaco-editor'
+    export const language: languages.IMonarchLanguage
+}
+
+// Monaco's snippet parser, used by lib/monaco/mermaid-snippets.test.ts to expand snippets as the editor does.
+declare module 'monaco-editor/editor/contrib/snippet/browser/snippetParser.js' {
+    export class SnippetParser {
+        parse(value: string): { toString(): string }
+    }
+}
+
+// Monaco's clipboard service, which lib/monaco/clipboard-service.ts replaces so the editor uses Tauri's clipboard.
+declare module 'monaco-editor/platform/clipboard/common/clipboardService.js' {
+    import type { Uri } from 'monaco-editor'
+    export interface IClipboardService {
+        readonly _serviceBrand: undefined
+        /** The menus' Paste, where the host can paste (a desktop app); undefined to have the editor read the text. */
+        triggerPaste(targetWindowId: number): Promise<void> | undefined
+        /** With `type`, kept in memory under that name instead of put on the clipboard. */
+        writeText(text: string, type?: string): Promise<void>
+        readText(type?: string): Promise<string>
+        readFindText(): Promise<string>
+        writeFindText(text: string): Promise<void>
+        writeResources(resources: Uri[]): Promise<void>
+        readResources(): Promise<Uri[]>
+        hasResources(): Promise<boolean>
+        clearInternalState?(): void
+        readImage(): Promise<Uint8Array>
+    }
+    /** The id StandaloneServices looks the service up by; its toString() is the service's name. */
+    export const IClipboardService: { readonly type: IClipboardService }
+}
+
+// Ctrl+. and its quick fix list, used by components/studio/editor/code-editor-panel-quick-fix.test.tsx with the real editor.
+declare module 'monaco-editor/editor/contrib/codeAction/browser/codeActionContributions.js'

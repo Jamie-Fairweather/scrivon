@@ -160,5 +160,19 @@ describe('app/globals.css', () => {
                 expect(offset, item).toMatch(/^outline-offset: -\d+px$/)
             }
         })
+
+        it('outlines the folder something dragged in the explorer would go into', () => {
+            expect(rules.get('[data-drop-target]')).toEqual(['outline: 2px dashed Highlight', 'outline-offset: -2px'])
+        })
+    })
+
+    it("grows the Markdown preview's text sizes and spacing from Tailwind's own by the preview text scale", () => {
+        const start = css.indexOf('.preview-text {')
+        expect(start).toBeGreaterThan(-1)
+        const block = css.slice(start, css.indexOf('}', start))
+        for (const name of ['--text-xs', '--text-sm', '--text-base', '--text-lg', '--text-xl', '--text-2xl', '--spacing']) {
+            const tailwindSize = new RegExp(String.raw`${name}:\s*([^;]+);`).exec(tailwindTheme)?.[1]?.trim()
+            expect(block, name).toContain(`${name}: calc(${tailwindSize} * var(--preview-text-scale, 1));`)
+        }
     })
 })

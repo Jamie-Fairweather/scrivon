@@ -1,15 +1,14 @@
-import type { Root, Text } from 'mdast'
+import type { Root } from 'mdast'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
-import { visit } from 'unist-util-visit'
 import { applyPdfFooterSwitch } from '@/lib/markdown/export-html-css'
 import { collectPdfExportOutline, filterPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
-import { guessDocumentLanguage, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
+import { guessProseLanguage, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportMetadata, PdfExportMetadataOverrides, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
-export type ExportFormat = 'pdf' | 'docx'
+export type ExportFormat = 'pdf' | 'docx' | 'html'
 
 export type BuildExportDocumentOptions = {
     profile?: PdfExportProfile
@@ -40,15 +39,8 @@ export type ExportDocument = {
     tree: Root
     outline: PdfExportOutlineItem[]
     toc: PdfExportOutlineItem[]
-}
-
-/** The document's prose for guessing its language. Code is left out: it reads as English whatever the text is in. */
-function proseText(tree: Root): string {
-    const parts: string[] = []
-    visit(tree, 'text', (node: Text) => {
-        parts.push(node.value)
-    })
-    return parts.join(' ')
+    /** Heading of the contents page: the front matter's `toc-title:`, else the profile's, else `Contents`. */
+    contentsTitle: string
 }
 
 /**
@@ -60,18 +52,29 @@ export function buildExportDocument(source: string, options: BuildExportDocument
     const given = options.assets ?? EMPTY_ASSETS
     // A switched-off footer shows only its page number, never its images.
     const assets = profile.footer.enabled ? given : { ...given, footer: EMPTY_ASSETS.footer }
-    const { metadata, body, lang } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
+    const { metadata, body, lang, tocTitle } = resolvePdfExportMetadata(source, options.tabName, options.overrides)
     if (!body.trim()) {
         throw new Error('Nothing to export.')
     }
 
     // Only leading blank lines go: trimming the first line's indent would turn an opening indented code block into a paragraph.
-    const tree = unified()
-        .use(remarkParse)
-        .use(markdownRemarkPlugins)
-        .parse(body.replace(/^(?:[ \t]*\r?\n)+/, '')) as Root
+    const text = body.replace(/^(?:[ \t]*\r?\n)+/, '')
+    const processor = unified().use(remarkParse).use(markdownRemarkPlugins)
+    const tree = processor.runSync(processor.parse(text), text) as Root
     const outline = collectPdfExportOutline(tree)
     const toc = profile.frontMatter.toc ? filterPdfExportOutline(outline, profile.frontMatter.tocDepth, profile.frontMatter.tocExcludeH1) : []
 
-    return { metadata, lang: lang ?? guessDocumentLanguage(proseText(tree)), langGuessed: lang === undefined, profile, assets, tree, outline, toc }
+    const contentsTitle = tocTitle ?? (profile.frontMatter.tocTitle.trim() || 'Contents')
+
+    return {
+        metadata,
+        lang: lang ?? guessProseLanguage(tree),
+        langGuessed: lang === undefined,
+        profile,
+        assets,
+        tree,
+        outline,
+        toc,
+        contentsTitle,
+    }
 }

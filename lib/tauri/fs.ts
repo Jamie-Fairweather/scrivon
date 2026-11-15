@@ -4,7 +4,6 @@ import {
     writeFile,
     writeTextFile,
     mkdir,
-    remove,
     stat,
     lstat,
     exists,
@@ -120,10 +119,10 @@ function errorText(err: unknown): string {
 /** Folders listed at once while reading a tree. Each listing is a round trip to the app, so they overlap. */
 const MAX_PARALLEL_READS = 8
 
-type Limit = <T>(task: () => Promise<T>) => Promise<T>
+export type Limit = <T>(task: () => Promise<T>) => Promise<T>
 
 /** Runs at most `max` tasks at a time; the rest wait their turn in order. */
-function createLimit(max: number): Limit {
+export function createLimit(max: number): Limit {
     let running = 0
     const waiting: Array<() => void> = []
     return async (task) => {
@@ -484,12 +483,13 @@ export async function renameWorkspacePath(oldPath: string, newPath: string): Pro
 }
 
 /**
- * Deletes a file, or a folder with `recursive` (everything inside it goes too). Without `recursive`
- * a folder that isn't empty is refused.
+ * Deletes a file or folder (with everything in it) by moving it to the Recycle Bin, so it can be put back.
+ * The app's command only takes what is inside an opened folder, and fails with a plain reason, such as
+ * the file being open in another program (src-tauri/src/workspace_trash.rs).
  */
-export async function removeWorkspacePath(path: string, { recursive = false }: { recursive?: boolean } = {}): Promise<void> {
+export async function trashWorkspacePath(path: string): Promise<void> {
     if (!isTauri()) return
-    await remove(path, { recursive })
+    await invoke('trash_workspace_path', { path: normalizePath(path) })
 }
 
 /**
@@ -693,6 +693,50 @@ export async function duplicateWorkspaceFile(sourcePath: string, destPath: strin
     await writeFile(destPath, await readFile(sourcePath), { createNew: true })
 }
 
+/** Whether `path` is a file or a folder (for a link, what it leads to). Throws when it isn't there. */
+export async function readEntryKind(path: string): Promise<FileNode['kind']> {
+    if (!isTauri()) return 'file'
+    return (await stat(path)).isDirectory ? 'directory' : 'file'
+}
+
+/** Thrown when a folder was copied only in part: the copy is there, but some of what is inside it isn't. */
+export class PartialCopyError extends Error {
+    /** The folder copied in part. */
+    readonly path: string
+
+    constructor(path: string, cause: unknown) {
+        super(errorText(cause) || 'Something went wrong.', { cause })
+        this.name = 'PartialCopyError'
+        this.path = path
+    }
+}
+
+/**
+ * Copies a file, or a folder with everything in it, to `destPath`. Never replaces anything: throws
+ * PathExistsError when something is there already. A link to a file is copied as that file; a link to a folder
+ * is left out, so one that leads back up can't copy forever. When a folder can't be copied in full, what was
+ * copied stays and PartialCopyError says why the rest wasn't.
+ */
+export async function copyWorkspaceEntry(sourcePath: string, destPath: string): Promise<void> {
+    if (!isTauri()) return
+    if ((await readEntryKind(sourcePath)) === 'file') {
+        await duplicateWorkspaceFile(sourcePath, destPath)
+        return
+    }
+    await createWorkspaceDirectory(destPath)
+    try {
+        for (const entry of await readDir(sourcePath)) {
+            const from = joinPath(sourcePath, entry.name)
+            const to = joinPath(destPath, entry.name)
+            if (entry.isDirectory) await copyWorkspaceEntry(from, to)
+            else if (entry.isFile) await duplicateWorkspaceFile(from, to)
+            else if (entry.isSymlink && (await stat(from).catch(() => null))?.isFile) await duplicateWorkspaceFile(from, to)
+        }
+    } catch (err) {
+        throw new PartialCopyError(destPath, err instanceof PartialCopyError ? err.cause : err)
+    }
+}
+
 export function compareFileNodes(a: FileNode, b: FileNode): number {
     return compareEntries(a, b)
 }
@@ -726,7 +770,8 @@ export function normalizePath(path: string): string {
     return result === '/' ? result : result.replace(/\/+$/, '')
 }
 
-function comparablePath(path: string): string {
+/** One spelling per file, to compare or key by: {@link normalizePath}, in lower case on Windows. */
+export function comparablePath(path: string): string {
     const normalized = normalizePath(path)
     // Windows file names ignore case, so `C:\Notes\A.md` and `c:\notes\a.md` are one file.
     return isWindowsPath(normalized) ? normalized.toLowerCase() : normalized

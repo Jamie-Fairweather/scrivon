@@ -50,14 +50,14 @@ impl ExportImageAccess {
             // plugin. Start empty and put a valid list back; the user picks the
             // images again.
             Err(err) if err.kind() == ErrorKind::InvalidData => {
-                eprintln!("The export image list wasn't valid, so it was cleared: {err}");
+                log::warn!("The export image list wasn't valid, so it was cleared: {err}");
                 save_access_file(&file, &[]);
                 (Vec::new(), false)
             }
             // Couldn't be read just now (locked, say): start empty but leave the
             // file alone. `remember` merges it back in.
             Err(err) => {
-                eprintln!("Could not read the export image list: {err}");
+                log::warn!("Could not read the export image list: {err}");
                 (Vec::new(), false)
             }
         };
@@ -126,6 +126,12 @@ impl ExportImageAccess {
         }
         self.remember_all(&[path]);
         true
+    }
+
+    /// Records an image Rust saved itself (one from an imported profile), so
+    /// the export can read it.
+    pub(super) fn remember_saved(&self, path: &str) {
+        self.remember_all(&[path]);
     }
 
     /// Accepts `path` for reading when the user chose it: `in_scope` (the fs
@@ -224,7 +230,7 @@ fn read_access_file(file: &Path) -> std::io::Result<Vec<String>> {
 
 fn save_access_file(file: &Path, images: &[String]) {
     if let Err(err) = write_access_file(file, images) {
-        eprintln!("Could not save the export image list: {err}");
+        log::warn!("Could not save the export image list: {err}");
     }
 }
 

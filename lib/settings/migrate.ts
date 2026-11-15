@@ -1,9 +1,23 @@
-import { isAppThemeId } from '@/lib/theme/catalog'
-import { createDefaultSettings } from '@/lib/settings/defaults'
+import { isAppThemeId, isLightTheme, type AppThemeId } from '@/lib/theme/catalog'
+import { createDefaultSettings, createFormerDefaultKeybinds } from '@/lib/settings/defaults'
 import { chordListsEqual, chordsEqual, isAllowedChord, isMacPlatform, isModifierKey, isUnnamedKey } from '@/lib/settings/chord-utils'
+import { canShareKeys } from '@/lib/settings/keybind-registry'
 import { normalizePdfExportSettings } from '@/lib/settings/pdf-export-normalize'
-import type { AppSettings, EditorLineNumbers, EditorWordWrap, KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
+import { normalizeSpellcheckSettings } from '@/lib/spellcheck/spellcheck-settings'
+import {
+    FOLLOW_SYSTEM,
+    type AppSettings,
+    type DiagramExportSettings,
+    type EditorLineNumbers,
+    type EditorWordWrap,
+    type KeybindActionId,
+    type KeybindBindings,
+    type KeybindChord,
+    type ThemeSetting,
+} from '@/lib/settings/types'
 import { STORAGE_AUTOSAVE, STORAGE_KEY_WIDTH, STORAGE_LAYOUT_EDITOR, STORAGE_LAYOUT_EXPLORER, STORAGE_MERMAID_THEME } from '@/lib/workspace/types'
+import { normalizeAppZoom } from '@/lib/zoom/app-zoom'
+import { MAX_PREVIEW_FONT_SIZE, MIN_PREVIEW_FONT_SIZE } from '@/lib/zoom/preview-text-size'
 
 type LegacyStorageReader = (key: string) => string | null
 
@@ -40,19 +54,35 @@ function normalizeChord(raw: unknown): KeybindChord | null {
     }
 }
 
+/** Every action there was while settings saved the whole keymap rather than only the changes. */
+const WHOLE_KEYMAP_ACTIONS: KeybindActionId[] = [
+    'document.save',
+    'settings.open',
+    'palette.open',
+    'palette.openText',
+    'palette.openFiles',
+    'view.toggleExplorer',
+    'view.toggleEditor',
+    'view.previewOnly',
+    'view.fitDiagram',
+    'workspace.saveAll',
+]
+
 /**
  * Reads stored shortcuts on top of the current defaults. Only the actions the user changed are
  * stored (see keybindOverrides), so a new or changed default reaches everyone who kept the old one.
- * Older versions stored the whole keymap: entries that equal the default count as unchanged.
- * When a default uses a chord the user gave to another action, the user's choice wins and the
- * default is dropped, so two actions never silently share a chord.
+ * Older versions stored the whole keymap: entries that equal the default, or a default it had
+ * then (formerDefaults), count as unchanged. When a default uses a chord the user gave to another
+ * action, the user's choice wins and the default is dropped, so two actions never silently share
+ * a chord (an editor action and an app action may: see canShareKeys).
  */
-function normalizeKeybinds(raw: unknown, defaults: KeybindBindings): KeybindBindings {
+function normalizeKeybinds(raw: unknown, defaults: KeybindBindings, formerDefaults: Partial<KeybindBindings> = {}): KeybindBindings {
     if (!raw || typeof raw !== 'object') return defaults
 
     const source = raw as Record<string, unknown>
     const next = { ...defaults }
     const changed = new Set<KeybindActionId>()
+    const wholeKeymap = WHOLE_KEYMAP_ACTIONS.every((actionId) => Array.isArray(source[actionId]))
 
     for (const actionId of Object.keys(defaults) as KeybindActionId[]) {
         const chords = source[actionId]
@@ -64,22 +94,24 @@ function normalizeKeybinds(raw: unknown, defaults: KeybindBindings): KeybindBind
         // the action unassigned. Below, it is still dropped if another action has that chord.
         if (chords.length > 0 && allowed.length === 0) continue
         if (chordListsEqual(allowed, defaults[actionId])) continue
+        const former = formerDefaults[actionId]
+        if (wholeKeymap && former && chordListsEqual(allowed, former)) continue
         next[actionId] = allowed
         changed.add(actionId)
     }
 
-    const taken = [...changed].flatMap((actionId) => next[actionId])
     for (const actionId of Object.keys(defaults) as KeybindActionId[]) {
         if (changed.has(actionId)) continue
+        const taken = [...changed].filter((other) => !canShareKeys(other, actionId)).flatMap((other) => next[other])
         next[actionId] = next[actionId].filter((chord) => !taken.some((userChord) => chordsEqual(userChord, chord)))
     }
 
     return next
 }
 
-/** The action's default chords that no other action has right now. */
+/** The action's default chords that no other action it would clash with has right now. */
 function freeDefaultChords(keybinds: KeybindBindings, defaults: KeybindBindings, actionId: KeybindActionId): KeybindChord[] {
-    const others = (Object.keys(defaults) as KeybindActionId[]).filter((id) => id !== actionId)
+    const others = (Object.keys(defaults) as KeybindActionId[]).filter((id) => id !== actionId && !canShareKeys(id, actionId))
     return defaults[actionId].filter((chord) => !others.some((id) => (keybinds[id] ?? []).some((held) => chordsEqual(held, chord))))
 }
 
@@ -109,6 +141,32 @@ function normalizeWordWrap(value: unknown): EditorWordWrap {
     return 'on'
 }
 
+/** A saved theme for System mode's light or dark slot, or the default when it's unknown or the wrong kind. */
+function readSystemTheme(value: unknown, light: boolean, fallback: AppThemeId): AppThemeId {
+    return isAppThemeId(value) && isLightTheme(value) === light ? value : fallback
+}
+
+/**
+ * The theme setting. A theme saved before System mode existed stays as a fixed choice; an unknown
+ * one (saved by a newer version) follows Windows, as the boot script does.
+ */
+function normalizeTheme(raw: unknown, defaults: ThemeSetting): ThemeSetting {
+    const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+    return {
+        id: source.id === FOLLOW_SYSTEM || isAppThemeId(source.id) ? source.id : defaults.id,
+        light: readSystemTheme(source.light, true, defaults.light),
+        dark: readSystemTheme(source.dark, false, defaults.dark),
+    }
+}
+
+function normalizeDiagramExport(raw: unknown, defaults: DiagramExportSettings): DiagramExportSettings {
+    const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+    return {
+        theme: source.theme === 'app' || source.theme === 'light' || source.theme === 'dark' ? source.theme : defaults.theme,
+        transparent: typeof source.transparent === 'boolean' ? source.transparent : defaults.transparent,
+    }
+}
+
 function normalizeLineNumbers(value: unknown): EditorLineNumbers {
     if (value === 'on' || value === 'off' || value === 'relative') return value
     return 'on'
@@ -116,9 +174,8 @@ function normalizeLineNumbers(value: unknown): EditorLineNumbers {
 
 export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPlatform()): AppSettings {
     const defaults = createDefaultSettings(isMac)
+    // A theme saved by an older version stays as a fixed choice. With none (a new install), follow Windows.
     const themeRaw = read(STORAGE_MERMAID_THEME)
-    // No theme saved yet: the default follows the OS light or dark setting, like the boot script.
-    const themeId = themeRaw && isAppThemeId(themeRaw) ? themeRaw : defaults.theme.id
 
     return {
         ...defaults,
@@ -126,12 +183,14 @@ export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPl
             enabled: readBoolean(read(STORAGE_AUTOSAVE), defaults.autosave.enabled),
             delayMs: defaults.autosave.delayMs,
         },
-        theme: { id: themeId },
+        theme: normalizeTheme({ id: themeRaw }, defaults.theme),
         layout: {
             explorerOpen: readBoolean(read(STORAGE_LAYOUT_EXPLORER), defaults.layout.explorerOpen),
             editorOpen: readBoolean(read(STORAGE_LAYOUT_EDITOR), defaults.layout.editorOpen),
+            previewOpen: defaults.layout.previewOpen,
             editorWidth: readNumber(read(STORAGE_KEY_WIDTH), defaults.layout.editorWidth, 280, 2000),
             restorePanelsOnOpen: defaults.layout.restorePanelsOnOpen,
+            outlineOpen: defaults.layout.outlineOpen,
         },
         keybinds: defaults.keybinds,
     }
@@ -142,24 +201,37 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
     if (!raw || typeof raw !== 'object') return defaults
 
     const source = raw as Partial<AppSettings>
-    // A theme this version doesn't know (saved by a newer one) also follows the OS, like the boot script.
-    const themeId = source.theme?.id && isAppThemeId(source.theme.id) ? source.theme.id : defaults.theme.id
+    const editorOpen = typeof source.layout?.editorOpen === 'boolean' ? source.layout.editorOpen : defaults.layout.editorOpen
+    // Settings saved before the preview could be hidden have no previewOpen. With the editor hidden, the preview always shows.
+    const previewOpen = !editorOpen || (typeof source.layout?.previewOpen === 'boolean' ? source.layout.previewOpen : defaults.layout.previewOpen)
 
     return {
         autosave: {
             enabled: typeof source.autosave?.enabled === 'boolean' ? source.autosave.enabled : defaults.autosave.enabled,
             delayMs: readWholeNumber(source.autosave?.delayMs, defaults.autosave.delayMs, 200, 5000),
         },
-        theme: { id: themeId },
+        theme: normalizeTheme(source.theme, defaults.theme),
+        // Settings saved before app zoom have none, so they start at 100% with 14px preview text.
+        appearance: {
+            zoom: normalizeAppZoom(source.appearance?.zoom),
+            previewFontSize: readWholeNumber(
+                source.appearance?.previewFontSize,
+                defaults.appearance.previewFontSize,
+                MIN_PREVIEW_FONT_SIZE,
+                MAX_PREVIEW_FONT_SIZE
+            ),
+        },
         layout: {
             explorerOpen: typeof source.layout?.explorerOpen === 'boolean' ? source.layout.explorerOpen : defaults.layout.explorerOpen,
-            editorOpen: typeof source.layout?.editorOpen === 'boolean' ? source.layout.editorOpen : defaults.layout.editorOpen,
+            editorOpen,
+            previewOpen,
             editorWidth:
                 typeof source.layout?.editorWidth === 'number'
                     ? Math.min(2000, Math.max(280, source.layout.editorWidth))
                     : defaults.layout.editorWidth,
             restorePanelsOnOpen:
                 typeof source.layout?.restorePanelsOnOpen === 'boolean' ? source.layout.restorePanelsOnOpen : defaults.layout.restorePanelsOnOpen,
+            outlineOpen: typeof source.layout?.outlineOpen === 'boolean' ? source.layout.outlineOpen : defaults.layout.outlineOpen,
         },
         editor: {
             fontSize: readWholeNumber(source.editor?.fontSize, defaults.editor.fontSize, 8, 32),
@@ -169,18 +241,28 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             lineNumbers: normalizeLineNumbers(source.editor?.lineNumbers),
             minimap: typeof source.editor?.minimap === 'boolean' ? source.editor.minimap : defaults.editor.minimap,
             tabMovesFocus: typeof source.editor?.tabMovesFocus === 'boolean' ? source.editor.tabMovesFocus : defaults.editor.tabMovesFocus,
+            scrollSync: typeof source.editor?.scrollSync === 'boolean' ? source.editor.scrollSync : defaults.editor.scrollSync,
+            jumpFromPreview: typeof source.editor?.jumpFromPreview === 'boolean' ? source.editor.jumpFromPreview : defaults.editor.jumpFromPreview,
         },
         workspace: {
             maxRecentFolders: readWholeNumber(source.workspace?.maxRecentFolders, defaults.workspace.maxRecentFolders, 1, 50),
+            reopenLastFolder:
+                typeof source.workspace?.reopenLastFolder === 'boolean' ? source.workspace.reopenLastFolder : defaults.workspace.reopenLastFolder,
         },
         updates: {
             checkOnLaunch: typeof source.updates?.checkOnLaunch === 'boolean' ? source.updates.checkOnLaunch : defaults.updates.checkOnLaunch,
         },
+        statusBar: {
+            visible: typeof source.statusBar?.visible === 'boolean' ? source.statusBar.visible : defaults.statusBar.visible,
+        },
         pdfExport: normalizePdfExportSettings(source.pdfExport),
-        keybinds: normalizeKeybinds(source.keybinds, defaults.keybinds),
+        diagramExport: normalizeDiagramExport(source.diagramExport, defaults.diagramExport),
+        spellcheck: normalizeSpellcheckSettings(source.spellcheck, defaults.spellcheck),
+        keybinds: normalizeKeybinds(source.keybinds, defaults.keybinds, createFormerDefaultKeybinds(isMac)),
     }
 }
 
+/** Older versions read 'system' here as "follow the OS" too. */
 export function dualWriteLegacyTheme(themeId: AppSettings['theme']['id']): void {
     try {
         localStorage.setItem(STORAGE_MERMAID_THEME, themeId)

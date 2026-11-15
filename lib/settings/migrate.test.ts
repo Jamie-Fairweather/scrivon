@@ -45,6 +45,17 @@ describe('migrateLegacySettings', () => {
         expect(settings.theme.id).toBe(createDefaultSettings(false).theme.id)
         expect(settings.layout.editorWidth).toBe(createDefaultSettings(false).layout.editorWidth)
     })
+
+    it('starts a new install in System mode, with Scrivon Light and Scrivon Dark', () => {
+        expect(migrateLegacySettings(() => null, false).theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+        expect(createDefaultSettings(false).theme).toEqual({ id: 'system', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
+
+    it('keeps a theme saved by a version before unified settings as a fixed choice', () => {
+        const read = (key: string) => (key === STORAGE_MERMAID_THEME ? 'dracula' : null)
+
+        expect(migrateLegacySettings(read, false).theme).toEqual({ id: 'dracula', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
 })
 
 describe('mergeStoredSettings', () => {
@@ -74,6 +85,28 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings(null, false)).toEqual(createDefaultSettings(false))
     })
 
+    it('keeps a theme saved before System mode existed as a fixed choice', () => {
+        expect(mergeStoredSettings({ theme: { id: 'nord' } }, false).theme).toEqual({ id: 'nord', light: 'scrivon-light', dark: 'scrivon-dark' })
+    })
+
+    it("reads System mode and its light and dark themes, putting back a default for one that doesn't fit", () => {
+        expect(mergeStoredSettings({ theme: { id: 'system', light: 'solarized-light', dark: 'dracula' } }, false).theme).toEqual({
+            id: 'system',
+            light: 'solarized-light',
+            dark: 'dracula',
+        })
+        // A dark theme saved as the light one, and a theme this version doesn't know.
+        expect(mergeStoredSettings({ theme: { id: 'system', light: 'dracula', dark: 'future-theme' } }, false).theme).toEqual({
+            id: 'system',
+            light: 'scrivon-light',
+            dark: 'scrivon-dark',
+        })
+    })
+
+    it('follows Windows when the saved theme is unknown, as a newer version may save', () => {
+        expect(mergeStoredSettings({ theme: { id: 'future-theme' } }, false).theme.id).toBe('system')
+    })
+
     it('normalizes invalid editor and keybind values', () => {
         const merged = mergeStoredSettings(
             {
@@ -92,12 +125,79 @@ describe('mergeStoredSettings', () => {
         expect(merged.keybinds['settings.open']).toEqual(createDefaultSettings(false).keybinds['settings.open'])
     })
 
+    it('keeps the Outline panel closed by default, and reads a saved choice', () => {
+        expect(mergeStoredSettings({}, false).layout.outlineOpen).toBe(false)
+        expect(mergeStoredSettings({ layout: { outlineOpen: 'yes' } }, false).layout.outlineOpen).toBe(false)
+        expect(mergeStoredSettings({ layout: { outlineOpen: true } }, false).layout.outlineOpen).toBe(true)
+        expect(migrateLegacySettings(() => null, false).layout.outlineOpen).toBe(false)
+    })
+
+    it('shows the preview by default, and reads a saved choice', () => {
+        expect(mergeStoredSettings({}, false).layout.previewOpen).toBe(true)
+        expect(mergeStoredSettings({ layout: { previewOpen: 'no' } }, false).layout.previewOpen).toBe(true)
+        expect(mergeStoredSettings({ layout: { previewOpen: false } }, false).layout.previewOpen).toBe(false)
+        expect(migrateLegacySettings(() => null, false).layout.previewOpen).toBe(true)
+    })
+
+    it('shows the preview when the editor is hidden too, so the window is never empty', () => {
+        const layout = mergeStoredSettings({ layout: { editorOpen: false, previewOpen: false } }, false).layout
+        expect(layout).toMatchObject({ editorOpen: false, previewOpen: true })
+    })
+
     it('keeps Tab indenting by default, and reads a saved Tab key moves focus choice', () => {
         expect(createDefaultSettings(false).editor.tabMovesFocus).toBe(false)
         // Settings saved before the option existed.
         expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.tabMovesFocus).toBe(false)
         expect(mergeStoredSettings({ editor: { tabMovesFocus: true } }, false).editor.tabMovesFocus).toBe(true)
         expect(mergeStoredSettings({ editor: { tabMovesFocus: 'yes' } }, false).editor.tabMovesFocus).toBe(false)
+    })
+
+    it('links the editor and preview by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.scrollSync).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.scrollSync).toBe(true)
+        expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.scrollSync).toBe(false)
+        expect(mergeStoredSettings({ editor: { scrollSync: 'no' } }, false).editor.scrollSync).toBe(true)
+    })
+
+    it('jumps from the preview to the editor on double-click by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.jumpFromPreview).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.jumpFromPreview).toBe(true)
+        expect(mergeStoredSettings({ editor: { jumpFromPreview: false } }, false).editor.jumpFromPreview).toBe(false)
+        expect(mergeStoredSettings({ editor: { jumpFromPreview: 1 } }, false).editor.jumpFromPreview).toBe(true)
+    })
+
+    it('reopens the last folder by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).workspace.reopenLastFolder).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ workspace: { maxRecentFolders: 5 } }, false).workspace.reopenLastFolder).toBe(true)
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: false } }, false).workspace.reopenLastFolder).toBe(false)
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: 'no' } }, false).workspace.reopenLastFolder).toBe(true)
+        expect(migrateLegacySettings(() => null, false).workspace.reopenLastFolder).toBe(true)
+    })
+
+    it('shows the status bar unless the user hid it', () => {
+        expect(createDefaultSettings(false).statusBar.visible).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).statusBar.visible).toBe(true)
+        expect(mergeStoredSettings({ statusBar: { visible: false } }, false).statusBar.visible).toBe(false)
+        expect(mergeStoredSettings({ statusBar: { visible: 'no' } }, false).statusBar.visible).toBe(true)
+    })
+
+    it('exports diagrams in the app theme on a solid background unless other options were saved', () => {
+        expect(createDefaultSettings(false).diagramExport).toEqual({ theme: 'app', transparent: false })
+        // Settings saved before the options existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).diagramExport).toEqual({ theme: 'app', transparent: false })
+        expect(mergeStoredSettings({ diagramExport: { theme: 'light', transparent: true } }, false).diagramExport).toEqual({
+            theme: 'light',
+            transparent: true,
+        })
+        expect(mergeStoredSettings({ diagramExport: { theme: 'dark' } }, false).diagramExport).toEqual({ theme: 'dark', transparent: false })
+        expect(mergeStoredSettings({ diagramExport: { theme: 'sepia', transparent: 'yes' } }, false).diagramExport).toEqual({
+            theme: 'app',
+            transparent: false,
+        })
     })
 
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
@@ -160,6 +260,46 @@ describe('mergeStoredSettings', () => {
         })
     })
 
+    it('moves Toggle explorer off Ctrl+B for users who never changed it, so Ctrl+B makes text bold', () => {
+        for (const isMac of [false, true]) {
+            const mod = isMac ? { meta: true } : { ctrl: true }
+            // Saved by a version that stored the whole keymap, with Ctrl+B (Cmd+B) as the default.
+            const stored = { ...createDefaultKeybinds(isMac), 'view.toggleExplorer': [{ key: 'b', ...mod }] }
+            for (const id of ['format.bold', 'format.italic', 'format.code', 'format.link'] as const) delete (stored as Partial<typeof stored>)[id]
+
+            const merged = mergeStoredSettings({ keybinds: stored }, isMac)
+
+            expect(merged.keybinds).toEqual(createDefaultKeybinds(isMac))
+            expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', shift: true, ...mod }])
+            expect(merged.keybinds['format.bold']).toEqual([{ key: 'b', ...mod }])
+        }
+    })
+
+    it('keeps a Toggle explorer shortcut the user chose, Ctrl+B included', () => {
+        const custom = mergeStoredSettings({ keybinds: { 'view.toggleExplorer': [{ key: 'x', ctrl: true, alt: true }] } }, false)
+        expect(custom.keybinds['view.toggleExplorer']).toEqual([{ key: 'x', ctrl: true, alt: true }])
+
+        // Saved as a change by this version: only changed shortcuts are stored, so Ctrl+B was picked on purpose.
+        const chosen = mergeStoredSettings({ keybinds: { 'view.toggleExplorer': [{ key: 'b', ctrl: true }] } }, false)
+        expect(chosen.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        // Bold keeps Ctrl+B too: it only has it while typing in the editor.
+        expect(chosen.keybinds['format.bold']).toEqual([{ key: 'b', ctrl: true }])
+
+        const whole = { ...createDefaultKeybinds(false), 'view.toggleExplorer': [{ key: 'x', ctrl: true, alt: true }] }
+        expect(mergeStoredSettings({ keybinds: whole }, false).keybinds['view.toggleExplorer']).toEqual([{ key: 'x', ctrl: true, alt: true }])
+    })
+
+    it("drops a default only when the user's shortcut runs in the same place", () => {
+        // Toggle editor (an app action) on Ctrl+I: Italic keeps Ctrl+I in the editor.
+        const app = mergeStoredSettings({ keybinds: { 'view.toggleEditor': [{ key: 'i', ctrl: true }] } }, false)
+        expect(app.keybinds['format.italic']).toEqual([{ key: 'i', ctrl: true }])
+
+        // Bold moved to Ctrl+I: Italic loses it.
+        const editor = mergeStoredSettings({ keybinds: { 'format.bold': [{ key: 'i', ctrl: true }] } }, false)
+        expect(editor.keybinds['format.italic']).toEqual([])
+        expect(keybindOverrides(editor.keybinds, createDefaultKeybinds(false))).toEqual({ 'format.bold': [{ key: 'i', ctrl: true }] })
+    })
+
     it('keeps the default when stored chords are unreadable or modifier-only', () => {
         const merged = mergeStoredSettings(
             {
@@ -186,7 +326,7 @@ describe('mergeStoredSettings', () => {
             false
         )
 
-        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true, shift: true }])
         expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
@@ -201,7 +341,7 @@ describe('mergeStoredSettings', () => {
             false
         )
 
-        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true }])
+        expect(merged.keybinds['view.toggleExplorer']).toEqual([{ key: 'b', ctrl: true, shift: true }])
         expect(merged.keybinds['view.toggleEditor']).toEqual([{ key: 'e', ctrl: true }])
     })
 
@@ -227,6 +367,28 @@ describe('mergeStoredSettings', () => {
         expect(merged.editor.tabSize).toBe(8)
         expect(merged.layout.editorWidth).toBe(2000)
         expect(merged.workspace.maxRecentFolders).toBe(50)
+    })
+
+    it('starts settings saved before app zoom at 100%, with 14px preview text', () => {
+        const merged = mergeStoredSettings({ editor: { fontSize: 16 } }, false)
+
+        expect(merged.appearance).toEqual({ zoom: 1, previewFontSize: 14 })
+    })
+
+    it('reads a saved zoom and preview text size', () => {
+        expect(mergeStoredSettings({ appearance: { zoom: 1.5, previewFontSize: 18 } }, false).appearance).toEqual({ zoom: 1.5, previewFontSize: 18 })
+    })
+
+    it('moves a saved zoom to the nearest step, and keeps the preview text size between 10 and 32', () => {
+        expect(mergeStoredSettings({ appearance: { zoom: 7, previewFontSize: 100 } }, false).appearance).toEqual({ zoom: 2, previewFontSize: 32 })
+        expect(mergeStoredSettings({ appearance: { zoom: 1.12, previewFontSize: 2.4 } }, false).appearance).toEqual({
+            zoom: 1.1,
+            previewFontSize: 10,
+        })
+        expect(mergeStoredSettings({ appearance: { zoom: 'big', previewFontSize: null } }, false).appearance).toEqual({
+            zoom: 1,
+            previewFontSize: 14,
+        })
     })
 
     it('rounds whole-number settings saved with decimals', () => {
@@ -285,8 +447,10 @@ describe('dualWriteLegacy helpers', () => {
             dualWriteLegacyLayout({
                 explorerOpen: true,
                 editorOpen: false,
+                previewOpen: true,
                 editorWidth: 400,
                 restorePanelsOnOpen: true,
+                outlineOpen: false,
             })
         ).not.toThrow()
         expect(() => dualWriteLegacyAutosave(true)).not.toThrow()

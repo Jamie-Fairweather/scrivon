@@ -1,18 +1,24 @@
 'use client'
 
-import { useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useRevealActiveFileRequests } from '@/components/studio/explorer/explorer-view'
 import { FileTreeNode } from '@/components/studio/explorer/file-tree-node'
 import { TreeEntryActionsProvider, useFileTreeEntryActions, type FileTreeEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
+import { useFileDropZone, useRowDrag } from '@/components/studio/explorer/use-tree-drag'
 import { useActiveTabId, useDocumentTabActions, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
-import { isSupportedDocument, normalizePath } from '@/lib/tauri/fs'
+import { isSupportedDocument, samePath } from '@/lib/tauri/fs'
+import { cn } from '@/lib/utils'
 import { focusTargetAfterChange, treeKeyAction, typeAheadMatch, visibleTreeRows } from '@/lib/workspace/flatten-file-tree'
+import { closedFoldersAbove, isFolderOpen } from '@/lib/workspace/folder-toggles'
+import { foldersHolding } from '@/lib/workspace/move-entry'
 import type { FileNode } from '@/lib/workspace/types'
-
-/** Folders in the first two levels start open. */
-const openByDefault = (level: number) => level <= 2
 
 /** A pause this long (ms) between letters starts a new type-ahead search. */
 const TYPE_AHEAD_PAUSE_MS = 500
+
+/** How long (ms) something dragged waits over a closed folder before it opens. */
+const OPEN_FOLDER_DELAY_MS = 700
 
 /** How long (ms) focus waits for the tree to show a rename or delete; see FocusAfterChange. */
 const SHOW_CHANGE_WAIT_MS = 5000
@@ -37,8 +43,18 @@ function canRefocus(active: Element | null, fromPath: string): boolean {
 }
 
 /**
+ * The folder something dropped on a row goes into: the folder itself, or the folder a file is in. A folder that
+ * can't be read takes nothing (''), as Move to… leaves it out.
+ */
+function dropFolderOf(node: FileNode, parentPath: string | null, root: string | null): string {
+    if (node.kind === 'file') return parentPath ?? root ?? ''
+    return node.unreadable ? '' : node.path
+}
+
+/**
  * The workspace files as an ARIA tree: one Tab stop, arrow keys to move and open folders, Enter to open,
  * F2 to rename, Delete to delete, Shift+F10 or the menu key for the row menu, and typing a name to jump to it.
+ * Rows can be dragged onto folders to move them, and files dropped from File Explorer are copied in.
  */
 export function FileTree({ tree }: { tree: FileNode[] }) {
     // Not useDocumentTabs: that changes with every keystroke, and the tree only needs to know which file is open.
@@ -46,17 +62,58 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
     const { openFile } = useDocumentTabActions()
     const entryActions = useFileTreeEntryActions()
     const treeRef = useRef<HTMLDivElement>(null)
-    // Folders the user opened or closed; the rest follow openByDefault. Kept by the session (by normalised path), so
-    // they survive hiding the explorer, switching to Examples, a rename and reopening the folder. setExpanded never
-    // changes, so the memoized rows stay put.
-    const { folderToggles: toggled, setFolderExpanded: setExpanded } = useWorkspaceSession()
+    const zoneRef = useRef<HTMLDivElement>(null)
+    // Folders the user opened or closed; the rest follow isFolderOpen's default. Kept by the session (by normalised
+    // path), so they survive hiding the explorer, switching to Examples, a rename and reopening the folder.
+    // setExpanded never changes, so the memoized rows stay put.
+    const {
+        workspaceRoot,
+        folderToggles: toggled,
+        setFolderExpanded: setExpanded,
+        setFoldersExpanded,
+        moveEntry,
+        copyIntoFolder,
+    } = useWorkspaceSession()
     const [focusedPath, setFocusedPath] = useState<string | null>(null)
 
-    const rows = useMemo(() => visibleTreeRows(tree, (path, level) => toggled.get(normalizePath(path)) ?? openByDefault(level)), [tree, toggled])
+    const rows = useMemo(() => visibleTreeRows(tree, (path, level) => isFolderOpen(toggled, path, level)), [tree, toggled])
     const rowsRef = useRef(rows)
     useLayoutEffect(() => {
         rowsRef.current = rows
     }, [rows])
+
+    // The open file to show: its folders open and its row scrolled into view. Asked for when the tree first shows,
+    // when another file is opened and from Reveal Active File; done once the tree has the file (a new one can come
+    // later). Only then, so a folder the user closes stays closed.
+    const revealRequests = useRevealActiveFileRequests()
+    // `asked`: from Reveal Active File, rather than opening a file.
+    const revealRef = useRef<{ path: string; opened: boolean; asked: boolean } | null>(null)
+    const lastRevealRequestsRef = useRef(revealRequests)
+    useLayoutEffect(() => {
+        const asked = revealRequests !== lastRevealRequestsRef.current
+        lastRevealRequestsRef.current = revealRequests
+        revealRef.current = activeTabId ? { path: activeTabId, opened: false, asked } : null
+    }, [activeTabId, revealRequests])
+
+    useLayoutEffect(() => {
+        const reveal = revealRef.current
+        if (!reveal) return
+        const closed = closedFoldersAbove(tree, toggled, reveal.path)
+        if (closed === null) return
+        if (closed.length > 0 && !reveal.opened) {
+            // This runs again once the session has opened them, and the row is there to scroll to.
+            reveal.opened = true
+            setFoldersExpanded(closed, true)
+            return
+        }
+        revealRef.current = null
+        const items = treeRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []
+        const row = [...items].find((item) => item.dataset.path !== undefined && samePath(item.dataset.path, reveal.path))
+        // Not focused: the user is still typing in the editor, or choosing in the palette.
+        row?.scrollIntoView?.({ block: 'nearest' })
+        // When asked for, it becomes the Tab stop, so the next Tab into the tree lands on it.
+        if (reveal.asked && row?.dataset.path) setFocusedPath(row.dataset.path)
+    }, [tree, toggled, activeTabId, revealRequests, setFoldersExpanded])
 
     // Tab lands on the row last focused, else the open file, else the first row.
     const tabStopPath =
@@ -128,7 +185,58 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
     // What was typed for type-ahead, and when the last key came.
     const typeAheadRef = useRef({ typed: '', at: 0 })
 
-    const { renameWithPrompt, deleteWithConfirm } = entryActions
+    const { renameWithPrompt, deleteWithConfirm, moveWithPicker } = entryActions
+
+    /**
+     * Runs a move of `node` (`move` resolves to where it is now, or null), then opens the folders it went into and
+     * puts focus on it as a rename does.
+     */
+    const moveAndShow = useCallback(
+        async (node: FileNode, move: () => Promise<string | null>) => {
+            const index = rowsRef.current.findIndex((r) => r.node.path === node.path)
+            const path = await move()
+            const moved = path !== null && path !== node.path
+            if (moved && workspaceRoot) {
+                const folders = foldersHolding(path, workspaceRoot)
+                if (folders.length > 0) setFoldersExpanded(folders, true)
+            }
+            focusAfter({
+                fromPath: node.path,
+                paths: path ? [path, node.path] : [node.path],
+                index,
+                goneBy: moved ? Date.now() + SHOW_CHANGE_WAIT_MS : undefined,
+            })
+            return path
+        },
+        [workspaceRoot, setFoldersExpanded, focusAfter]
+    )
+
+    const { drag, startDrag } = useRowDrag(
+        useCallback(
+            (node: FileNode, folder: string) => void moveAndShow(node, () => moveEntry(node.path, node.kind === 'directory', folder)),
+            [moveAndShow, moveEntry]
+        )
+    )
+    const filesOver = useFileDropZone(zoneRef, workspaceRoot, copyIntoFolder)
+    // The folder a dragged row, or files dragged in from File Explorer, would go into.
+    const dropTarget = drag ? drag.target : filesOver
+
+    // A closed folder held over for a moment opens, so something can go into a folder inside it.
+    useEffect(() => {
+        if (!dropTarget || !rows.some((row) => row.node.path === dropTarget && row.expanded === false)) return
+        const timer = setTimeout(() => setExpanded(dropTarget, true), OPEN_FOLDER_DELAY_MS)
+        return () => clearTimeout(timer)
+    }, [dropTarget, rows, setExpanded])
+
+    const handlePointerDown = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            const path = (e.target as HTMLElement).closest<HTMLElement>('[role="treeitem"]')?.dataset.path
+            const row = rows.find((r) => r.node.path === path)
+            if (row) startDrag(row.node, e)
+        },
+        [rows, startDrag]
+    )
+
     const treeEntryActions = useMemo<FileTreeEntryActions>(
         () => ({
             renameWithPrompt: async (node) => {
@@ -151,8 +259,9 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
                 focusAfter({ fromPath: node.path, paths: [node.path], index, goneBy: confirmed ? Date.now() + SHOW_CHANGE_WAIT_MS : undefined })
                 return confirmed
             },
+            moveWithPicker: (node) => moveAndShow(node, () => moveWithPicker(node)),
         }),
-        [renameWithPrompt, deleteWithConfirm, focusAfter]
+        [renameWithPrompt, deleteWithConfirm, moveWithPicker, moveAndShow, focusAfter]
     )
 
     const handleKeyDown = useCallback(
@@ -195,24 +304,55 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
         [rows, treeEntryActions, focusRow, setExpanded, activate]
     )
 
+    const rootIsTarget = dropTarget !== null && workspaceRoot !== null && samePath(dropTarget, workspaceRoot)
+
     return (
         <TreeEntryActionsProvider value={treeEntryActions}>
-            <div ref={treeRef} role="tree" aria-label="Files" onKeyDown={handleKeyDown}>
-                {rows.map((row) => (
-                    <FileTreeNode
-                        key={row.node.path}
-                        node={row.node}
-                        level={row.level}
-                        expanded={row.expanded}
-                        position={row.position}
-                        siblingCount={row.siblingCount}
-                        isActive={row.node.kind === 'file' && row.node.path === activeTabId}
-                        isTabStop={row.node.path === tabStopPath}
-                        onActivate={activate}
-                        onFocusRow={handleFocusRow}
-                    />
-                ))}
+            {/* The whole area under the rows takes drops too: there they go to the top of the open folder. */}
+            <div
+                ref={zoneRef}
+                data-drop-folder={workspaceRoot ?? undefined}
+                data-drop-target={rootIsTarget ? '' : undefined}
+                className={cn('min-h-full rounded-md', rootIsTarget && 'bg-ring/10 ring-1 ring-ring ring-inset')}
+            >
+                <div ref={treeRef} role="tree" aria-label="Files" onKeyDown={handleKeyDown} onPointerDown={handlePointerDown}>
+                    {rows.map((row) => (
+                        <FileTreeNode
+                            key={row.node.path}
+                            node={row.node}
+                            level={row.level}
+                            expanded={row.expanded}
+                            position={row.position}
+                            siblingCount={row.siblingCount}
+                            dropFolder={dropFolderOf(row.node, row.parentPath, workspaceRoot)}
+                            isDropTarget={row.node.kind === 'directory' && row.node.path === dropTarget}
+                            isDragged={row.node.path === drag?.node.path}
+                            isActive={row.node.kind === 'file' && row.node.path === activeTabId}
+                            isTabStop={row.node.path === tabStopPath}
+                            onActivate={activate}
+                            onFocusRow={handleFocusRow}
+                        />
+                    ))}
+                </div>
+                {rows.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">No files in this folder.</p>}
             </div>
+            {drag &&
+                createPortal(
+                    // Follows the pointer, so it is clear what is being moved; faint where it can't go.
+                    <div
+                        data-drag-label
+                        aria-hidden
+                        className={cn(
+                            `pointer-events-none fixed z-50 max-w-60 truncate rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground
+                            shadow-md`,
+                            !drag.target && 'opacity-60'
+                        )}
+                        style={{ left: drag.x + 14, top: drag.y + 10 }}
+                    >
+                        {drag.node.name}
+                    </div>,
+                    document.body
+                )}
         </TreeEntryActionsProvider>
     )
 }

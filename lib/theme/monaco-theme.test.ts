@@ -5,6 +5,9 @@ import { resolveThemeTokensForId } from '@/lib/theme/resolve-theme-tokens'
 import { hexColorMix } from '@/lib/theme/color-mix'
 import { TokenTheme } from 'monaco-editor/editor/common/languages/supports/tokenization.js'
 import { vs, vs_dark } from 'monaco-editor/editor/standalone/common/themes.js'
+import { MERMAID_LANGUAGE_ID, mermaidMonarchLanguage } from '@/lib/monaco/mermaid-language'
+import { MERMAID_SNIPPETS } from '@/lib/monaco/mermaid-snippets'
+import { registerMonarchLanguage, tokenizeLines } from '@/vitest/monarch'
 
 // Monaco throws "Illegal value for token color" for anything else in a token rule.
 const TOKEN_COLOR = /^#?[0-9a-f]{6}([0-9a-f]{2})?$/i
@@ -167,6 +170,79 @@ describe('Markdown syntax colours on themes without a colour of their own', () =
         expect(resolvedTokenColor('scrivon-dark', 'string.md')).toBe('#ce9178')
         expect(resolvedTokenColor('scrivon-light', 'keyword.md')).toBe('#0000ff')
         expect(resolvedTokenColor('scrivon-light', 'string.md')).toBe('#a31515')
+    })
+})
+
+registerMonarchLanguage(MERMAID_LANGUAGE_ID, mermaidMonarchLanguage)
+
+/** Every token type the Mermaid grammar gives the starters and a few more lines. */
+const MERMAID_TOKENS = [
+    ...new Set(
+        [
+            ...MERMAID_SNIPPETS.map((snippet) => snippet.body),
+            '---\ntitle: Flow\n---\ngraph TD\n  %% note\n  A:::warn -.-> B((Round))\n  classDef warn fill:#f96\n  linkStyle 0 stroke:#333',
+        ].flatMap((text) => tokenizeLines(MERMAID_LANGUAGE_ID, text).flatMap((line) => line.map(([, type]) => type)))
+    ),
+].filter((type) => type !== '')
+
+describe('Mermaid syntax colours in the editor', () => {
+    it('cover every kind of Mermaid syntax', () => {
+        expect(MERMAID_TOKENS).toEqual(
+            expect.arrayContaining([
+                'keyword.mermaid',
+                'operator.mermaid',
+                'string.mermaid',
+                'delimiter.bracket.mermaid',
+                'delimiter.mermaid',
+                'comment.mermaid',
+                'type.mermaid',
+                'number.mermaid',
+                'attribute.name.mermaid',
+                'meta.separator.mermaid',
+            ])
+        )
+    })
+
+    it.each(APP_THEME_IDS)("are all set by the %s editor theme, none left to Monaco's base theme", (id) => {
+        const tokens = resolveThemeTokensForId(id)
+        const theme = buildMonacoDiagramTheme(tokens, isLightTheme(id))
+        const ours = new Set([tokens.fg, ...theme.rules.flatMap((r) => (r.foreground ? [r.foreground] : []))].map((c) => c.toLowerCase()))
+        for (const token of MERMAID_TOKENS) {
+            expect(ours, token).toContain(resolvedTokenColor(id, token))
+        }
+    })
+
+    it.each(APP_THEME_IDS)('are readable in %s, also on the current line', (id) => {
+        const tokens = resolveThemeTokensForId(id)
+        for (const token of MERMAID_TOKENS) {
+            const color = resolvedTokenColor(id, token)
+            for (const background of [tokens.bg, tokens.surface]) {
+                expect(contrast(color, background), `${token} ${color} on ${background}`).toBeGreaterThanOrEqual(4.5)
+            }
+        }
+    })
+
+    it.each(['scrivon-dark', 'scrivon-light', 'zinc-dark', 'zinc-light', 'nord', 'dracula'] as const)(
+        'tell keywords, arrows, labels, comments and class names apart by colour in %s',
+        (id) => {
+            const colors = ['keyword.mermaid', 'operator.mermaid', 'string.mermaid', 'comment.mermaid', 'type.mermaid'].map((token) =>
+                resolvedTokenColor(id, token)
+            )
+            expect(new Set(colors).size).toBe(colors.length)
+        }
+    )
+
+    it.each(['scrivon-dark', 'scrivon-light', 'zinc-dark'] as const)('are colours, not greys, in %s', (id) => {
+        for (const token of ['keyword.mermaid', 'operator.mermaid', 'string.mermaid', 'type.mermaid']) {
+            const color = resolvedTokenColor(id, token)
+            expect(hueSpread(color), `${token} ${color}`).toBeGreaterThan(40)
+        }
+    })
+
+    it('leave Mermaid keywords at normal weight, unlike Markdown headings', () => {
+        const theme = buildMonacoDiagramTheme(resolveThemeTokensForId('scrivon-dark'), false)
+        expect(theme.rules.find((r) => r.token === 'keyword.mermaid')?.fontStyle).toBe('')
+        expect(theme.rules.find((r) => r.token === 'keyword')?.fontStyle).toBe('bold')
     })
 })
 

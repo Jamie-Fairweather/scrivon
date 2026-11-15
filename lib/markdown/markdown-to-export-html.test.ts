@@ -8,6 +8,8 @@ vi.mock('@/lib/mermaid/render', () => ({
     renderMermaidDiagramForExport: vi.fn((source: string) => {
         if (source.includes('FAIL_STRING')) throw 'mermaid string boom'
         if (source.includes('FAIL')) throw new Error('mermaid boom')
+        // As the real renderer does: the preview card's help.
+        if (source.startsWith('pie')) throw new Error("Pie charts aren't supported yet. Scrivon can draw:\n• Flowcharts (flowchart TD or graph LR)")
         // A diagram with nothing to draw yet renders without error to a 0×0 picture.
         if (source.includes('EMPTY')) return '<svg viewBox="0 0 0 0" width="0" height="0"></svg>'
         return `<svg data-mermaid="${source.trim()}" viewBox="0 0 100 50"></svg>`
@@ -121,8 +123,9 @@ SHIKI_FAIL
         expect(html).toContain('class="pdf-toc-l2"')
         expect(html).toContain('class="pdf-toc-leader"')
         expect(html).toContain('href="#section"')
-        expect(html).toContain('>SFT0001<')
-        expect(html).toContain('<h2 id="section" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        // The marks number every heading (the H1 is SFH0001), so the one listed row carries the H2's number.
+        expect(html).toContain('>SFT0002<')
+        expect(html).toContain('<h2 id="section" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0002</span>')
         expect(html).toContain('pdf-chrome-table')
         // Images sit outermost: left image before left text, right text before right image.
         expect(html).toContain(
@@ -521,6 +524,70 @@ SHIKI_FAIL
         expect(html.match(/class="pdf-stamp-glyphs"/g)).toHaveLength(1)
     })
 
+    it('marks every heading for the PDF bookmarks and sends the headings with the print settings (F47)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+
+        const { html, print } = await markdownToExportHtml('# Report\n\n## Setup\n\n#### Deep\n\nBody', { profile, assets: EMPTY_ASSETS })
+        expect(print.headings).toEqual([
+            { level: 1, text: 'Report' },
+            { level: 2, text: 'Setup' },
+            { level: 4, text: 'Deep' },
+        ])
+        // Each mark is the heading's place in that list, whether or not the Contents lists it.
+        expect(html).toContain('<h1 id="report" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        expect(html).toContain('<h2 id="setup" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0002</span>')
+        expect(html).toContain('<h4 id="deep" dir="auto"><span class="pdf-heading-mark" dir="ltr">SFH0003</span>')
+        // The Contents row for Setup (H1 and H4 are left out) carries the same number.
+        expect(html).toMatch(/<a href="#setup">.*SFT0002<\/span><\/span><\/a>/)
+        expect(html).not.toContain('SFT0001')
+        expect(html).not.toContain('SFT0003')
+    })
+
+    it('marks the headings even without a Contents page, but not for the print dialog (F47)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const stamped = await markdownToExportHtml('# Only\n\nBody', { assets: EMPTY_ASSETS })
+        expect(stamped.html).toContain('<span class="pdf-heading-mark" dir="ltr">SFH0001</span>')
+        expect(stamped.print.headings).toEqual([{ level: 1, text: 'Only' }])
+
+        const printed = await markdownToExportHtml('# Only\n\nBody', { assets: EMPTY_ASSETS, stamped: false })
+        expect(printed.html).not.toContain('SFH0001')
+        expect(printed.print.headings).toBeUndefined()
+    })
+
+    it('marks where the body starts when numbering pages from the body (F48)', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.titlePage = true
+        profile.frontMatter.toc = true
+        profile.footer.pageNumbers = 'n-of-total'
+        profile.footer.numberFromBody = true
+        const source = '# Report\n\n## Setup\n\nBody'
+
+        const numbered = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        expect(numbered.print.numberFromBody).toBe(true)
+        // Last in the body, so first-child rules still see the first heading; CSS lifts it to the body's top.
+        expect(numbered.html).toContain('<span class="pdf-body-mark" dir="ltr">SFH0000</span></div>')
+        expect(numbered.html).toMatch(/\.pdf-body-mark \{[^}]*position: absolute;[^}]*top: 0;/)
+        // With line-height 0 the mark has no height, and Chromium prints it at the foot of the page before the body
+        // whenever no header or footer is drawn, so the numbers would start a page early. Seen with headless Chrome.
+        const css = numbered.html.replace(/\/\*[\s\S]*?\*\//g, '')
+        const bodyMarkLineHeights = [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+            .filter(([, selectors]) => selectors!.split(',').some((selector) => selector.trim() === '.pdf-body-mark'))
+            .flatMap(([, , declarations]) => [...declarations!.matchAll(/line-height:\s*([^;]+);/g)].map(([, value]) => value!.trim()))
+        expect(bodyMarkLineHeights).toEqual(['1px'])
+
+        profile.footer.numberFromBody = false
+        const counted = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS })
+        expect(counted.print.numberFromBody).toBeUndefined()
+        expect(counted.html).not.toContain('SFH0000')
+
+        profile.footer.numberFromBody = true
+        const printed = await markdownToExportHtml(source, { profile, assets: EMPTY_ASSETS, stamped: false })
+        expect(printed.html).not.toContain('SFH0000')
+    })
+
     it('keeps an indented code block that opens the document, with or without front matter', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const code = '    const a = 1\n    const b = 2\n\nAfter'
@@ -728,6 +795,26 @@ SHIKI_FAIL
         expect(html).not.toMatch(/<li class="pdf-toc-l\d"[^>]* dir=/)
         expect(html).toContain('<span class="pdf-toc-num"><span class="pdf-toc-mark">')
         expect(html).toContain('<span class="pdf-page-number"><span class="pdf-page-number-mark">')
+    })
+
+    it('heads the contents page with the profile’s title, or the document’s own toc-title', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const profile = createDefaultPdfExportProfile()
+        profile.frontMatter.toc = true
+        profile.frontMatter.tocExcludeH1 = false
+        const source = '# Intro\n\n## Part'
+
+        expect((await markdownToExportHtml(source, { profile })).html).toContain('<section class="pdf-toc-page"><h1 dir="auto">Contents</h1>')
+
+        profile.frontMatter.tocTitle = 'Sommaire & <plan>'
+        expect((await markdownToExportHtml(source, { profile })).html).toContain('<h1 dir="auto">Sommaire &amp; &lt;plan&gt;</h1>')
+
+        const own = await markdownToExportHtml(`---\ntoc-title: فهرس\n---\n${source}`, { profile })
+        expect(own.html).toContain('<section class="pdf-toc-page"><h1 dir="auto">فهرس</h1>')
+
+        // An emptied field still gets a heading.
+        profile.frontMatter.tocTitle = '  '
+        expect((await markdownToExportHtml(source, { profile })).html).toContain('<h1 dir="auto">Contents</h1>')
     })
 
     it('turns a quote or list item right to left from its first letter, as dir="auto" can’t see into its paragraphs', async () => {
@@ -994,6 +1081,31 @@ SHIKI_FAIL
         expect(html).not.toContain('<svg')
     })
 
+    it("prints a diagram type Scrivon can't draw as a short note for readers and its source, not the preview's help", async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html, diagramsNotDrawn } = await markdownToExportHtml('# Notes\n\n```mermaid\npie\n  "Dogs" : 3\n```\n')
+        expect(html).toContain('<p dir="ltr" class="export-diagram-note">Pie chart: not supported in Scrivon yet</p>')
+        // The diagram's data still reaches the reader, as a code block.
+        expect(html).toMatch(/<div dir="ltr" class="code-block[^"]*"><pre class="shiki"[^>]*><code>pie\n {2}"Dogs" : 3<\/code><\/pre><\/div>/)
+        expect(html).not.toContain('Scrivon can draw')
+        expect(html).not.toContain('class="export-error')
+        expect(diagramsNotDrawn).toBe(1)
+    })
+
+    it('counts the diagrams it could not draw: errors, empty ones and types it does not support', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const diagram = (text: string) => ['```mermaid', text, '```'].join('\n')
+        const source = [
+            '# Notes',
+            diagram('graph TD; A-->B'),
+            diagram('graph TD FAIL'),
+            diagram('graph TD EMPTY'),
+            diagram('pie\n  "Dogs" : 3'),
+        ].join('\n\n')
+        expect((await markdownToExportHtml(source)).diagramsNotDrawn).toBe(3)
+        expect((await markdownToExportHtml('# Notes\n\n```js\nconst a = 1\n```')).diagramsNotDrawn).toBe(0)
+    })
+
     it('names each diagram picture the way Word does, from accTitle or its kind and nodes (A26)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const diagram = (lines: string[]) => ['```mermaid', ...lines, '```'].join('\n')
@@ -1090,7 +1202,51 @@ SHIKI_FAIL
             marginLeftMm: 10,
             pageNumberFormat: 'custom:Spec · {{page}}/{{total}}',
             pageNumberColor: '#ff0000',
+            headings: [{ level: 1, text: 'Hi' }],
         })
         expect(doc.html).toContain('SFPN')
+    })
+})
+
+describe('markdownToExportHtml: GitHub alerts and math', () => {
+    it('prints an alert as a coloured callout with its title', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('> [!WARNING]\n> Back up first.')
+        expect(html).toMatch(
+            /<div class="markdown-alert markdown-alert-warning" dir="auto">\s*<p class="markdown-alert-title">Warning<\/p>\s*<p dir="auto">Back up first.<\/p>/
+        )
+        expect(html).toContain('.markdown-alert-warning { border-inline-start-color: #9A6700; }')
+    })
+
+    it('keeps the bar of a right-to-left alert on the right', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('> [!NOTE]\n> שלום')
+        expect(html).toContain('<div class="markdown-alert markdown-alert-note" dir="rtl">')
+    })
+
+    it("doesn't let raw HTML add other classes", async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('<div class="markdown-alert pdf-body">Hi</div>')
+        expect(html).toContain('<div class="markdown-alert">Hi</div>')
+    })
+
+    it('prints inline and block math as MathML', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('Inline $E = mc^2$ here.\n\n$$\n\\frac{1}{3}\n$$')
+        expect(html).toMatch(/<p dir="auto">Inline <span class="katex"><math[^>]*><semantics><mrow><mi>E<\/mi>/)
+        expect(html).toMatch(/<span class="katex"><math[^>]*display="block"[^>]*><semantics><mrow><mfrac>/)
+    })
+
+    it('prints a ```math block as math, as GitHub does', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('```math\nx^2\n```')
+        expect(html).toMatch(/<math[^>]*display="block"[^>]*><semantics><mrow><msup><mi>x<\/mi>/)
+        expect(html).not.toContain('class="code-block')
+    })
+
+    it('prints math it cannot read as its source, in red', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html } = await markdownToExportHtml('Bad $\\frac{$ math')
+        expect(html).toMatch(/<span class="katex-error"[^>]*>\\frac\{<\/span>/)
     })
 })

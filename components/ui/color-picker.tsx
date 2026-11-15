@@ -18,6 +18,7 @@ import {
 } from 'react'
 import { Button } from '@/components/ui/button'
 import { SliderPrimitive } from '@/components/ui/slider'
+import { normalizeColorHex } from '@/lib/color-hex'
 import { cn } from '@/lib/utils'
 
 export type HslColor = {
@@ -45,8 +46,6 @@ export function useColorPicker(): ColorPickerContextValue {
     if (!context) throw new Error('useColorPicker must be used within a ColorPicker')
     return context
 }
-
-const HEX_PATTERN = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 
 function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value))
@@ -98,19 +97,6 @@ export function colorSelectionFromPointer(
 
 export function isEyeDropperSupported(): boolean {
     return typeof window !== 'undefined' && 'EyeDropper' in window
-}
-
-/**
- * Accepts `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`; returns lowercase `#rrggbb`,
- * or `#rrggbbaa` when the colour is translucent. `null` for anything else.
- */
-export function normalizeColorHex(value: string): string | null {
-    const trimmed = value.trim()
-    if (!HEX_PATTERN.test(trimmed)) return null
-    let digits = trimmed.slice(1).toLowerCase()
-    if (digits.length <= 4) digits = [...digits].map((d) => d + d).join('')
-    if (digits.length === 8 && digits.endsWith('ff')) digits = digits.slice(0, 6)
-    return `#${digits}`
 }
 
 export function hexToHsl(hex: string): HslColor {

@@ -60,7 +60,8 @@ const GENERIC_FAMILIES = new Set([
     'fangsong',
 ])
 
-const QUOTED_FAMILY = /^(["'])((?:\\[\s\S]|(?!\1)[^\\])*)\1$/
+// A raw line break ends a CSS string early, so the rest would be read as CSS rules; such a name isn't valid.
+const QUOTED_FAMILY = /^(["'])((?:\\[\s\S]|(?!\1)[^\\\n\r\f])*)\1$/
 const CSS_IDENTIFIER = /^(?:--|-?[_a-zA-Z\u0080-￿])[-_a-zA-Z0-9\u0080-￿]*$/
 
 /** One family, unquoted and lower-cased, so different spellings of the same name compare equal. */

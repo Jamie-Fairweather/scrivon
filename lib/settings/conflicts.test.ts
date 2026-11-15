@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { describeDisallowedChord, describeEditorChordClash, findKeybindConflicts, wouldChordConflict } from '@/lib/settings/conflicts'
+import {
+    describeDisallowedChord,
+    describeEditorChordClash,
+    editorActionsSharingKeys,
+    findKeybindConflicts,
+    wouldChordConflict,
+} from '@/lib/settings/conflicts'
+import type { KeybindActionId, KeybindChord } from '@/lib/settings/types'
 
 describe('findKeybindConflicts', () => {
     it('returns empty when defaults have no duplicates', () => {
@@ -32,6 +39,31 @@ describe('findKeybindConflicts', () => {
 
         expect(findKeybindConflicts(bindings)).toEqual([])
     })
+
+    it('lets a Markdown action share keys with an app action, but not with another Markdown action', () => {
+        const bindings = createDefaultKeybinds(false)
+        // By default Ctrl+E is Inline code while typing in the editor, and Toggle editor everywhere else.
+        expect(bindings['format.code']).toEqual(bindings['view.toggleEditor'])
+        bindings['format.bold'] = [{ key: 's', ctrl: true }]
+        expect(findKeybindConflicts(bindings)).toEqual([])
+
+        bindings['format.italic'] = [{ key: 's', ctrl: true }]
+        bindings['settings.open'] = [{ key: 's', ctrl: true }]
+        expect(findKeybindConflicts(bindings)).toEqual([
+            { chordKey: 'ctrl+s', actionIds: ['document.save', 'settings.open'] },
+            { chordKey: 'ctrl+s', actionIds: ['format.bold', 'format.italic'] },
+        ])
+    })
+})
+
+describe('editorActionsSharingKeys', () => {
+    it("names the Markdown actions that take an app action's keys while typing in the editor", () => {
+        const bindings = createDefaultKeybinds(false)
+
+        expect(editorActionsSharingKeys(bindings, 'view.toggleEditor')).toEqual([{ chord: { key: 'e', ctrl: true }, actionId: 'format.code' }])
+        expect(editorActionsSharingKeys(bindings, 'document.save')).toEqual([])
+        expect(editorActionsSharingKeys(bindings, 'format.code')).toEqual([])
+    })
 })
 
 describe('wouldChordConflict', () => {
@@ -52,6 +84,13 @@ describe('wouldChordConflict', () => {
         bindings['workspace.saveAll'] = undefined as unknown as []
         expect(wouldChordConflict(bindings, 'document.save', { key: 'z', ctrl: true })).toBeNull()
     })
+
+    it('only checks actions that run in the same place', () => {
+        const bindings = createDefaultKeybinds(false)
+        expect(wouldChordConflict(bindings, 'view.fitDiagram', { key: 'b', ctrl: true })).toBeNull()
+        expect(wouldChordConflict(bindings, 'format.italic', { key: 's', ctrl: true })).toBeNull()
+        expect(wouldChordConflict(bindings, 'format.italic', { key: 'b', ctrl: true })).toBe('format.bold')
+    })
 })
 
 describe('describeDisallowedChord', () => {
@@ -71,7 +110,9 @@ describe('describeDisallowedChord', () => {
     })
 
     it('explains that navigation and editing keys are off limits', () => {
-        expect(describeDisallowedChord({ key: 'Tab', ctrl: true }, false)).toMatch(/can't be used in shortcuts/)
+        expect(describeDisallowedChord({ key: 'Enter', ctrl: true }, false)).toMatch(/can't be used in shortcuts/)
+        expect(describeDisallowedChord({ key: 'Tab', alt: true }, false)).toMatch(/can't be used in shortcuts/)
+        expect(describeDisallowedChord({ key: 'Tab', ctrl: true }, false)).toBeNull()
     })
 })
 
@@ -102,8 +143,42 @@ describe('describeEditorChordClash', () => {
             expect(describeEditorChordClash(chord, false)).not.toBeNull()
         }
         expect(describeEditorChordClash({ key: 'Home', meta: true }, true)).not.toBeNull()
-        expect(describeEditorChordClash({ key: 'F2' }, false)).toBeNull()
+        expect(describeEditorChordClash({ key: 'F2' }, false, 'format.bold')).toBeNull()
         expect(describeEditorChordClash({ key: 'm', ctrl: true, shift: true }, false)).toBeNull()
+    })
+
+    it("flags the explorer's F2 (rename) and Shift+F10 (file menu), and the editor's Ctrl+. (spelling suggestions)", () => {
+        expect(describeEditorChordClash({ key: 'F2' }, false, 'palette.openFiles')).toBe('F2 is used by the explorer')
+        expect(describeEditorChordClash({ key: 'F10', shift: true }, false, 'palette.openFiles')).toBe('Shift+F10 is used by the explorer')
+        expect(describeEditorChordClash({ key: '.', ctrl: true }, false, 'palette.openFiles')).toBe('Ctrl+. is used by the editor')
+        expect(describeEditorChordClash({ key: '.', meta: true }, true, 'palette.openFiles')).toBe('⌘. is used by the editor')
+    })
+
+    it("lets a Markdown action take F2, as it only runs in the editor, but not the editor's Shift+F10 or Ctrl+.", () => {
+        expect(describeEditorChordClash({ key: 'F2' }, false, 'format.bold')).toBeNull()
+        // Shift+F10 opens the editor's right-click menu too.
+        expect(describeEditorChordClash({ key: 'F10', shift: true }, false, 'format.bold')).toBe('Shift+F10 is used by the editor')
+        expect(describeEditorChordClash({ key: '.', ctrl: true }, false, 'format.bold')).toBe('Ctrl+. is used by the editor')
+    })
+
+    it("flags the menu bar's F10 for every action, Markdown ones too", () => {
+        expect(describeEditorChordClash({ key: 'F10' }, false, 'palette.openFiles')).toBe('F10 is used by the menu bar')
+        expect(describeEditorChordClash({ key: 'F10' }, false, 'format.bold')).toBe('F10 is used by the menu bar')
+        expect(describeEditorChordClash({ key: 'f10' }, true)).toBe('F10 is used by the menu bar')
+    })
+
+    it('leaves F2 and F10 with other keys held free', () => {
+        for (const chord of [
+            { key: 'F2', alt: true },
+            { key: 'F2', shift: true },
+            { key: 'F10', ctrl: true, shift: true },
+            { key: 'F10', alt: true, shift: true },
+            { key: 'F10', ctrl: true },
+            { key: 'F10', alt: true },
+            { key: '.', ctrl: true, alt: true },
+        ]) {
+            expect(describeEditorChordClash(chord, false, 'palette.openFiles')).toBeNull()
+        }
     })
 
     it('leaves other chords free', () => {
@@ -116,11 +191,18 @@ describe('describeEditorChordClash', () => {
     it('never flags a default shortcut', () => {
         for (const isMac of [false, true]) {
             const defaults = createDefaultKeybinds(isMac)
-            for (const chords of Object.values(defaults)) {
+            for (const [actionId, chords] of Object.entries(defaults) as [KeybindActionId, KeybindChord[]][]) {
                 for (const chord of chords) {
-                    expect(describeEditorChordClash(chord, isMac)).toBeNull()
+                    expect(describeEditorChordClash(chord, isMac, actionId)).toBeNull()
                 }
             }
         }
+    })
+
+    it('lets Markdown actions take Ctrl+K, which only starts two-key editor shortcuts', () => {
+        expect(describeEditorChordClash({ key: 'k', ctrl: true }, false, 'format.bold')).toBeNull()
+        expect(describeEditorChordClash({ key: 'k', meta: true }, true, 'format.link')).toBeNull()
+        expect(describeEditorChordClash({ key: 'k', ctrl: true }, false, 'view.toggleEditor')).toBe('Ctrl+K is used by the editor')
+        expect(describeEditorChordClash({ key: 'c', ctrl: true }, false, 'format.bold')).toBe('Ctrl+C is used by the editor')
     })
 })

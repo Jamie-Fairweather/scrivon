@@ -8,6 +8,8 @@ import { remapPathAfterRename } from '@/lib/workspace/tab-paths'
 
 const STORE_PATH = 'workspace.json'
 const RECENT_KEY = 'recent-workspaces'
+/** The folder open when Scrivon last closed, reopened at startup (a setting); none after Close Folder. */
+const LAST_WORKSPACE_KEY = 'last-workspace'
 const RECENT_FILES_PREFIX = 'recent-files:'
 const LAST_FILE_PREFIX = 'last-file:'
 const OPEN_TABS_PREFIX = 'open-tabs:'
@@ -295,8 +297,28 @@ export async function removeRecentWorkspace(path: string): Promise<string[]> {
     const next = (await getRecentWorkspaces()).filter((p) => !samePath(p, path))
     await s.set(RECENT_KEY, next)
     await forgetWorkspace(s, path)
+    // Nor is it reopened at the next start.
+    const last = await s.get<unknown>(LAST_WORKSPACE_KEY)
+    if (typeof last === 'string' && samePath(last, path)) await s.delete(LAST_WORKSPACE_KEY)
     await saveStore(s)
     return next
+}
+
+/** The folder to reopen at startup: the one open when Scrivon last closed, or null. */
+export async function getLastWorkspace(): Promise<string | null> {
+    const s = await getStore()
+    if (!s) return null
+    const value = await s.get<unknown>(LAST_WORKSPACE_KEY)
+    return typeof value === 'string' && value.trim() ? normalizePath(value) : null
+}
+
+/** Remembers the folder that is open now (null: none, after Close Folder), to reopen at startup. */
+export async function setLastWorkspace(path: string | null): Promise<void> {
+    const s = await getStore()
+    if (!s) return
+    if (path) await s.set(LAST_WORKSPACE_KEY, normalizePath(path))
+    else await s.delete(LAST_WORKSPACE_KEY)
+    await saveStore(s)
 }
 
 export async function getLastOpenedFile(workspaceRoot: string): Promise<string | null> {

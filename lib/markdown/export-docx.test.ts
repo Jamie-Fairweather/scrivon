@@ -8,6 +8,9 @@ const renderMermaidDiagramForExport = vi.hoisted(() =>
     vi.fn((source: string) => {
         if (source.includes('throw-error')) throw new Error('diagram broke')
         if (source.includes('throw-string')) throw 'diagram string'
+        if (source.includes('throw-lines')) throw new Error('Pies are not drawn yet. Scrivon can draw:\n• Flowcharts\r\n• Sequence diagrams')
+        // As the real renderer does: the preview card's help.
+        if (source.startsWith('pie')) throw new Error("Pie charts aren't supported yet. Scrivon can draw:\n• Flowcharts (flowchart TD or graph LR)")
         // The size of the 1×1 PNG svgToPngBlob hands back.
         return `<svg viewBox="0 0 1 1">${source}</svg>`
     })
@@ -238,8 +241,8 @@ function profile(edit?: (draft: PdfExportProfile) => void): PdfExportProfile {
 
 async function render(source: string, edit?: (draft: PdfExportProfile) => void, assets?: PdfExportResolvedAssets) {
     const { renderExportDocx } = await import('@/lib/markdown/export-docx')
-    const bytes = await renderExportDocx(buildExportDocument(source, { profile: profile(edit), tabName: 'notes.md', assets }))
-    return readDocx(bytes)
+    const { bytes, diagramsNotDrawn } = await renderExportDocx(buildExportDocument(source, { profile: profile(edit), tabName: 'notes.md', assets }))
+    return { ...readDocx(bytes), diagramsNotDrawn }
 }
 
 const RICH = [
@@ -538,6 +541,47 @@ describe('renderExportDocx', () => {
         expect(body).not.toContain('graph TD')
         expect(body).not.toContain('<w:drawing>')
         expect(svgToPngBlob).not.toHaveBeenCalled()
+    })
+
+    it("writes a diagram type Scrivon can't draw as a short note for readers and its source, not the preview's help", async () => {
+        const { parts, diagramsNotDrawn } = await render(['Before.', '', fence('mermaid', 'pie\n  "Dogs" : 3'), '', 'After.'].join('\n'))
+        const body = parts['word/document.xml']!
+        const note = blockWith(body, 'Pie chart: not supported in Scrivon yet')
+        expect(note).toContain('<w:i/>')
+        // It stays on the page with the code under it.
+        expect(note).toContain('<w:keepNext/>')
+        // The diagram's data still reaches the reader, as a code block.
+        expect(runWith(body, 'pie')).toContain('w:ascii="Consolas"')
+        expect(runWith(body, '  &quot;Dogs&quot; : 3')).toContain('w:ascii="Consolas"')
+        expect(body).not.toContain('Scrivon can draw')
+        expect(body).not.toContain('<w:drawing>')
+        expect(diagramsNotDrawn).toBe(1)
+    })
+
+    it('counts the diagrams it could not draw: errors, empty ones, pictures that failed and types it does not support', async () => {
+        const draw = renderMermaidDiagramForExport.getMockImplementation()!
+        // Nothing to draw yet renders a 0×0 picture.
+        renderMermaidDiagramForExport.mockImplementation((source) =>
+            source === 'empty' ? '<svg viewBox="0 0 0 0" width="0" height="0"></svg>' : draw(source)
+        )
+        try {
+            // png-garbage: a picture came back, but its size can't be read, so the source is shown.
+            const source = ['png-ok', 'throw-error', 'empty', 'png-fail', 'png-garbage', 'pie\n  "Dogs" : 3']
+                .map((text) => fence('mermaid', text))
+                .join('\n\n')
+            expect((await render(source)).diagramsNotDrawn).toBe(5)
+            expect((await render(fence('js', 'const a = 1'))).diagramsNotDrawn).toBe(0)
+        } finally {
+            renderMermaidDiagramForExport.mockImplementation(draw)
+        }
+    })
+
+    it('writes each line of a diagram error on a line of its own, as Word ignores line breaks inside a run', async () => {
+        const { parts } = await render(['Before.', '', fence('mermaid', 'throw-lines'), '', 'After.'].join('\n'))
+        const paragraph = blockWith(parts['word/document.xml']!, '• Sequence diagrams')
+        const texts = [...paragraph.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>|<w:br\/>/g)].map((match) => match[1] ?? 'BREAK')
+        expect(texts).toEqual(['Pies are not drawn yet. Scrivon can draw:', 'BREAK', '• Flowcharts', 'BREAK'])
+        expect(runWith(parts['word/document.xml']!, '• Flowcharts')).toContain('w:ascii="Consolas"')
     })
 
     it('gives each diagram its own alt text, and leaves a picture with none without a made-up one', async () => {
@@ -1174,6 +1218,44 @@ describe('renderExportDocx', () => {
         expect(rows).toEqual(['Pricing|2', 'Keys Ctrl|2'])
     })
 
+    it('heads the Contents page with the profile’s title, or the document’s own toc-title', async () => {
+        const toc = (title: string) => (draft: PdfExportProfile) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+            draft.frontMatter.tocTitle = title
+        }
+        const named = (await render('# Intro\n\n## Part', toc('Sommaire'))).parts['word/document.xml']!
+        expect(runWith(named, 'Sommaire')).toContain('<w:b/>')
+        expect(named).not.toContain('>Contents</w:t>')
+
+        const own = (await render('---\ntoc-title: 目次\n---\n# Intro', toc('Sommaire'))).parts['word/document.xml']!
+        expect(runWith(own, '目次')).toContain('<w:b/>')
+        expect(own).not.toContain('>Sommaire</w:t>')
+
+        const emptied = (await render('# Intro', toc(''))).parts['word/document.xml']!
+        expect(runWith(emptied, 'Contents')).toContain('<w:b/>')
+        expect(blockWith(emptied, 'Contents')).not.toContain('<w:bidi/>')
+
+        // A right-to-left title reads right to left, as the cover title does.
+        const arabic = (await render('# Intro', toc('فهرس'))).parts['word/document.xml']!
+        expect(blockWith(arabic, 'فهرس')).toContain('<w:bidi/>')
+        expect(runWith(arabic, 'فهرس')).toContain('<w:rtl/>')
+    })
+
+    it('counts a Contents title that wraps when estimating contents page numbers', async () => {
+        const rows = Array.from({ length: 40 }, (_, index) => `## Part ${index + 1}`).join('\n\n')
+        const pageOf = async (title: string) => {
+            const { xml } = await render(`# Intro\n\n${rows}`, (draft) => {
+                draft.frontMatter.toc = true
+                draft.frontMatter.tocTitle = title
+            })
+            return tocPage(xml, 'Part 1')
+        }
+        const short = await pageOf('Contents')
+        // Six lines of title take room from the rows, so the body starts a page later.
+        expect(await pageOf(Array.from({ length: 30 }, () => 'Inhaltsverzeichnis').join(' '))).toBe(short! + 1)
+    })
+
     it('leaves out characters XML forbids, so Word can open the file', async () => {
         const { xml, parts } = await render(
             [
@@ -1746,6 +1828,40 @@ describe('renderExportDocx', () => {
         expect(runWith(xml, 'faded')).toContain('<w:color w:val="86888B"/>')
     })
 
+    it.each([
+        ['a3', 'portrait', '<w:pgSz w:w="16837" w:h="23811" w:orient="portrait"/>'],
+        ['a5', 'portrait', '<w:pgSz w:w="8390" w:h="11905" w:orient="portrait"/>'],
+        ['legal', 'landscape', '<w:pgSz w:w="20160" w:h="12240" w:orient="landscape"/>'],
+    ] as const)('writes %s %s pages at their real size', async (size, orientation, pgSz) => {
+        const { xml } = await render('# Hi', (draft) => {
+            draft.page.size = size
+            draft.page.orientation = orientation
+        })
+        expect(xml).toContain(pgSz)
+    })
+
+    it('writes a custom page size, and lays the text out to its width', async () => {
+        const { xml } = await render('# Alpha\n\nA [site](https://example.com).', (draft) => {
+            draft.page.size = 'custom'
+            draft.page.customSizeMm = { width: 120, height: 180 }
+            draft.header.enabled = true
+            draft.header.ignoreMargins = true
+            draft.header.left.text = 'Head'
+        })
+        expect(xml).toContain('<w:pgSz w:w="6803" w:h="10204" w:orient="portrait"/>')
+        // The edge-to-edge header bar spans the 120 mm sheet.
+        expect(xml).toContain('<w:tblW w:type="dxa" w:w="6803"/>')
+    })
+
+    it('gives code blocks the code theme’s own background and text colour', async () => {
+        highlightFencedCodeTokens.mockImplementationOnce(async () => [[{ text: 'plain' }]])
+        const { xml } = await render(fence('js', 'plain'), (draft) => {
+            draft.content.codeTheme = 'solarized-dark'
+        })
+        expect(blockWith(xml, 'plain')).toContain('w:fill="002B36"')
+        expect(runWith(xml, 'plain')).toContain('<w:color w:val="839496"/>')
+    })
+
     it('names the author in the file properties, and no one when there is no author', async () => {
         const anonymous = (await render('# Hi')).parts['docProps/core.xml']!
         expect(anonymous).not.toContain('Un-named')
@@ -1793,6 +1909,50 @@ describe('renderExportDocx', () => {
             draft.footer.right.text = '   '
         })
         expect(emptyCustom.xml).not.toContain('Draft')
+    })
+
+    it('numbers pages from the body: Word restarts at 1 there and counts only its pages (F48)', async () => {
+        const front = (fromBody: boolean) => (draft: PdfExportProfile) => {
+            draft.frontMatter.titlePage = true
+            draft.frontMatter.toc = true
+            draft.footer.pageNumbers = 'n-of-total'
+            // The footer shows on every page, so the title and contents pages have one too.
+            draft.footer.hideOnFirstPages = 'none'
+            draft.footer.numberFromBody = fromBody
+        }
+        const source = '# Report\n\n## Setup\n\nBody'
+        const footers = (parts: Record<string, string>) =>
+            Object.keys(parts)
+                .filter((name) => /^word\/footer\d+\.xml$/.test(name))
+                .map((name) => parts[name]!)
+        const sections = (xml: string) => [...xml.matchAll(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g)].map((match) => match[0])
+
+        const fromBody = await render(source, front(true))
+        const body = fromBody.parts['word/document.xml']!
+        // Title, contents and body each get a section; only the body's restarts the numbers.
+        expect(sections(body)).toHaveLength(3)
+        expect(sections(body).map((section) => section.includes('<w:pgNumType w:start="1"/>'))).toEqual([false, false, true])
+        // The body's footer counts the body's pages; the front pages' footers show no number.
+        const numbered = footers(fromBody.parts).filter((footer) => footer.includes('>PAGE</w:instrText>'))
+        expect(numbered).toHaveLength(1)
+        expect(numbered[0]).toContain('>SECTIONPAGES</w:instrText>')
+        expect(numbered[0]).not.toContain('NUMPAGES')
+        // The contents row shows the heading's page counted from the body.
+        expect(tocPage(fromBody.xml, 'Setup')).toBe(1)
+
+        const counted = await render(source, front(false))
+        expect(counted.xml).not.toMatch(/<w:pgNumType[^>]*w:start=/)
+        expect(counted.xml).not.toContain('SECTIONPAGES')
+        expect(footers(counted.parts).every((footer) => footer.includes('>PAGE</w:instrText>'))).toBe(true)
+        expect(tocPage(counted.xml, 'Setup')).toBe(3)
+
+        // With no title or contents page, nothing comes before the body to skip.
+        const plain = await render(source, (draft) => {
+            draft.footer.pageNumbers = 'n-of-total'
+            draft.footer.numberFromBody = true
+        })
+        expect(plain.xml).not.toMatch(/<w:pgNumType[^>]*w:start=/)
+        expect(plain.parts['word/footer1.xml']).toContain('NUMPAGES')
     })
 
     it('paints a watermark image when canvas can encode one', async () => {
@@ -2558,3 +2718,26 @@ function stubDocument(mode: 'png' | 'no-context' | 'no-blob') {
     })
     return canvases
 }
+
+describe('renderExportDocx: GitHub alerts and math', () => {
+    it('writes an alert with a bar and bold title in its colour, and plain text', async () => {
+        const { xml } = await render(['> [!TIP]', '> tip-text', '>', '> | tip-cell |', '> | --- |', '>', '> > inner-quote'].join('\n'))
+        const green = '<w:pBdr><w:left w:val="single" w:color="1A7F37" w:sz="12" w:space="11"/></w:pBdr>'
+        expect(blockWith(xml, 'Tip')).toContain(green)
+        expect(runWith(xml, 'Tip')).toContain('<w:b/>')
+        expect(runWith(xml, 'Tip')).toContain('<w:color w:val="1A7F37"/>')
+        expect(blockWith(xml, 'tip-text')).toContain(green)
+        expect(runWith(xml, 'tip-text')).not.toContain('<w:i/>')
+        expect(runWith(xml, 'tip-text')).not.toContain('<w:color')
+        expect(blockWith(xml, 'tip-cell', '<w:tc>')).toContain('<w:left w:val="single" w:color="1A7F37" w:sz="12"/>')
+        // A quote inside it is a quote again: grey italic text by the accent bar.
+        expect(blockWith(xml, 'inner-quote')).toContain('<w:left w:val="single" w:color="262626" w:sz="12" w:space="11"/>')
+        expect(runWith(xml, 'inner-quote')).toContain('<w:i/>')
+    })
+
+    it('writes math as its TeX source in the code font', async () => {
+        const { xml } = await render(['Inline $E = mc^2$ here.', '', '$$', '\\frac{1}{3}', '$$'].join('\n'))
+        expect(runWith(xml, 'E = mc^2')).toContain('w:ascii="Consolas"')
+        expect(runWith(xml, '\\frac{1}{3}')).toContain('w:ascii="Consolas"')
+    })
+})

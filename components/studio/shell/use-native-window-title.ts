@@ -7,14 +7,21 @@ import { APP_NAME } from '@/lib/app-branding'
 import { getBaseName } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 
-/** "● notes.md — my-folder — Scrivon": what the taskbar and Alt+Tab show. The dot marks unsaved changes. */
-export function windowTitleFor(activeTab: { name: string; isDirty: boolean } | null, workspaceRoot: string | null): string {
+type TitleTab = { name: string; isDirty: boolean }
+
+/** "● notes.md — my-folder": the open file and folder, as the app's own title bar shows them. The dot marks unsaved changes. */
+export function documentTitleFor(activeTab: TitleTab | null, workspaceRoot: string | null): string {
     const folder = workspaceRoot ? getBaseName(workspaceRoot.replace(/[/\\]+$/, '')) || workspaceRoot : null
     const file = activeTab ? `${activeTab.isDirty ? '● ' : ''}${activeTab.name}` : null
-    return [file, folder, APP_NAME].filter(Boolean).join(' — ')
+    return [file, folder].filter(Boolean).join(' — ')
 }
 
-/** Keeps the native window title in step with the open file and folder (the custom title bar doesn't show it). */
+/** "● notes.md — my-folder — Scrivon": what the taskbar and Alt+Tab show. */
+export function windowTitleFor(activeTab: TitleTab | null, workspaceRoot: string | null): string {
+    return [documentTitleFor(activeTab, workspaceRoot), APP_NAME].filter(Boolean).join(' — ')
+}
+
+/** Keeps the native window title (the taskbar and Alt+Tab) in step with the open file and folder. */
 export function useNativeWindowTitle(): void {
     const { activeTab } = useDocumentTabs()
     const { workspaceRoot } = useWorkspaceSession()

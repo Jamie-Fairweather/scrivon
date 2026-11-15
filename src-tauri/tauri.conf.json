@@ -2,7 +2,7 @@
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "Scrivon",
     "mainBinaryName": "scrivon",
-    "version": "1.5.0",
+    "version": "1.6.0-rc.1",
     "identifier": "io.github.jamie-fairweather.scrivon",
     "build": {
         "beforeDevCommand": "bun run dev",
@@ -36,7 +36,7 @@
                 "font-src": "'self' data:",
                 "connect-src": "'self' ipc: http://ipc.localhost https://api.github.com",
                 "worker-src": "'self' blob:",
-                "frame-src": "'self'",
+                "frame-src": "'self' blob:",
                 "object-src": "'none'",
                 "base-uri": "'self'",
                 "form-action": "'none'"
@@ -56,7 +56,25 @@
         "copyright": "Copyright (c) 2026 Jamie Fairweather",
         "homepage": "https://github.com/Jamie-Fairweather/scrivon",
         "shortDescription": "Local-first editor for Mermaid diagrams and Markdown",
-        "longDescription": "Scrivon is a desktop editor for Mermaid diagrams and Markdown documents. Open a folder on disk, edit .md, .mmd and .mermaid files, and preview diagrams or rendered Markdown live.",
+        "longDescription": "Scrivon is a desktop editor for Mermaid diagrams and Markdown documents. Open a folder on disk, edit .md, .markdown, .mmd and .mermaid files, and preview diagrams or rendered Markdown live.",
+        "fileAssociations": [
+            {
+                "ext": [
+                    "md",
+                    "markdown"
+                ],
+                "name": "Scrivon.Markdown",
+                "description": "Markdown document"
+            },
+            {
+                "ext": [
+                    "mmd",
+                    "mermaid"
+                ],
+                "name": "Scrivon.Mermaid",
+                "description": "Mermaid diagram"
+            }
+        ],
         "icon": [
             "icons/32x32.png",
             "icons/128x128.png",

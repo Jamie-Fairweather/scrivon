@@ -2,15 +2,20 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDocumentSave } from '@/components/studio/workspace/workspace-provider'
+import { logError } from '@/lib/diagnostics/app-log'
 import { isTauri } from '@/lib/tauri/platform'
 import { clearWorkspaceStore } from '@/lib/tauri/store'
 import { CopyErrorDetailsButton, StudioErrorBoundary, StudioReloadFallback } from './studio-error-boundary'
 import { StudioRecoveryScreen } from './studio-recovery-screen'
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useDocumentSave: vi.fn() }))
+vi.mock('@/lib/diagnostics/app-log', () => ({ logError: vi.fn(), logWarning: vi.fn() }))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: vi.fn() }))
 // The real controls need the desktop window, which these tests don't have.
 vi.mock('@/components/studio/shell/window-titlebar-controls', () => ({ TITLEBAR_ABOVE_DIALOGS_CLASS: '', WindowTitlebarControls: () => null }))
+/** The clipboard, written through Tauri. */
+const writeText = vi.hoisted(() => vi.fn<(text: string) => Promise<void>>())
+vi.mock('@/lib/tauri/clipboard', () => ({ writeClipboardText: writeText }))
 
 const flushAllSaves = vi.fn<() => Promise<boolean>>()
 const reload = vi.fn()
@@ -57,6 +62,7 @@ describe('StudioErrorBoundary', () => {
 
         expect(screen.getByRole('alert')).toHaveTextContent('Render exploded')
         expect(screen.getByRole('banner')).toBeInTheDocument()
+        expect(logError).toHaveBeenCalledWith('Scrivon hit an error while rendering', new Error('Render exploded'))
 
         await userEvent.setup().click(screen.getByRole('button', { name: 'Reload' }))
         expect(reload).toHaveBeenCalled()
@@ -147,22 +153,16 @@ describe('Reset recent folders and tabs', () => {
 })
 
 describe('CopyErrorDetailsButton', () => {
-    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-
-    function setClipboard(clipboard: Partial<Clipboard> | undefined) {
-        Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
-    }
+    beforeEach(() => {
+        writeText.mockResolvedValue(undefined)
+    })
 
     afterEach(() => {
         vi.useRealTimers()
-        if (original) Object.defineProperty(navigator, 'clipboard', original)
-        else Reflect.deleteProperty(navigator, 'clipboard')
     })
 
-    it('says it copied, then goes back to its label', async () => {
+    it('copies through Tauri and says it copied, then goes back to its label', async () => {
         vi.useFakeTimers()
-        const writeText = vi.fn(async () => undefined)
-        setClipboard({ writeText })
         render(<CopyErrorDetailsButton details="Scrivon 1.4.2" />)
 
         await act(async () => {
@@ -175,19 +175,8 @@ describe('CopyErrorDetailsButton', () => {
         expect(screen.getByRole('button', { name: 'Copy error details' })).toBeInTheDocument()
     })
 
-    it("says it couldn't copy when the write fails", async () => {
-        setClipboard({ writeText: vi.fn(async () => Promise.reject(new Error('Not allowed'))) })
-        render(<CopyErrorDetailsButton details="details" />)
-
-        await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: 'Copy error details' }))
-        })
-
-        expect(screen.getByRole('button', { name: "Couldn't copy" })).toBeInTheDocument()
-    })
-
-    it("says it couldn't copy when there is no clipboard to write to", async () => {
-        setClipboard(undefined)
+    it("says it couldn't copy when the clipboard refuses", async () => {
+        writeText.mockRejectedValue('The native clipboard is not accessible due to being held by another party.')
         render(<CopyErrorDetailsButton details="details" />)
 
         await act(async () => {

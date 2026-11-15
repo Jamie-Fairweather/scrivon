@@ -4,7 +4,7 @@
  * file path:
  * - A tab that is closed and opened again gets a new key, so the editor starts from the
  *   file's current text, never from a leftover buffer.
- * - A tab that is renamed keeps its key, so its buffer, undo history and cursor survive.
+ * - A tab that is renamed or moved keeps its key, so its buffer, undo history and cursor survive.
  */
 
 export const MODEL_KEY_PREFIX = 'inmemory://scrivon/document-'
@@ -42,11 +42,15 @@ function sameSegments(a: readonly string[], b: readonly string[]): boolean {
     return a.length === b.length && a.every((segment, i) => segment === b[i])
 }
 
+function startsWith(segments: readonly string[], root: readonly string[]): boolean {
+    return segments.length >= root.length && root.every((segment, i) => segment === segments[i])
+}
+
 /**
- * Finds tabs that were renamed in place, as remapTabsAfterRename does: the tab list keeps
- * its length and order, and the changed paths all differ in one path segment (the renamed
- * file or folder) under the same parent. Returns new path -> old path. Anything else (tabs
- * opened, closed or replaced) returns an empty map.
+ * Finds tabs that were renamed or moved, as remapTabsAfterRename does: the tab list keeps its length
+ * and order, and the changed paths are all inside one file or folder that moved from `oldRoot` to
+ * `newRoot`, keeping the rest of their path. No tab is left inside `oldRoot`. Returns new path -> old
+ * path. Anything else (tabs opened, closed or replaced) returns an empty map.
  */
 export function detectRenamedPaths(prev: readonly string[], next: readonly string[]): Map<string, string> {
     const renamed = new Map<string, string>()
@@ -54,54 +58,37 @@ export function detectRenamedPaths(prev: readonly string[], next: readonly strin
 
     const prevSet = new Set(prev)
     const nextSet = new Set(next)
-    let renamedIndex = -1
-    let oldRoot: string[] | null = null
-    let newRoot: string[] | null = null
-
+    const changed: { from: string[]; to: string[] }[] = []
     for (let i = 0; i < prev.length; i++) {
         const oldPath = prev[i]!
         const newPath = next[i]!
         if (oldPath === newPath) continue
         if (nextSet.has(oldPath) || prevSet.has(newPath)) return new Map()
-
-        const oldSegments = splitPath(oldPath)
-        const newSegments = splitPath(newPath)
-        if (oldSegments.length !== newSegments.length) return new Map()
-
-        if (!oldRoot || !newRoot) {
-            const differing = oldSegments.flatMap((segment, index) => (segment === newSegments[index] ? [] : [index]))
-            if (differing.length !== 1) return new Map()
-            renamedIndex = differing[0]!
-            oldRoot = oldSegments.slice(0, renamedIndex + 1)
-            newRoot = newSegments.slice(0, renamedIndex + 1)
-        }
-
-        const matchesRename =
-            oldSegments.length > renamedIndex &&
-            sameSegments(oldSegments.slice(0, renamedIndex + 1), oldRoot) &&
-            sameSegments(newSegments.slice(0, renamedIndex + 1), newRoot) &&
-            sameSegments(oldSegments.slice(renamedIndex + 1), newSegments.slice(renamedIndex + 1))
-        if (!matchesRename) return new Map()
-
+        changed.push({ from: splitPath(oldPath), to: splitPath(newPath) })
         renamed.set(newPath, oldPath)
     }
+    if (changed.length === 0) return renamed
 
-    if (oldRoot) {
-        // Every tab inside the renamed file or folder must have moved with it.
-        const root = oldRoot
-        const leftBehind = next.some((path) => {
-            const segments = splitPath(path)
-            return segments.length > renamedIndex && sameSegments(segments.slice(0, renamedIndex + 1), root)
-        })
-        if (leftBehind) return new Map()
+    const nextSegments = next.map(splitPath)
+    const isOneMove = (oldRoot: string[], newRoot: string[]) =>
+        changed.every(
+            ({ from, to }) =>
+                startsWith(from, oldRoot) && startsWith(to, newRoot) && sameSegments(from.slice(oldRoot.length), to.slice(newRoot.length))
+        ) &&
+        // Every tab inside the moved file or folder went with it.
+        !nextSegments.some((segments) => startsWith(segments, oldRoot))
+
+    // The moved entry is the first changed tab's file or one of the folders above it, so try each.
+    const { from, to } = changed[0]!
+    for (let rest = 0; rest < Math.min(from.length, to.length); rest++) {
+        if (isOneMove(from.slice(0, from.length - rest), to.slice(0, to.length - rest))) return renamed
     }
-
-    return renamed
+    return new Map()
 }
 
 /**
  * Works out the model key of every open tab after the tab list changed: tabs that stayed
- * open or were renamed keep their key, and newly opened tabs get a new one.
+ * open or were renamed or moved keep their key, and newly opened tabs get a new one.
  */
 export function syncModelKeys(prev: ModelKeyState, nextPaths: readonly string[], newKey: () => string = createModelKey): ModelKeyState {
     if (samePaths(prev.paths, nextPaths)) return prev

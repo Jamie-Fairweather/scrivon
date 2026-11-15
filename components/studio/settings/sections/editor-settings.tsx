@@ -5,9 +5,11 @@ import { OptionSelect, type SelectOption } from '@/components/ui/option-select'
 import { Button } from '@/components/ui/button'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
+import { SpellingSettings } from '@/components/studio/settings/sections/spelling-settings'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 import { tabFocusToggleKeyLabel } from '@/lib/monaco/editor-aria'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { DEFAULT_EDITOR_WIDTH } from '@/lib/settings/defaults'
 import type { AppSettings, EditorLineNumbers, EditorWordWrap } from '@/lib/settings/types'
 
 const WORD_WRAP_OPTIONS: SelectOption<EditorWordWrap>[] = [
@@ -96,13 +98,38 @@ export function EditorSettings() {
                 onChange={(tabMovesFocus) => setEditor({ tabMovesFocus })}
             />
 
+            <SwitchSetting
+                label="Status bar"
+                description="Show the line and column, word count and save state at the bottom of the window."
+                checked={settings.statusBar.visible}
+                onChange={(visible) => updateSettings((current) => ({ ...current, statusBar: { ...current.statusBar, visible } }))}
+            />
+
+            <SwitchSetting
+                label="Scroll with the preview"
+                description="The editor and the Markdown preview scroll together."
+                checked={settings.editor.scrollSync}
+                onChange={(scrollSync) => setEditor({ scrollSync })}
+            />
+
+            <SwitchSetting
+                label="Double-click the preview to jump to the editor"
+                description="Double-clicking the Markdown preview puts the editor's cursor on that line. Turn off to select words in the preview by double-clicking."
+                checked={settings.editor.jumpFromPreview}
+                onChange={(jumpFromPreview) => setEditor({ jumpFromPreview })}
+            />
+
             <Field>
-                <FieldLabel>Editor pane width</FieldLabel>
-                <FieldDescription>Reset the editor panel to the default width ({settings.layout.editorWidth}px currently).</FieldDescription>
+                <FieldLabel>Editor width</FieldLabel>
+                <FieldDescription>
+                    {`Set to ${settings.layout.editorWidth} px (default ${DEFAULT_EDITOR_WIDTH} px). Drag the edge between the editor and the preview to change it.`}
+                </FieldDescription>
                 <Button type="button" variant="outline" size="sm" onClick={resetEditorWidth}>
-                    Reset pane width
+                    Reset to default
                 </Button>
             </Field>
+
+            <SpellingSettings />
         </div>
     )
 }

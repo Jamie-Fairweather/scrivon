@@ -4,6 +4,7 @@ import {
     chordKey,
     chordsEqual,
     isAllowedChord,
+    isAltCodeKey,
     isComposingKeyEvent,
     isMacPlatform,
     isWindowsPlatform,
@@ -53,11 +54,22 @@ describe('isAllowedChord', () => {
         expect(isAllowedChord({ key: '/' })).toBe(false)
     })
 
-    it('rejects Tab, Enter, Space, Escape, Backspace, Delete and arrows even with modifiers', () => {
-        for (const key of ['Tab', 'Enter', ' ', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+    it('rejects Enter, Space, Escape, Backspace, Delete and arrows even with modifiers', () => {
+        for (const key of ['Enter', ' ', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
             expect(isAllowedChord({ key })).toBe(false)
             expect(isAllowedChord({ key, ctrl: true })).toBe(false)
         }
+    })
+
+    it('accepts Tab only with Ctrl, as tabbed apps use it to switch tabs', () => {
+        expect(isAllowedChord({ key: 'Tab', ctrl: true })).toBe(true)
+        expect(isAllowedChord({ key: 'Tab', ctrl: true, shift: true })).toBe(true)
+        // Plain Tab moves focus, and Windows or macOS take Alt+Tab and Cmd+Tab.
+        expect(isAllowedChord({ key: 'Tab' })).toBe(false)
+        expect(isAllowedChord({ key: 'Tab', shift: true })).toBe(false)
+        expect(isAllowedChord({ key: 'Tab', alt: true })).toBe(false)
+        expect(isAllowedChord({ key: 'Tab', meta: true })).toBe(false)
+        expect(isAllowedChord({ key: 'Tab', ctrl: true, alt: true })).toBe(false)
     })
 
     it('rejects keys the browser could not name (IME, dead keys)', () => {
@@ -112,6 +124,22 @@ describe('typesAltGraphCharacter', () => {
     })
 })
 
+describe('isAltCodeKey', () => {
+    it('is true for Alt with a number-pad digit, which starts an Alt code', () => {
+        expect(isAltCodeKey({ code: 'Numpad0', altKey: true })).toBe(true)
+        expect(isAltCodeKey({ code: 'Numpad9', altKey: true, ctrlKey: false })).toBe(true)
+    })
+
+    it('is false for the digits row, other keys, no Alt, or Ctrl+Alt', () => {
+        expect(isAltCodeKey({ code: 'Digit0', altKey: true })).toBe(false)
+        expect(isAltCodeKey({ code: 'NumpadAdd', altKey: true })).toBe(false)
+        expect(isAltCodeKey({ code: 'Numpad0' })).toBe(false)
+        expect(isAltCodeKey({ code: 'Numpad0', altKey: true, ctrlKey: true })).toBe(false)
+        expect(isAltCodeKey({ code: 'Numpad0', altKey: true, metaKey: true })).toBe(false)
+        expect(isAltCodeKey({ altKey: true })).toBe(false)
+    })
+})
+
 describe('baseKeyFromCode', () => {
     it('maps letter, digit and punctuation codes to US characters', () => {
         expect(baseKeyFromCode('KeyS')).toBe('s')
@@ -135,15 +163,23 @@ describe('physicalKeyFallback', () => {
     })
 
     it('uses the digit for Shift+digit symbols', () => {
-        expect(physicalKeyFallback({ key: '!', code: 'Digit1', shiftKey: true })).toBe('1')
-        expect(physicalKeyFallback({ key: '/', code: 'Digit7', shiftKey: true })).toBe('7')
+        expect(physicalKeyFallback({ key: '!', code: 'Digit1' })).toBe('1')
+        expect(physicalKeyFallback({ key: '/', code: 'Digit7' })).toBe('7')
+    })
+
+    it('uses the digit on AZERTY, where the digit keys type symbols without Shift', () => {
+        expect(physicalKeyFallback({ key: '&', code: 'Digit1' })).toBe('1')
+        expect(physicalKeyFallback({ key: 'é', code: 'Digit2' })).toBe('2')
+        expect(physicalKeyFallback({ key: 'à', code: 'Digit0' })).toBe('0')
+        // AZERTY types the digit itself with Shift.
+        expect(physicalKeyFallback({ key: '1', code: 'Digit1' })).toBeNull()
     })
 
     it('keeps the typed key on Latin layouts and for keys that already match', () => {
         expect(physicalKeyFallback({ key: 'o', code: 'KeyS' })).toBeNull()
         expect(physicalKeyFallback({ key: 'ö', code: 'Semicolon' })).toBeNull()
-        expect(physicalKeyFallback({ key: 'S', code: 'KeyS', shiftKey: true })).toBeNull()
-        expect(physicalKeyFallback({ key: '?', code: 'Slash', shiftKey: true })).toBeNull()
+        expect(physicalKeyFallback({ key: 'S', code: 'KeyS' })).toBeNull()
+        expect(physicalKeyFallback({ key: '?', code: 'Slash' })).toBeNull()
         expect(physicalKeyFallback({ key: 'F1', code: 'F1' })).toBeNull()
         expect(physicalKeyFallback({ key: 'Process', code: 'KeyS' })).toBeNull()
     })

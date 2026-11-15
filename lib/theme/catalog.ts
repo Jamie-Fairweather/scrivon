@@ -3,9 +3,6 @@ import type { DiagramColors } from '@/lib/theme/types'
 
 export type { AppThemeId, DiagramColors }
 
-/** SSR / hydration fallback when system preference is unknown. */
-export const DEFAULT_APP_THEME: AppThemeId = 'scrivon-dark'
-
 export const SYSTEM_LIGHT_THEME: AppThemeId = 'scrivon-light'
 export const SYSTEM_DARK_THEME: AppThemeId = 'scrivon-dark'
 
@@ -31,14 +28,4 @@ export function getDiagramColors(id: AppThemeId): DiagramColors {
 
 export function isLightTheme(id: AppThemeId): boolean {
     return APP_THEMES[id].kind === 'light'
-}
-
-export function getSystemPreferredTheme(): AppThemeId {
-    if (typeof window === 'undefined') return DEFAULT_APP_THEME
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? SYSTEM_DARK_THEME : SYSTEM_LIGHT_THEME
-}
-
-export function parseStoredTheme(value: string | null): AppThemeId {
-    if (value && isAppThemeId(value)) return value
-    return getSystemPreferredTheme()
 }

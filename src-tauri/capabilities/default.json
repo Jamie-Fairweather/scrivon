@@ -22,7 +22,6 @@
         "fs:allow-write-file",
         "fs:allow-write-text-file",
         "fs:allow-mkdir",
-        "fs:allow-remove",
         "fs:allow-copy-file",
         "fs:allow-stat",
         "fs:allow-lstat",
@@ -42,6 +41,7 @@
         "store:allow-length",
         "store:allow-reload",
         "store:allow-save",
-        "process:default"
+        "process:default",
+        "log:default"
     ]
 }

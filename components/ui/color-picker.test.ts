@@ -6,25 +6,10 @@ import {
     hslToHex,
     hslToRgb,
     isEyeDropperSupported,
-    normalizeColorHex,
     selectionFromHsl,
 } from '@/components/ui/color-picker'
 
 describe('color picker helpers', () => {
-    it('normalizes hex colours', () => {
-        expect(normalizeColorHex('#abc')).toBe('#aabbcc')
-        expect(normalizeColorHex('#AABBCC')).toBe('#aabbcc')
-        expect(normalizeColorHex(' #abc8 ')).toBe('#aabbcc88')
-        expect(normalizeColorHex('#AABBCC80')).toBe('#aabbcc80')
-        expect(normalizeColorHex('nope')).toBeNull()
-        expect(normalizeColorHex('#abcde')).toBeNull()
-    })
-
-    it('drops a fully opaque alpha channel', () => {
-        expect(normalizeColorHex('#aabbccff')).toBe('#aabbcc')
-        expect(normalizeColorHex('#abcf')).toBe('#aabbcc')
-    })
-
     it('converts between hex and hsl', () => {
         const red = hexToHsl('#ff0000')
         expect(red.alpha).toBe(100)

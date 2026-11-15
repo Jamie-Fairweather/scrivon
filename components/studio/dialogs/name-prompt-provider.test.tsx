@@ -23,11 +23,13 @@ async function openPrompt(options: NamePromptOptions) {
     return { onResult, input: input as HTMLInputElement }
 }
 
+const newDiagram = { kind: 'new-diagram', folder: '/ws' } as const
+
 const noColons = (name: string) => (name.includes(':') ? 'Name contains invalid characters' : null)
 
 describe('NamePromptProvider', () => {
     it('shows why a name is unusable and stays open with the typed text', async () => {
-        const { onResult, input } = await openPrompt({ title: 'New diagram name', defaultValue: 'diagram.mmd', validate: noColons })
+        const { onResult, input } = await openPrompt({ ...newDiagram, defaultValue: 'diagram.mmd', validate: noColons })
         expect(screen.queryByText('Name contains invalid characters')).not.toBeInTheDocument()
 
         fireEvent.change(input, { target: { value: 'my:flow.mmd' } })
@@ -41,7 +43,7 @@ describe('NamePromptProvider', () => {
     })
 
     it('returns the trimmed name once it is fixed', async () => {
-        const { onResult, input } = await openPrompt({ title: 'New diagram name', defaultValue: 'diagram.mmd', validate: noColons })
+        const { onResult, input } = await openPrompt({ ...newDiagram, defaultValue: 'diagram.mmd', validate: noColons })
 
         fireEvent.change(input, { target: { value: 'my:flow.mmd' } })
         fireEvent.change(input, { target: { value: '  my flow.mmd ' } })
@@ -52,7 +54,7 @@ describe('NamePromptProvider', () => {
     })
 
     it('selects the name without its extension, so typing keeps the file type', async () => {
-        const { input } = await openPrompt({ title: 'New diagram name', defaultValue: 'diagram 2.mmd' })
+        const { input } = await openPrompt({ ...newDiagram, defaultValue: 'diagram 2.mmd' })
 
         fireEvent.focus(input)
 
@@ -61,14 +63,20 @@ describe('NamePromptProvider', () => {
 
     it('shows the note it is given under the field while the name can be used, and the error instead when not', async () => {
         const note = (name: string) => (name === 'beach' ? 'Will be named "beach.png".' : null)
-        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'screenshot.png', validate: noColons, note })
+        const { input } = await openPrompt({
+            kind: 'rename',
+            entry: { name: 'screenshot.png', kind: 'file' },
+            defaultValue: 'screenshot.png',
+            validate: noColons,
+            note,
+        })
         expect(input).not.toHaveAttribute('aria-describedby')
 
         fireEvent.change(input, { target: { value: ' beach ' } })
         const shown = screen.getByText('Will be named "beach.png".')
         expect(input).toHaveAttribute('aria-describedby', shown.id)
         expect(input).not.toHaveAttribute('aria-invalid')
-        expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled()
+        expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled()
 
         fireEvent.change(input, { target: { value: 'beach:' } })
         expect(screen.queryByText('Will be named "beach.png".')).not.toBeInTheDocument()
@@ -76,7 +84,7 @@ describe('NamePromptProvider', () => {
     })
 
     it('selects a whole folder name, even one with a dot', async () => {
-        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'v1.2' })
+        const { input } = await openPrompt({ kind: 'rename', entry: { name: 'v1.2', kind: 'directory' }, defaultValue: 'v1.2' })
 
         fireEvent.focus(input)
 
@@ -84,7 +92,12 @@ describe('NamePromptProvider', () => {
     })
 
     it('leaves the extension it is given unselected, such as .png for an image', async () => {
-        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'screenshot.png', extension: '.png' })
+        const { input } = await openPrompt({
+            kind: 'rename',
+            entry: { name: 'screenshot.png', kind: 'file' },
+            defaultValue: 'screenshot.png',
+            extension: '.png',
+        })
 
         fireEvent.focus(input)
 
@@ -92,7 +105,7 @@ describe('NamePromptProvider', () => {
     })
 
     it('selects the whole name when told there is no extension, even one ending in .md', async () => {
-        const { input } = await openPrompt({ title: 'Rename', defaultValue: 'notes.md', extension: null })
+        const { input } = await openPrompt({ kind: 'rename', entry: { name: 'notes.md', kind: 'file' }, defaultValue: 'notes.md', extension: null })
 
         fireEvent.focus(input)
 
@@ -100,7 +113,7 @@ describe('NamePromptProvider', () => {
     })
 
     it('selects the name only when it opens, not each time focus comes back (switching back to the window)', async () => {
-        const { input } = await openPrompt({ title: 'New diagram name', defaultValue: 'diagram 2.mmd' })
+        const { input } = await openPrompt({ ...newDiagram, defaultValue: 'diagram 2.mmd' })
         fireEvent.focus(input)
 
         fireEvent.change(input, { target: { value: 'login flow.mmd' } })
@@ -118,22 +131,26 @@ describe('NamePromptProvider', () => {
         expect([again.selectionStart, again.selectionEnd]).toEqual([0, 'diagram 2'.length])
     })
 
-    it('shows the description and button label it is given', async () => {
-        await openPrompt({ title: 'Rename "notes.md"', description: 'Choose a new name for this file.', submitLabel: 'Rename' })
+    it('takes its title, description, placeholder and button from the kind of prompt', async () => {
+        const { input } = await openPrompt({ kind: 'new-diagram', folder: '/work/docs' })
 
-        expect(screen.getByText('Choose a new name for this file.')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Rename' })).toBeInTheDocument()
-    })
-
-    it('does not guess a description from the title', async () => {
-        await openPrompt({ title: 'Rename "drafts"', defaultValue: 'drafts' })
-
-        expect(screen.queryByText(/choose a new name/i)).not.toBeInTheDocument()
+        expect(screen.getByRole('dialog', { name: 'New diagram name' })).toBeInTheDocument()
+        expect(screen.getByText('Creates the diagram in "docs".')).toBeInTheDocument()
+        expect(input).toHaveAttribute('placeholder', 'diagram.mmd')
         expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument()
     })
 
+    it('says Rename on a rename, whatever the names are', async () => {
+        const { input } = await openPrompt({ kind: 'rename', entry: { name: 'New folder', kind: 'directory' }, defaultValue: 'New folder' })
+
+        expect(screen.getByRole('dialog', { name: 'Rename "New folder"' })).toBeInTheDocument()
+        expect(screen.getByText('Choose a new name for this folder.')).toBeInTheDocument()
+        expect(input).toHaveAttribute('placeholder', 'New folder')
+        expect(screen.getByRole('button', { name: 'Rename' })).toBeInTheDocument()
+    })
+
     it('blocks an empty name and returns null on cancel', async () => {
-        const { onResult, input } = await openPrompt({ title: 'New folder name', defaultValue: 'diagrams', placeholder: 'Folder name' })
+        const { onResult, input } = await openPrompt({ kind: 'new-folder', folder: '/ws', defaultValue: 'diagrams' })
         expect(input).toHaveAttribute('placeholder', 'Folder name')
 
         fireEvent.change(input, { target: { value: '   ' } })

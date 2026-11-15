@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
-import { adoptExportImages, profileImagePaths, rememberExportImage } from '@/lib/tauri/export-image-access'
+import { adoptExportImages, profileImagePaths, readExportImage, rememberExportImage, saveProfileImage } from '@/lib/tauri/export-image-access'
 import type { PdfExportSettings } from '@/lib/settings/pdf-export-types'
 
 const invoke = vi.hoisted(() => vi.fn())
@@ -56,6 +56,29 @@ describe('export image access', () => {
         await adoptExportImages(settingsWithImages())
 
         expect(invoke).not.toHaveBeenCalled()
+    })
+
+    it('reads an image the export may use as a data URL', async () => {
+        invoke.mockResolvedValue('data:image/png;base64,iVBORw0KGgo=')
+
+        await expect(readExportImage('C:/brand/logo.png')).resolves.toBe('data:image/png;base64,iVBORw0KGgo=')
+        expect(invoke).toHaveBeenCalledWith('read_export_image', { path: 'C:/brand/logo.png' })
+    })
+
+    it('saves an embedded image from an imported profile and gives its path', async () => {
+        invoke.mockResolvedValue('C:/AppData/profile-images/a.png')
+
+        await expect(saveProfileImage('data:image/png;base64,iVBORw0KGgo=')).resolves.toBe('C:/AppData/profile-images/a.png')
+        expect(invoke).toHaveBeenCalledWith('save_profile_image', { dataUrl: 'data:image/png;base64,iVBORw0KGgo=' })
+    })
+
+    it('says why an image could not be read or saved', async () => {
+        invoke.mockRejectedValue('Choose this image again with Browse.')
+        await expect(readExportImage('C:/brand/logo.png')).rejects.toThrow('Choose this image again with Browse.')
+        await expect(saveProfileImage('data:image/png;base64,abc')).rejects.toThrow('Choose this image again with Browse.')
+
+        isTauri.mockReturnValue(false)
+        await expect(readExportImage('C:/brand/logo.png')).rejects.toThrow('Images can only be read in the desktop app.')
     })
 
     it('only logs when Rust refuses', async () => {

@@ -58,6 +58,11 @@ describe("the main window's Content Security Policy", () => {
         expect(sources('img-src')).toEqual(expect.arrayContaining(["'self'", 'data:', 'blob:']))
     })
 
+    it("frames only the app's own pages and the export dialog's PDF preview", () => {
+        // The preview shows the PDF from a blob: URL; web pages still can't be framed.
+        expect(sources('frame-src')).toEqual(["'self'", 'blob:'])
+    })
+
     it('lets the page talk to the app and to every web address the app fetches', () => {
         const connect = sources('connect-src')
         expect(connect).toEqual(expect.arrayContaining(["'self'", 'ipc:', 'http://ipc.localhost']))

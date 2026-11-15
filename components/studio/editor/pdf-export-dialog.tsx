@@ -5,9 +5,10 @@ import type { ExportMarkdownOptions } from '@/lib/markdown/export-pdf'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import { pdfPageNumberFormat, resolvePdfExportMetadata } from '@/lib/markdown/export-metadata'
 import { notifyError } from '@/lib/notify'
-import { getActivePdfExportProfile, pdfBodyHeightMm, PDF_MIN_BODY_HEIGHT_MM } from '@/lib/settings/pdf-export-profiles'
+import { getActivePdfExportProfile, pdfBodyHeightMm, pdfPageWidthWarning, PDF_MIN_BODY_HEIGHT_MM } from '@/lib/settings/pdf-export-profiles'
 import type { PdfExportMetadata, PdfExportProfile } from '@/lib/settings/pdf-export-types'
 import { isWindowsTauri } from '@/lib/tauri/platform'
+import { PdfExportPreview } from '@/components/studio/editor/pdf-export-preview'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { BetaBadge } from '@/components/ui/beta-badge'
 import { Button } from '@/components/ui/button'
@@ -21,10 +22,14 @@ type PdfExportDialogProps = {
     onOpenChange: (open: boolean) => void
     source: string
     tabName: string | undefined
-    /** The document's file path, so the save dialog starts in its folder. */
+    /** The document's file path, so the save dialog starts in its folder and its images are found from it. */
     tabPath?: string
-    format?: ExportFormat
-    /** The user chose 'Load images' in this document's preview, so the PDF prints its web images too. */
+    /** The open folder. Only images inside it are embedded. */
+    workspaceRoot?: string | null
+    /** The format picked. The owner keeps it, so the next export opens at the same one. */
+    format: ExportFormat
+    onFormatChange: (format: ExportFormat) => void
+    /** The user chose 'Load images' in this document's preview, so the export embeds its web images too. */
     allowRemoteImages?: boolean
     /**
      * Whether an export is running. Kept by the owner, not the dialog, so it outlives the dialog
@@ -40,7 +45,9 @@ export function PdfExportDialog({
     source,
     tabName,
     tabPath,
-    format = 'pdf',
+    workspaceRoot = null,
+    format,
+    onFormatChange,
     allowRemoteImages = false,
     exporting,
     onExportingChange,
@@ -52,14 +59,20 @@ export function PdfExportDialog({
     }
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogPopup className="max-w-lg">
+            {/* With the PDF preview, a wide screen gets two columns: the settings, and the PDF beside them. */}
+            <DialogPopup
+                className="max-w-lg md:has-[[data-slot=pdf-preview]]:grid md:has-[[data-slot=pdf-preview]]:h-[min(85vh,56rem)]
+                    md:has-[[data-slot=pdf-preview]]:max-w-5xl md:has-[[data-slot=pdf-preview]]:grid-cols-[22rem_minmax(0,1fr)]
+                    md:has-[[data-slot=pdf-preview]]:grid-rows-[auto_minmax(0,1fr)_auto]"
+            >
                 {/* The popup unmounts when closed, so the form's state starts fresh on every open. */}
                 <PdfExportForm
-                    key={format}
                     source={source}
                     tabName={tabName}
                     tabPath={tabPath}
-                    initialFormat={format}
+                    workspaceRoot={workspaceRoot}
+                    format={format}
+                    onFormatChange={onFormatChange}
                     allowRemoteImages={allowRemoteImages}
                     busy={exporting}
                     onBusyChange={onExportingChange}
@@ -73,6 +86,7 @@ export function PdfExportDialog({
 const FORMAT_OPTIONS: { label: string; value: ExportFormat }[] = [
     { label: 'PDF', value: 'pdf' },
     { label: 'Word', value: 'docx' },
+    { label: 'HTML', value: 'html' },
 ]
 
 /**
@@ -90,15 +104,22 @@ function pageNumberNote(format: ExportFormat, profile: PdfExportProfile, metadat
     return ''
 }
 
-/**
- * The page-space warning from Settings, for the profile picked here: margins, header and footer
- * that leave little or no room for the text. The export still runs; Settings is where to fix it.
- */
-function pageSpaceNote(profile: PdfExportProfile): string {
+/** The height half of {@link pageSpaceNote}: margins, header and footer that leave little or no page height. */
+function pageHeightNote(profile: PdfExportProfile): string {
     const bodyHeightMm = pdfBodyHeightMm(profile)
     if (bodyHeightMm >= PDF_MIN_BODY_HEIGHT_MM) return ''
     if (bodyHeightMm <= 0) return 'Margins, header and footer are taller than the page, so there is no room left for the text.'
     return `Margins, header and footer leave only ${Math.floor(bodyHeightMm)} mm of page height for the text.`
+}
+
+/**
+ * The page-space warnings from Settings, for the profile picked here: margins, header and footer
+ * that leave little or no room for the text. The export still runs; Settings is where to fix it.
+ */
+function pageSpaceNote(format: ExportFormat, profile: PdfExportProfile): string {
+    // A web page has no pages to run out of.
+    if (format === 'html') return ''
+    return [pageHeightNote(profile), pdfPageWidthWarning(profile)].filter(Boolean).join(' ')
 }
 
 /**
@@ -108,6 +129,10 @@ function pageSpaceNote(profile: PdfExportProfile): string {
  */
 function titleFieldsNote(format: ExportFormat, profile: PdfExportProfile): string {
     if (profile.frontMatter.titlePage) return ''
+    // A web page has no header or footer, but keeps the author and subtitle in its <meta> tags.
+    if (format === 'html') {
+        return "Subtitle, author and date appear on the title page (off in this profile). Author and subtitle are also saved in the page's details."
+    }
     const note = 'Subtitle, author and date appear on the title page (off in this profile) and in {{…}} header or footer text.'
     const savedInFile = format === 'docx' || isWindowsTauri()
     return savedInFile ? `${note} Author and subtitle are also saved in the file's properties.` : note
@@ -134,7 +159,9 @@ function PdfExportForm({
     source,
     tabName,
     tabPath,
-    initialFormat,
+    workspaceRoot,
+    format,
+    onFormatChange,
     allowRemoteImages,
     busy,
     onBusyChange,
@@ -143,7 +170,9 @@ function PdfExportForm({
     source: string
     tabName: string | undefined
     tabPath: string | undefined
-    initialFormat: ExportFormat
+    workspaceRoot: string | null
+    format: ExportFormat
+    onFormatChange: (format: ExportFormat) => void
     allowRemoteImages: boolean
     busy: boolean
     onBusyChange: (busy: boolean) => void
@@ -160,13 +189,14 @@ function PdfExportForm({
     const [subtitle, setSubtitle] = useState(defaults.subtitle)
     const [author, setAuthor] = useState(defaults.author)
     const [date, setDate] = useState(defaults.date)
-    const [format, setFormat] = useState<ExportFormat>(initialFormat)
     const [error, setError] = useState('')
 
     const overrides: ExportMarkdownOptions['overrides'] = { title, subtitle, author, date }
     const note = pageNumberNote(format, profile, { title, subtitle, author, date })
-    const spaceNote = pageSpaceNote(profile)
+    const spaceNote = pageSpaceNote(format, profile)
     const fieldsNote = titleFieldsNote(format, profile)
+    // The preview prints through the Windows exporter, so it's only there for PDFs in the Windows app.
+    const showPreview = format === 'pdf' && isWindowsTauri()
 
     // Whether this form is still on screen, so an export that outlives it reports a failure as a toast.
     const mounted = useRef(false)
@@ -184,7 +214,14 @@ function PdfExportForm({
             // Let 'Exporting…' paint before the build takes over the main thread.
             await afterNextPaint()
             const { exportMarkdown, notifyExportSaved } = await loadMarkdownExport()
-            const result = await exportMarkdown(source, tabName, { format, profile, overrides, documentPath: tabPath, allowRemoteImages })
+            const result = await exportMarkdown(source, tabName, {
+                format,
+                profile,
+                overrides,
+                documentPath: tabPath,
+                workspaceRoot,
+                allowRemoteImages,
+            })
             // Cancelling the save picker or a failure keeps the dialog, and the edits, so the user can retry.
             if (result.status === 'saved') {
                 notifyExportSaved(result)
@@ -207,7 +244,7 @@ function PdfExportForm({
 
     return (
         <>
-            <DialogHeader>
+            <DialogHeader className="col-span-full">
                 <DialogTitle className="flex items-center gap-2">
                     Export document
                     <BetaBadge />
@@ -220,7 +257,7 @@ function PdfExportForm({
                 <fieldset disabled={busy} className="min-w-0 space-y-4">
                     <Field>
                         <FieldLabel htmlFor="export-format">Format</FieldLabel>
-                        <OptionSelect id="export-format" value={format} options={FORMAT_OPTIONS} onChange={setFormat} />
+                        <OptionSelect id="export-format" value={format} options={FORMAT_OPTIONS} onChange={onFormatChange} />
                     </Field>
                     <Field>
                         <FieldLabel htmlFor="export-profile">Profile</FieldLabel>
@@ -255,7 +292,22 @@ function PdfExportForm({
                     </p>
                 ) : null}
             </DialogPanel>
-            <DialogFooter>
+            {showPreview ? (
+                <PdfExportPreview
+                    source={source}
+                    tabName={tabName}
+                    tabPath={tabPath}
+                    workspaceRoot={workspaceRoot}
+                    profile={profile}
+                    title={title}
+                    subtitle={subtitle}
+                    author={author}
+                    date={date}
+                    allowRemoteImages={allowRemoteImages}
+                    className="h-[40vh] shrink-0 px-6 pb-6 md:h-auto md:ps-0 md:pt-1"
+                />
+            ) : null}
+            <DialogFooter className="col-span-full">
                 <p role="status" aria-live="polite" className="text-sm text-muted-foreground sm:me-auto sm:self-center">
                     {busy ? 'Exporting…' : ''}
                 </p>

@@ -59,7 +59,10 @@ fn save_allowed(
 /// could point the file anywhere on disk (the file plugin's own commands refuse
 /// `..` for the same reason). Its folder is looked up on disk instead, which
 /// also follows any link among its folders, and the file is saved there.
-fn allowed_target(path: &Path, is_allowed: impl Fn(&Path) -> bool) -> Result<PathBuf, String> {
+pub(crate) fn allowed_target(
+    path: &Path,
+    is_allowed: impl Fn(&Path) -> bool,
+) -> Result<PathBuf, String> {
     let refused = || {
         format!(
             "Scrivon can only change files in a folder you opened: {}",
@@ -325,7 +328,7 @@ const REPLACE_ATTEMPTS: u32 = 5;
 const REPLACE_RETRY: Duration = Duration::from_millis(50);
 
 /// Writes `bytes` to `path`, replacing the file in one step, or creating it.
-fn save(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn save(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let Ok(target) = fs::symlink_metadata(path) else {
         return write_new(path, bytes);
     };
@@ -458,7 +461,7 @@ fn swap_in(
     // supported, invalid parameter). A rename still swaps the new text in whole,
     // as saves did before; the file just loses its ACLs and other streams.
     if path.exists() && temp.exists() {
-        eprintln!(
+        log::warn!(
             "Couldn't replace {} keeping its identity ({err}), so the new version is renamed over it",
             path.display()
         );

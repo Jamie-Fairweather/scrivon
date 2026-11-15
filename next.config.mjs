@@ -11,6 +11,19 @@ const nextConfig = {
     images: {
         unoptimized: true,
     },
+    // The spell check's Hunspell dictionaries (lib/spellcheck/spellcheck.worker.ts) are read as text.
+    turbopack: {
+        rules: {
+            '*.aff': { type: 'raw' },
+            '*.dic': { type: 'raw' },
+        },
+        resolveAlias: {
+            // Its "browser" build calls document.createElement as it loads. Turbopack picks that build
+            // for web workers too, where there is no document, so the spell check worker crashed before
+            // it could answer. This build works everywhere.
+            'decode-named-character-reference': './node_modules/decode-named-character-reference/index.js',
+        },
+    },
     // Port 3000 must match `next dev -p 3000` in package.json and build.devUrl in src-tauri/tauri.conf.json.
     // The explicit -p makes next dev stop when 3000 is taken instead of moving to another port.
     assetPrefix: isProd ? undefined : `http://${internalHost}:3000`,

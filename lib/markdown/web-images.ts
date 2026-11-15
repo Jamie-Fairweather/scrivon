@@ -17,6 +17,11 @@ export function isWebImageUrl(src: string, pageUrl: string): boolean {
     }
 }
 
+/** A web image's full address, as the app's page reads it (`//host/x.png` is `http://host/x.png`). Throws when it can't be read. */
+export function webImageAddress(src: string): string {
+    return new URL(src.trim(), APP_PAGE_URL).href
+}
+
 /**
  * Whether an image in an exported PDF would be fetched from the web. The export page is shown in two places: inside
  * the app (the print dialog's frame, at the app's own address) and, on Windows, in a blank page of its own, where

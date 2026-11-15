@@ -1,5 +1,6 @@
+import { normalizeColorHex } from '@/lib/color-hex'
 import { isAppThemeId } from '@/lib/theme/catalog'
-import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, PDF_EXPORT_LIMITS } from '@/lib/settings/pdf-export-defaults'
+import { createDefaultPdfExportProfile, createDefaultPdfExportSettings, PDF_EXPORT_LIMITS, PDF_PAGE_SIZES } from '@/lib/settings/pdf-export-defaults'
 import { repairFontStack, repairMonoFontStack } from '@/lib/settings/pdf-export-fonts'
 import type {
     PdfExportChrome,
@@ -14,13 +15,13 @@ import type {
     PdfPageSize,
     PdfTocDepth,
 } from '@/lib/settings/pdf-export-types'
-import type { ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import { EXPORT_CODE_THEMES, type ShikiTheme } from '@/lib/markdown/code-themes'
 
-const PAGE_SIZES: PdfPageSize[] = ['a4', 'letter']
+const PAGE_SIZES: PdfPageSize[] = [...(Object.keys(PDF_PAGE_SIZES) as PdfPageSize[]), 'custom']
 const ORIENTATIONS: PdfPageOrientation[] = ['portrait', 'landscape']
 const HIDE_OPTIONS: PdfHideOnFirstPages[] = ['none', 'title', 'title+toc']
 const PAGE_NUMBER_FORMATS: PdfPageNumberFormat[] = ['none', 'number', 'page-n', 'n-of-total', 'custom']
-const CODE_THEMES: ShikiTheme[] = ['github-light', 'github-dark']
+const CODE_THEMES: ShikiTheme[] = EXPORT_CODE_THEMES.map((theme) => theme.id)
 const TOC_DEPTHS: PdfTocDepth[] = [1, 2, 3, 4]
 const NEW_PAGE_LEVELS: PdfNewPageFromHeading[] = [0, 1, 2, 3, 4, 5, 6]
 
@@ -43,6 +44,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function normalizeString(value: unknown, fallback: string): string {
     return typeof value === 'string' ? value : fallback
+}
+
+/**
+ * A hex colour, or '' when `allowEmpty` (the export then picks the colour). Anything else gets `fallback`: colours go
+ * into the export's CSS as they are, and a shared profile could otherwise add rules of its own there.
+ */
+function normalizeColor(value: unknown, fallback: string, allowEmpty: boolean): string {
+    if (typeof value !== 'string') return fallback
+    const color = value.trim()
+    if (allowEmpty && color === '') return ''
+    return normalizeColorHex(color) ? color : fallback
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
@@ -69,6 +81,14 @@ function normalizeMargins(raw: unknown, fallback: PdfExportProfile['page']['marg
     }
 }
 
+function normalizeCustomSize(raw: unknown, fallback: PdfExportProfile['page']['customSizeMm']): PdfExportProfile['page']['customSizeMm'] {
+    const source = asRecord(raw)
+    return {
+        width: normalizeNumber(source?.width, fallback.width, PDF_EXPORT_LIMITS.pageMm),
+        height: normalizeNumber(source?.height, fallback.height, PDF_EXPORT_LIMITS.pageMm),
+    }
+}
+
 function normalizeSide(raw: unknown, fallback: PdfExportChromeSide): PdfExportChromeSide {
     const source = asRecord(raw)
     return {
@@ -88,8 +108,8 @@ function normalizeChrome(raw: unknown, fallback: PdfExportChrome): PdfExportChro
         enabled: typeof source?.enabled === 'boolean' ? source.enabled : fallback.enabled,
         left: normalizeSide(source?.left, legacyLeft),
         right: normalizeSide(source?.right, fallback.right),
-        backgroundColor: normalizeString(source?.backgroundColor, fallback.backgroundColor),
-        textColor: normalizeString(source?.textColor, fallback.textColor),
+        backgroundColor: normalizeColor(source?.backgroundColor, fallback.backgroundColor, true),
+        textColor: normalizeColor(source?.textColor, fallback.textColor, true),
         heightMm: normalizeNumber(source?.heightMm, fallback.heightMm, PDF_EXPORT_LIMITS.chromeMm),
         gapMm: normalizeNumber(source?.gapMm, fallback.gapMm, PDF_EXPORT_LIMITS.chromeMm),
         ignoreMargins: normalizeBoolean(source?.ignoreMargins, fallback.ignoreMargins),
@@ -103,6 +123,7 @@ function normalizeFooter(raw: unknown, fallback: PdfExportFooter): PdfExportFoot
     return {
         ...chrome,
         pageNumbers: normalizeEnum(source?.pageNumbers, PAGE_NUMBER_FORMATS, fallback.pageNumbers),
+        numberFromBody: normalizeBoolean(source?.numberFromBody, fallback.numberFromBody),
     }
 }
 
@@ -125,6 +146,7 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
         name: normalizeString(source.name, fallback.name) || fallback.name,
         page: {
             size: normalizeEnum(page?.size, PAGE_SIZES, fallback.page.size),
+            customSizeMm: normalizeCustomSize(page?.customSizeMm, fallback.page.customSizeMm),
             orientation: normalizeEnum(page?.orientation, ORIENTATIONS, fallback.page.orientation),
             marginsMm: normalizeMargins(page?.marginsMm, fallback.page.marginsMm),
         },
@@ -137,8 +159,8 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
             justify: normalizeBoolean(typography?.justify, fallback.typography.justify),
         },
         brand: {
-            accentColor: normalizeString(brand?.accentColor, fallback.brand.accentColor),
-            linkColor: normalizeString(brand?.linkColor, fallback.brand.linkColor),
+            accentColor: normalizeColor(brand?.accentColor, fallback.brand.accentColor, false),
+            linkColor: normalizeColor(brand?.linkColor, fallback.brand.linkColor, true),
             logoPath: normalizeString(brand?.logoPath, fallback.brand.logoPath),
             logoIgnoreMargins: normalizeBoolean(brand?.logoIgnoreMargins, fallback.brand.logoIgnoreMargins),
         },
@@ -147,6 +169,7 @@ export function normalizePdfExportProfile(raw: unknown, fallback: PdfExportProfi
             toc: typeof frontMatter?.toc === 'boolean' ? frontMatter.toc : fallback.frontMatter.toc,
             tocDepth: normalizeIntEnum(frontMatter?.tocDepth, TOC_DEPTHS, fallback.frontMatter.tocDepth),
             tocExcludeH1: typeof frontMatter?.tocExcludeH1 === 'boolean' ? frontMatter.tocExcludeH1 : fallback.frontMatter.tocExcludeH1,
+            tocTitle: normalizeString(frontMatter?.tocTitle, fallback.frontMatter.tocTitle),
         },
         header: normalizeChrome(source.header, fallback.header),
         footer: normalizeFooter(source.footer, fallback.footer),

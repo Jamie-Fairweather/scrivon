@@ -1,6 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
@@ -30,6 +31,8 @@ type UpdateAvailableDialogProps = {
     phase: InstallPhase
     /** Null until the first bytes arrive. */
     download: DownloadProgress | null
+    /** Why the last Install failed, if it did. */
+    error?: string | null
     onLater: () => void
     onInstall: () => void
 }
@@ -86,7 +89,7 @@ function InstallStatus({ phase, download }: { phase: InstallPhase; download: Dow
     )
 }
 
-export function UpdateAvailableDialog({ update, notesLoading, phase, download, onLater, onInstall }: UpdateAvailableDialogProps) {
+export function UpdateAvailableDialog({ update, notesLoading, phase, download, error, onLater, onInstall }: UpdateAvailableDialogProps) {
     const showChangelog = Boolean(update.notes?.trim()) || notesLoading
     const busy = phase !== 'idle'
 
@@ -109,6 +112,14 @@ export function UpdateAvailableDialog({ update, notesLoading, phase, download, o
                     </DialogPanel>
                 ) : null}
                 <InstallStatus phase={phase} download={download} />
+                {error && phase === 'idle' ? (
+                    <div className="px-6">
+                        <Alert variant="error">
+                            <AlertTitle>Couldn&apos;t install the update</AlertTitle>
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    </div>
+                ) : null}
                 {/* There from the start, so the first step is announced too. */}
                 <p className="sr-only" aria-live="polite" aria-atomic="true">
                     {PHASE_ANNOUNCEMENT[phase]}
@@ -118,7 +129,7 @@ export function UpdateAvailableDialog({ update, notesLoading, phase, download, o
                         Later
                     </Button>
                     <Button type="button" loading={busy} onClick={onInstall}>
-                        {INSTALL_LABEL[phase]}
+                        {error && phase === 'idle' ? 'Try again' : INSTALL_LABEL[phase]}
                     </Button>
                 </DialogFooter>
             </DialogPopup>

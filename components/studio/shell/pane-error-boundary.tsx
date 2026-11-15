@@ -2,6 +2,7 @@
 
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Card, CardPanel } from '@/components/ui/card'
+import { logError } from '@/lib/diagnostics/app-log'
 import { errorMessage } from '@/lib/notify'
 import { cn } from '@/lib/utils'
 
@@ -46,6 +47,7 @@ export class PaneErrorBoundary extends Component<PaneErrorBoundaryProps, PaneErr
 
     componentDidCatch(error: unknown, info: ErrorInfo) {
         console.error('A pane hit an error while rendering:', error, info.componentStack)
+        logError('A pane hit an error while rendering', error)
     }
 
     render() {

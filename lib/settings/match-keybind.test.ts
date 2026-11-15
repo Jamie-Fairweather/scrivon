@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import { matchKeybind } from '@/lib/settings/match-keybind'
+import { matchKeybind, matchKeybinds, recordedChord } from '@/lib/settings/match-keybind'
 
 type KeyOptions = {
     ctrl?: boolean
@@ -49,8 +49,35 @@ describe('matchKeybind', () => {
         expect(matchKeybind(keyEvent('s', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('workspace.saveAll')
     })
 
-    it('matches Ctrl+B for view.toggleExplorer when workspace is open', () => {
-        expect(matchKeybind(keyEvent('b', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
+    it('matches Ctrl+Shift+X for document.export, also in the editor, when a workspace is open', () => {
+        const inEditor = { closest: (selector: string) => (selector === '.monaco-editor' ? {} : null), tagName: 'DIV' } as unknown as EventTarget
+        expect(matchKeybind(keyEvent('X', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('document.export')
+        expect(matchKeybind(keyEvent('X', { ctrl: true, shift: true }, inEditor), bindings, { hasWorkspace: true })).toBe('document.export')
+        expect(matchKeybind(keyEvent('X', { ctrl: true, shift: true }), bindings, { hasWorkspace: false })).toBeNull()
+    })
+
+    it('matches Ctrl+Shift+B for view.toggleExplorer when workspace is open', () => {
+        expect(matchKeybind(keyEvent('b', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
+    })
+
+    it('matches Ctrl+N for a new document and Alt+N for a new diagram, also in the editor, only with a folder open', () => {
+        const inEditor = { tagName: 'DIV', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) } as unknown as EventTarget
+        expect(matchKeybind(keyEvent('n', { ctrl: true }, inEditor), bindings, { hasWorkspace: true })).toBe('workspace.newDocument')
+        expect(matchKeybind(keyEvent('n', { alt: true, code: 'KeyN' }, inEditor), bindings, { hasWorkspace: true })).toBe('workspace.newDiagram')
+        expect(matchKeybind(keyEvent('n', { ctrl: true }), bindings)).toBeNull()
+        expect(matchKeybind(keyEvent('n', { alt: true }), bindings)).toBeNull()
+        // Cmd+Option+N on a Mac, where Option alone types.
+        expect(matchKeybind(keyEvent('n', { meta: true, alt: true }), createDefaultKeybinds(true), { hasWorkspace: true })).toBe(
+            'workspace.newDiagram'
+        )
+        // New Folder has no keys until the user picks some.
+        expect(bindings['workspace.newFolder']).toEqual([])
+    })
+
+    it('matches Ctrl+Alt+P for view.togglePreview when workspace is open, also on a layout with AltGr', () => {
+        expect(matchKeybind(keyEvent('p', { ctrl: true, alt: true }), bindings, { hasWorkspace: true })).toBe('view.togglePreview')
+        const german = keyEvent('p', { ctrl: true, alt: true, altGraph: true, code: 'KeyP' })
+        expect(matchKeybind(german, bindings, { hasWorkspace: true })).toBe('view.togglePreview')
     })
 
     it('matches Cmd+S on mac defaults', () => {
@@ -81,6 +108,21 @@ describe('matchKeybind', () => {
         const event = keyEvent('F1')
         Object.defineProperty(event, 'repeat', { value: true })
         expect(matchKeybind(event, bindings)).toBeNull()
+        const closeTab = keyEvent('w', { ctrl: true })
+        Object.defineProperty(closeTab, 'repeat', { value: true })
+        expect(matchKeybind(closeTab, bindings, { hasWorkspace: true })).toBeNull()
+    })
+
+    it('keeps moving through the tabs while Ctrl+Tab or Ctrl+PageDown is held', () => {
+        const held = (key: string, modifiers: KeyOptions) => {
+            const event = keyEvent(key, modifiers)
+            Object.defineProperty(event, 'repeat', { value: true })
+            return event
+        }
+        expect(matchKeybind(held('Tab', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('tabs.next')
+        expect(matchKeybind(held('PageDown', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('tabs.next')
+        expect(matchKeybind(held('Tab', { ctrl: true, shift: true }), bindings, { hasWorkspace: true })).toBe('tabs.previous')
+        expect(matchKeybind(held('PageUp', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('tabs.previous')
     })
 
     it('ignores actions with no assigned chords', () => {
@@ -110,6 +152,22 @@ describe('matchKeybind', () => {
             expect(matchKeybind(event, withSymbol, { hasWorkspace: true })).toBe('view.fitDiagram')
         })
 
+        it('matches Ctrl+1, Ctrl+2, Ctrl+0 and Alt+0 on AZERTY, where the digit keys type & é à without Shift', () => {
+            const workspace = { hasWorkspace: true }
+            expect(matchKeybind(keyEvent('&', { ctrl: true, code: 'Digit1' }), bindings, workspace)).toBe('view.focusEditor')
+            expect(matchKeybind(keyEvent('é', { ctrl: true, code: 'Digit2' }), bindings, workspace)).toBe('view.focusPreview')
+            expect(matchKeybind(keyEvent('à', { ctrl: true, code: 'Digit0' }), bindings, workspace)).toBe('view.appZoomReset')
+            expect(matchKeybind(keyEvent('à', { alt: true, code: 'Digit0' }), bindings, workspace)).toBe('view.resetDiagramZoom')
+        })
+
+        it('still matches a digit key by what it types first, when that is bound', () => {
+            const withDigits = { ...bindings, 'view.fitDiagram': [{ key: '6', ctrl: true }], 'view.toggleEditor': [{ key: '1', ctrl: true }] }
+            // AZERTY's 6 key types -, so Ctrl+- zooms out rather than running Ctrl+6.
+            expect(matchKeybind(keyEvent('-', { ctrl: true, code: 'Digit6' }), withDigits, { hasWorkspace: true })).toBe('view.appZoomOut')
+            // Czech's 1 key types +, so Ctrl+Plus zooms in.
+            expect(matchKeybind(keyEvent('+', { ctrl: true, code: 'Digit1' }), withDigits, { hasWorkspace: true })).toBe('view.appZoomIn')
+        })
+
         it('follows the printed letter on Latin layouts like Dvorak', () => {
             // Dvorak puts "o" where QWERTY has "s"; Ctrl+O must not save.
             expect(matchKeybind(keyEvent('o', { ctrl: true, code: 'KeyS' }), bindings)).toBeNull()
@@ -134,6 +192,13 @@ describe('matchKeybind', () => {
             expect(matchKeybind(german, withAltGrChords, { hasWorkspace: true })).toBeNull()
         })
 
+        it('leaves Polish AltGr+N to type ń, as New Diagram is on Alt+N there', () => {
+            const workspace = { hasWorkspace: true }
+            const polish = keyEvent('ń', { ctrl: true, alt: true, altGraph: true, code: 'KeyN' }, editorTarget)
+            expect(matchKeybind(polish, bindings, workspace)).toBeNull()
+            expect(matchKeybind(keyEvent('n', { alt: true, code: 'KeyN' }, editorTarget), bindings, workspace)).toBe('workspace.newDiagram')
+        })
+
         it('still fires Ctrl+Alt shortcuts on keys that type nothing with AltGr', () => {
             const withCtrlAlt = { ...bindings, 'view.toggleExplorer': [{ key: 't', ctrl: true, alt: true }] }
             const event = keyEvent('t', { ctrl: true, alt: true, altGraph: true, code: 'KeyT' }, editorTarget)
@@ -145,6 +210,45 @@ describe('matchKeybind', () => {
             const withCtrlAlt = { ...bindings, 'view.toggleExplorer': [{ key: 's', ctrl: true, alt: true }] }
             const russian = keyEvent('ы', { ctrl: true, alt: true, altGraph: true, code: 'KeyS' }, editorTarget)
             expect(matchKeybind(russian, withCtrlAlt, { hasWorkspace: true })).toBe('view.toggleExplorer')
+        })
+
+        it('fires the diagram zoom defaults on plain Alt, which AltGr keyboards like UK and German leave alone', () => {
+            // Left Alt is never AltGr, so these work on every layout that has the key.
+            expect(matchKeybind(keyEvent('=', { code: 'Equal', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBe(
+                'view.zoomDiagramIn'
+            )
+            expect(matchKeybind(keyEvent('-', { code: 'Minus', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBe(
+                'view.zoomDiagramOut'
+            )
+            expect(matchKeybind(keyEvent('0', { code: 'Digit0', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBe(
+                'view.resetDiagramZoom'
+            )
+            // German has - where US has /.
+            expect(matchKeybind(keyEvent('-', { code: 'Slash', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBe(
+                'view.zoomDiagramOut'
+            )
+            // AltGr (Ctrl+Alt) with the same keys is still left for typing.
+            for (const [key, code] of [
+                ['=', 'Equal'],
+                ['-', 'Minus'],
+                ['0', 'Digit0'],
+            ]) {
+                const altGr = keyEvent(key, { code, ctrl: true, alt: true, altGraph: true }, editorTarget)
+                expect(matchKeybind(altGr, bindings, { hasWorkspace: true })).toBeNull()
+            }
+        })
+
+        it('zooms the diagram in with Alt+Plus: the plus key (German), the number pad, or Alt+Shift+= (US)', () => {
+            const workspace = { hasWorkspace: true }
+            expect(matchKeybind(keyEvent('+', { code: 'BracketRight', alt: true }, editorTarget), bindings, workspace)).toBe('view.zoomDiagramIn')
+            expect(matchKeybind(keyEvent('+', { code: 'NumpadAdd', alt: true }, editorTarget), bindings, workspace)).toBe('view.zoomDiagramIn')
+            expect(matchKeybind(keyEvent('+', { code: 'Equal', alt: true, shift: true }, editorTarget), bindings, workspace)).toBe(
+                'view.zoomDiagramIn'
+            )
+        })
+
+        it('leaves Alt with a number-pad digit for Alt codes (Alt+0233 types é)', () => {
+            expect(matchKeybind(keyEvent('0', { code: 'Numpad0', alt: true }, editorTarget), bindings, { hasWorkspace: true })).toBeNull()
         })
 
         it('never fires on AltGr or a lock key on its own', () => {
@@ -185,7 +289,9 @@ describe('matchKeybind', () => {
         it('lets real shortcuts through on every platform', () => {
             expect(matchKeybind(keyEvent('s', { ctrl: true }, editorTarget('TEXTAREA')), bindings)).toBe('document.save')
             expect(matchKeybind(keyEvent('s', { meta: true }, editorTarget('TEXTAREA')), createDefaultKeybinds(true))).toBe('document.save')
-            expect(matchKeybind(keyEvent('b', { ctrl: true }, editorTarget('DIV')), bindings, { hasWorkspace: true })).toBe('view.toggleExplorer')
+            expect(matchKeybind(keyEvent('b', { ctrl: true, shift: true }, editorTarget('DIV')), bindings, { hasWorkspace: true })).toBe(
+                'view.toggleExplorer'
+            )
             expect(matchKeybind(keyEvent('F1', {}, editorTarget('TEXTAREA')), bindings)).toBe('palette.open')
         })
 
@@ -198,6 +304,35 @@ describe('matchKeybind', () => {
         it('still skips shortcuts in plain inputs outside the editor', () => {
             const input = { tagName: 'INPUT', closest: () => null } as unknown as EventTarget
             expect(matchKeybind(keyEvent('b', { ctrl: true }, input), bindings, { hasWorkspace: true })).toBeNull()
+        })
+    })
+
+    describe('Markdown actions', () => {
+        // Monaco's own typing surface, where closest() finds both the editor and the element it types into.
+        const editorText = { tagName: 'DIV', closest: () => ({}) } as unknown as EventTarget
+        // Its find box: inside the editor, but not where the text is typed.
+        const findBox = { tagName: 'TEXTAREA', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) } as unknown as EventTarget
+
+        it('run while typing in the editor, before an app shortcut on the same keys', () => {
+            expect(matchKeybind(keyEvent('b', { ctrl: true }, editorText), bindings, { hasWorkspace: true })).toBe('format.bold')
+            expect(matchKeybinds(keyEvent('e', { ctrl: true }, editorText), bindings, { hasWorkspace: true })).toEqual([
+                'format.code',
+                'view.toggleEditor',
+            ])
+            expect(matchKeybind(keyEvent('k', { meta: true }, editorText), createDefaultKeybinds(true))).toBe('format.link')
+        })
+
+        it('never run in the find box or outside the editor, where the app shortcut runs', () => {
+            for (const target of [findBox, { tagName: 'BODY' } as unknown as EventTarget]) {
+                expect(matchKeybind(keyEvent('b', { ctrl: true }, target), bindings, { hasWorkspace: true })).toBeNull()
+                expect(matchKeybinds(keyEvent('e', { ctrl: true }, target), bindings, { hasWorkspace: true })).toEqual(['view.toggleEditor'])
+            }
+        })
+
+        it('do not repeat while the keys are held', () => {
+            const held = keyEvent('b', { ctrl: true }, editorText)
+            Object.defineProperty(held, 'repeat', { value: true })
+            expect(matchKeybinds(held, bindings, { hasWorkspace: true })).toEqual([])
         })
     })
 
@@ -220,7 +355,120 @@ describe('matchKeybind', () => {
         })
     })
 
+    describe('moving between panes', () => {
+        const workspace = { hasWorkspace: true }
+        const input = { tagName: 'INPUT', closest: () => null } as unknown as EventTarget
+        const editor = { tagName: 'TEXTAREA', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) } as unknown as EventTarget
+
+        it('focuses the explorer, editor and preview, and F6 / Shift+F6 cycle the panes, once a folder is open', () => {
+            expect(matchKeybind(keyEvent('E', { ctrl: true, shift: true }), bindings, workspace)).toBe('view.focusExplorer')
+            expect(matchKeybind(keyEvent('1', { ctrl: true }), bindings, workspace)).toBe('view.focusEditor')
+            expect(matchKeybind(keyEvent('2', { ctrl: true }), bindings, workspace)).toBe('view.focusPreview')
+            expect(matchKeybind(keyEvent('F6'), bindings, workspace)).toBe('view.focusNextPane')
+            expect(matchKeybind(keyEvent('F6', { shift: true }), bindings, workspace)).toBe('view.focusPreviousPane')
+            expect(matchKeybind(keyEvent('F6'), bindings)).toBeNull()
+        })
+
+        it('uses Cmd on macOS', () => {
+            expect(matchKeybind(keyEvent('1', { meta: true }), createDefaultKeybinds(true), workspace)).toBe('view.focusEditor')
+        })
+
+        it('lets F6 and Shift+F6 out of the editor and out of a text box', () => {
+            expect(matchKeybind(keyEvent('F6', {}, editor), bindings, workspace)).toBe('view.focusNextPane')
+            expect(matchKeybind(keyEvent('F6', { shift: true }, input), bindings, workspace)).toBe('view.focusPreviousPane')
+        })
+
+        it('leaves the other focus keys to a text box, but not to the editor', () => {
+            expect(matchKeybind(keyEvent('2', { ctrl: true }, input), bindings, workspace)).toBeNull()
+            expect(matchKeybind(keyEvent('2', { ctrl: true }, editor), bindings, workspace)).toBe('view.focusPreview')
+        })
+    })
+
     it('does not treat non-field targets as native text fields', () => {
         expect(matchKeybind(keyEvent('s', { ctrl: true }, {} as EventTarget), bindings)).toBe('document.save')
+    })
+})
+
+describe('app zoom shortcuts', () => {
+    const bindings = createDefaultKeybinds(false)
+    /** An element that `closest` finds inside the diagram canvas, or not. */
+    const element = (tagName: string, inCanvas = false) =>
+        ({ tagName, closest: (selector: string) => (inCanvas && selector === '[data-own-zoom]' ? {} : null) }) as unknown as EventTarget
+
+    it('zooms in with Ctrl+= or Ctrl+Plus, out with Ctrl+-, and back to 100% with Ctrl+0, with or without a folder', () => {
+        expect(matchKeybind(keyEvent('=', { ctrl: true }), bindings)).toBe('view.appZoomIn')
+        // The number pad's plus, and the plus key on layouts that have one (German).
+        expect(matchKeybind(keyEvent('+', { ctrl: true }), bindings)).toBe('view.appZoomIn')
+        // Plus is Shift+= on US and UK keyboards.
+        expect(matchKeybind(keyEvent('+', { ctrl: true, shift: true, code: 'Equal' }), bindings)).toBe('view.appZoomIn')
+        expect(matchKeybind(keyEvent('-', { ctrl: true }), bindings, { hasWorkspace: true })).toBe('view.appZoomOut')
+        expect(matchKeybind(keyEvent('0', { ctrl: true }), bindings)).toBe('view.appZoomReset')
+    })
+
+    it('uses Cmd on macOS', () => {
+        expect(matchKeybind(keyEvent('=', { meta: true }), createDefaultKeybinds(true))).toBe('view.appZoomIn')
+    })
+
+    it('leaves Ctrl+Shift+Plus to a shortcut the user bound to it', () => {
+        // Save All comes after Zoom In in the list, so this checks the exact chord wins, not the first action.
+        const custom = { ...bindings, 'workspace.saveAll': [{ key: '+', ctrl: true, shift: true }] }
+        const ctrlShiftPlus = keyEvent('+', { ctrl: true, shift: true, code: 'Equal' })
+        expect(matchKeybind(ctrlShiftPlus, custom, { hasWorkspace: true })).toBe('workspace.saveAll')
+    })
+
+    it('only lets Shift go with Plus', () => {
+        expect(matchKeybind(keyEvent('=', { ctrl: true, shift: true, code: 'Equal' }), bindings)).toBeNull()
+        expect(matchKeybind(keyEvent('_', { ctrl: true, shift: true, code: 'Minus' }), bindings)).toBeNull()
+    })
+
+    it('works in text boxes and the editor too', () => {
+        expect(matchKeybind(keyEvent('=', { ctrl: true }, element('INPUT')), bindings)).toBe('view.appZoomIn')
+        expect(matchKeybind(keyEvent('-', { ctrl: true }, element('TEXTAREA')), bindings, { inPalette: true })).toBe('view.appZoomOut')
+    })
+
+    it('leaves the keys to the diagram canvas while it has focus, so its own zoom wins', () => {
+        const canvas = element('DIV', true)
+        expect(matchKeybind(keyEvent('=', { ctrl: true }, canvas), bindings)).toBeNull()
+        expect(matchKeybind(keyEvent('0', { ctrl: true }, canvas), bindings)).toBeNull()
+        // Other shortcuts still work there.
+        expect(matchKeybind(keyEvent('s', { ctrl: true }, canvas), bindings)).toBe('document.save')
+    })
+})
+
+describe('recordedChord', () => {
+    const bindings = createDefaultKeybinds(false)
+
+    it('saves the digit for a digit key that types a symbol, so it works on any layout', () => {
+        // AZERTY: the 1 key types "&", and with Shift the digit itself.
+        expect(recordedChord(keyEvent('&', { ctrl: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', ctrl: true })
+        expect(recordedChord(keyEvent('&', { alt: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', alt: true })
+        expect(recordedChord(keyEvent('6', { ctrl: true, shift: true, code: 'Digit6' }), bindings)).toEqual({ key: '6', ctrl: true, shift: true })
+        // US: Shift+1 types "!".
+        expect(recordedChord(keyEvent('!', { ctrl: true, shift: true, code: 'Digit1' }), bindings)).toEqual({ key: '1', ctrl: true, shift: true })
+    })
+
+    it('saves the key as typed when that is already a shortcut, as pressing the key runs that one', () => {
+        // AZERTY: the 6 key types "-", so Ctrl with it zooms out, and Alt with it zooms the diagram out.
+        const ctrlSix = keyEvent('-', { ctrl: true, code: 'Digit6' })
+        expect(recordedChord(ctrlSix, bindings)).toEqual({ key: '-', ctrl: true })
+        expect(matchKeybind(ctrlSix, bindings)).toBe('view.appZoomOut')
+        expect(recordedChord(keyEvent('-', { alt: true, code: 'Digit6' }), bindings)).toEqual({ key: '-', alt: true })
+        // Czech: the 1 key types "+".
+        expect(recordedChord(keyEvent('+', { ctrl: true, code: 'Digit1' }), bindings)).toEqual({ key: '+', ctrl: true })
+        // Swiss: Shift+1 types "+", which counts as Ctrl+Plus too.
+        expect(recordedChord(keyEvent('+', { ctrl: true, shift: true, code: 'Digit1' }), bindings)).toEqual({ key: '+', ctrl: true })
+    })
+
+    it('saves the digit once nothing has the key as typed', () => {
+        const noZoomOut = { ...bindings, 'view.appZoomOut': [] }
+        expect(recordedChord(keyEvent('-', { ctrl: true, code: 'Digit6' }), noZoomOut)).toEqual({ key: '6', ctrl: true })
+    })
+
+    it('saves the physical key on a non-Latin layout, and other keys as typed', () => {
+        expect(recordedChord(keyEvent('ы', { ctrl: true, code: 'KeyS' }), bindings)).toEqual({ key: 's', ctrl: true })
+        expect(recordedChord(keyEvent('F2', { code: 'F2' }), bindings)).toEqual({ key: 'F2' })
+        expect(recordedChord(keyEvent('o', { ctrl: true, code: 'KeyS' }), bindings)).toEqual({ key: 'o', ctrl: true })
+        // Left for the recorder to refuse.
+        expect(recordedChord(keyEvent('Dead', { ctrl: true, code: 'BracketLeft' }), bindings)).toEqual({ key: 'Dead', ctrl: true })
     })
 })

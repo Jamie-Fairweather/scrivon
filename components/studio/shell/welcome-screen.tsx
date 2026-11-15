@@ -34,9 +34,9 @@ export function WelcomeScreen() {
         else openFolderRef.current?.focus()
     }, [recentWorkspaces])
 
-    // The column scrolls when it is taller than the window; my-auto keeps it centred when it fits.
+    // The page's one main landmark. The column scrolls when it is taller than the window; my-auto keeps it centred when it fits.
     return (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6">
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6">
             <div className="my-auto flex w-full flex-col items-center gap-8 py-8">
                 <div className="flex flex-col items-center gap-2 text-center">
                     <h1 className="text-2xl font-semibold tracking-tight">{APP_NAME}</h1>
@@ -131,6 +131,6 @@ export function WelcomeScreen() {
                     </div>
                 )}
             </div>
-        </div>
+        </main>
     )
 }

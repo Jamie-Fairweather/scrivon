@@ -6,9 +6,12 @@ import {
     deletePdfExportProfile,
     duplicatePdfExportProfile,
     getActivePdfExportProfile,
+    importPdfExportProfile,
     otherProfileNamed,
     PDF_AUTO_BAR_HEIGHT_MM,
     pdfBodyHeightMm,
+    pdfBodyWidthMm,
+    pdfPageWidthWarning,
     renamePdfExportProfile,
     setActivePdfExportProfile,
     uniqueProfileName,
@@ -79,6 +82,12 @@ describe('normalizePdfExportSettings', () => {
         expect(custom.brand.logoIgnoreMargins).toBe(true)
     })
 
+    it('counts every page unless a profile numbers its pages from the body', () => {
+        expect(normalizePdfExportProfile({ footer: { pageNumbers: 'number' } }).footer.numberFromBody).toBe(false)
+        expect(normalizePdfExportProfile({ footer: { numberFromBody: 'yes' } }).footer.numberFromBody).toBe(false)
+        expect(normalizePdfExportProfile({ footer: { numberFromBody: true } }).footer.numberFromBody).toBe(true)
+    })
+
     it('moves single-sided legacy chrome to the left and accepts two-sided chrome', () => {
         const legacy = normalizePdfExportProfile({
             header: { text: 'Acme', imagePath: 'C:/logo.png' },
@@ -98,6 +107,35 @@ describe('normalizePdfExportSettings', () => {
         expect(sided.footer.right).toEqual({ text: 'Page {{page}}', imagePath: '' })
         expect(sided.footer.pageNumbers).toBe('custom')
         expect(normalizePdfExportProfile({ footer: { pageNumbers: 'roman' } }).footer.pageNumbers).toBe('none')
+    })
+
+    it('gives profiles saved before custom page sizes an A4 custom size, and keeps the new sizes', () => {
+        const old = normalizePdfExportProfile({ page: { size: 'letter', orientation: 'portrait' } })
+        expect(old.page).toMatchObject({ size: 'letter', customSizeMm: { width: 210, height: 297 } })
+
+        for (const size of ['a3', 'a5', 'legal', 'custom']) expect(normalizePdfExportProfile({ page: { size } }).page.size).toBe(size)
+        expect(normalizePdfExportProfile({ page: { size: 'b5' } }).page.size).toBe('a4')
+    })
+
+    it('gives profiles saved before the Contents title setting the old "Contents" heading', () => {
+        expect(normalizePdfExportProfile({ frontMatter: { toc: true, tocDepth: 2 } }).frontMatter.tocTitle).toBe('Contents')
+        expect(normalizePdfExportProfile({ frontMatter: { tocTitle: 'Inhalt' } }).frontMatter.tocTitle).toBe('Inhalt')
+        expect(normalizePdfExportProfile({ frontMatter: { tocTitle: '' } }).frontMatter.tocTitle).toBe('')
+        expect(normalizePdfExportProfile({ frontMatter: { tocTitle: 7 } }).frontMatter.tocTitle).toBe('Contents')
+    })
+
+    it('keeps the newer code themes', () => {
+        for (const codeTheme of ['one-light', 'solarized-dark', 'nord', 'dracula'])
+            expect(normalizePdfExportProfile({ content: { codeTheme } }).content.codeTheme).toBe(codeTheme)
+        expect(normalizePdfExportProfile({ content: { codeTheme: 'monokai' } }).content.codeTheme).toBe('github-light')
+    })
+
+    it('keeps a custom page size inside what PDF and Word can print', () => {
+        const page = (customSizeMm: unknown) => normalizePdfExportProfile({ page: { size: 'custom', customSizeMm } }).page.customSizeMm
+        expect(page({ width: 120.5, height: 180 })).toEqual({ width: 120.5, height: 180 })
+        expect(page({ width: 20, height: 9000 })).toEqual({ width: 100, height: 550 })
+        expect(page({ width: '120', height: null })).toEqual({ width: 210, height: 297 })
+        expect(page('A6')).toEqual({ width: 210, height: 297 })
     })
 
     it('migrates legacy h1StartsNewPage and accepts newPageFromHeading', () => {
@@ -278,6 +316,56 @@ describe('pdf export profile CRUD', () => {
         settings = deletePdfExportProfile(settings, extraId)
         expect(settings.activeProfileId).toBe(DEFAULT_PDF_EXPORT_PROFILE_ID)
         expect(settings.profiles).toHaveLength(1)
+    })
+
+    it('adds an imported profile under a new id and a free name, and picks it', () => {
+        let settings = createPdfExportProfile(createDefaultPdfExportSettings(), 'Report')
+        const imported = {
+            ...createDefaultPdfExportProfile({ id: DEFAULT_PDF_EXPORT_PROFILE_ID, name: ' report ' }),
+            page: { ...settings.profiles[0]!.page, size: 'letter' as const },
+        }
+
+        settings = importPdfExportProfile(settings, imported)
+
+        const added = settings.profiles[2]!
+        expect(settings.profiles.map((profile) => profile.name)).toEqual(['Default', 'Report', 'report 2'])
+        expect(added.id).not.toBe(DEFAULT_PDF_EXPORT_PROFILE_ID)
+        expect(new Set(settings.profiles.map((profile) => profile.id)).size).toBe(3)
+        expect(settings.activeProfileId).toBe(added.id)
+        expect(added.page.size).toBe('letter')
+    })
+
+    it('names an imported profile without a name', () => {
+        const settings = importPdfExportProfile(createDefaultPdfExportSettings(), createDefaultPdfExportProfile({ name: '  ' }))
+
+        expect(settings.profiles[1]!.name).toBe('Imported profile')
+    })
+})
+
+describe('pdfBodyWidthMm and pdfPageWidthWarning', () => {
+    it('is the page width minus the side margins, the way the sheet is turned', () => {
+        const profile = createDefaultPdfExportProfile()
+        expect(pdfBodyWidthMm(profile)).toBe(210 - 10 - 10)
+        profile.page = { ...profile.page, orientation: 'landscape' }
+        expect(pdfBodyWidthMm(profile)).toBe(297 - 10 - 10)
+        expect(pdfPageWidthWarning(profile)).toBe('')
+    })
+
+    it('warns when the side margins leave a custom page little or no width', () => {
+        const profile = createDefaultPdfExportProfile()
+        profile.page = {
+            ...profile.page,
+            size: 'custom',
+            customSizeMm: { width: 130, height: 200 },
+            marginsMm: { top: 10, right: 50, bottom: 10, left: 50 },
+        }
+        expect(pdfBodyWidthMm(profile)).toBe(30)
+        expect(pdfPageWidthWarning(profile)).toBe('The side margins leave only 30 mm of page width for the text.')
+        profile.page = { ...profile.page, customSizeMm: { width: 100, height: 200 } }
+        expect(pdfPageWidthWarning(profile)).toBe('The side margins are wider than the page, so there is no room left for the text.')
+        // Turned on its side, the 200 mm edge is the width.
+        profile.page = { ...profile.page, orientation: 'landscape' }
+        expect(pdfPageWidthWarning(profile)).toBe('')
     })
 })
 

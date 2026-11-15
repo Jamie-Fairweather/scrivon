@@ -1,71 +1,77 @@
 'use client'
 
-import { createContext, useCallback, useContext } from 'react'
+import { createContext, useCallback, useContext, useMemo } from 'react'
 import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
-import { useNamePrompt } from '@/components/studio/dialogs/name-prompt-provider'
+import { useMoveTo } from '@/components/studio/dialogs/move-to-provider'
+import { useNamePrompt, type NamePromptKind } from '@/components/studio/dialogs/name-prompt-provider'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
-import { getBaseName, getParentPath, joinPath } from '@/lib/tauri/fs'
+import { getParentPath, joinPath } from '@/lib/tauri/fs'
 import { documentExtension, fileExtension, withDocumentExtension } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
-/** Names the folder a new item goes in, for the prompt: `Creates the diagram in "docs".` */
-function createdIn(what: string, parentPath: string): string {
-    return `Creates the ${what} in "${getBaseName(parentPath) || parentPath}".`
-}
+export type NewItemKind = Exclude<NamePromptKind, 'rename'>
 
-export function useFileTreeActions(parentPath: string | null) {
+/** The name a new file starts with, and the extension a name typed without one gets. */
+const NEW_FILE = {
+    'new-diagram': { name: 'diagram.mmd', extension: '.mmd' },
+    'new-document': { name: 'document.md', extension: '.md' },
+} as const
+
+/**
+ * Asks for a name, then makes a new diagram, document or folder in the folder given. A new file opens in a tab,
+ * and the editor takes the keyboard so the user can start typing. Resolves to false when the prompt was cancelled.
+ */
+export function useCreateNewItem(): (kind: NewItemKind, folder: string) => Promise<boolean> {
     const { promptName } = useNamePrompt()
     const { createFile, createFolder, suggestName, getNameError } = useWorkspaceSession()
 
-    // The new file opens in a tab, and the editor then takes the keyboard so the user can start typing.
-    // If the file couldn't be made, its tab never shows and focus stays where it is.
-    const createAndFocus = useCallback(
-        async (folder: string, name: string) => {
-            await createFile(folder, name)
-            focusEditorFor(joinPath(folder, name))
+    return useCallback(
+        async (kind: NewItemKind, folder: string) => {
+            if (kind === 'new-folder') {
+                const name = await promptName({
+                    kind,
+                    folder,
+                    defaultValue: suggestName(folder, 'diagrams'),
+                    validate: (value) => getNameError(folder, value, 'directory'),
+                })
+                if (!name) return false
+                await createFolder(folder, name)
+                return true
+            }
+            const { name: startName, extension } = NEW_FILE[kind]
+            const name = await promptName({
+                kind,
+                folder,
+                defaultValue: suggestName(folder, startName),
+                // A name typed without an extension gets the one for this kind.
+                validate: (value) => getNameError(folder, withDocumentExtension(value, extension), 'file'),
+            })
+            if (!name) return false
+            const fileName = withDocumentExtension(name, extension)
+            await createFile(folder, fileName)
+            // If the file couldn't be made, its tab never shows and focus stays where it is.
+            focusEditorFor(joinPath(folder, fileName))
+            return true
         },
-        [createFile]
+        [promptName, createFile, createFolder, suggestName, getNameError]
     )
+}
 
-    const createMermaidFileInParent = useCallback(async () => {
-        if (!parentPath) return
-        const name = await promptName({
-            title: 'New diagram name',
-            description: createdIn('diagram', parentPath),
-            defaultValue: suggestName(parentPath, 'diagram.mmd'),
-            placeholder: 'diagram.mmd',
-            // A name typed without an extension gets the one this menu item is for.
-            validate: (value) => getNameError(parentPath, withDocumentExtension(value, '.mmd'), 'file'),
-        })
-        if (name) await createAndFocus(parentPath, withDocumentExtension(name, '.mmd'))
-    }, [parentPath, promptName, createAndFocus, suggestName, getNameError])
+/** New items in one folder, for that folder's menus. Does nothing while `parentPath` is null. */
+export function useFileTreeActions(parentPath: string | null) {
+    const createNewItem = useCreateNewItem()
 
-    const createMarkdownFileInParent = useCallback(async () => {
-        if (!parentPath) return
-        const name = await promptName({
-            title: 'New document name',
-            description: createdIn('document', parentPath),
-            defaultValue: suggestName(parentPath, 'document.md'),
-            placeholder: 'document.md',
-            validate: (value) => getNameError(parentPath, withDocumentExtension(value, '.md'), 'file'),
-        })
-        if (name) await createAndFocus(parentPath, withDocumentExtension(name, '.md'))
-    }, [parentPath, promptName, createAndFocus, suggestName, getNameError])
-
-    const createFolderInParent = useCallback(async () => {
-        if (!parentPath) return
-        const name = await promptName({
-            title: 'New folder name',
-            description: createdIn('folder', parentPath),
-            defaultValue: suggestName(parentPath, 'diagrams'),
-            placeholder: 'Folder name',
-            validate: (value) => getNameError(parentPath, value, 'directory'),
-        })
-        if (name) await createFolder(parentPath, name)
-    }, [parentPath, promptName, createFolder, suggestName, getNameError])
-
-    return { createMermaidFileInParent, createMarkdownFileInParent, createFolderInParent }
+    return useMemo(() => {
+        const inParent = (kind: NewItemKind) => async () => {
+            if (parentPath) await createNewItem(kind, parentPath)
+        }
+        return {
+            createMermaidFileInParent: inParent('new-diagram'),
+            createMarkdownFileInParent: inParent('new-document'),
+            createFolderInParent: inParent('new-folder'),
+        }
+    }, [parentPath, createNewItem])
 }
 
 export type FileTreeEntryActions = {
@@ -73,13 +79,16 @@ export type FileTreeEntryActions = {
     renameWithPrompt: (node: FileNode) => Promise<string | null>
     /** Resolves to whether the user confirmed the delete (true even when it then failed or was stopped). */
     deleteWithConfirm: (node: FileNode) => Promise<boolean>
+    /** Asks which folder to move the entry to, and moves it. Resolves to where it is now, or null when it didn't move. */
+    moveWithPicker: (node: FileNode) => Promise<string | null>
 }
 
-/** Rename and delete for a file or folder in the tree, shared by its menus and the F2 and Delete keys. */
+/** Rename, move and delete for a file or folder in the tree, shared by its menus and the F2 and Delete keys. */
 export function useFileTreeEntryActions(): FileTreeEntryActions {
     const { confirmDelete } = useDeleteConfirm()
     const { promptName } = useNamePrompt()
-    const { renameEntry, deleteEntry, getNameError } = useWorkspaceSession()
+    const { chooseFolder } = useMoveTo()
+    const { renameEntry, moveEntry, deleteEntry, getNameError } = useWorkspaceSession()
 
     const renameWithPrompt = useCallback(
         async (node: FileNode): Promise<string | null> => {
@@ -98,12 +107,10 @@ export function useFileTreeEntryActions(): FileTreeEntryActions {
                 return fileExtension(value) ? value : `${value}${extension}`
             }
             const name = await promptName({
-                title: `Rename "${node.name}"`,
-                description: `Choose a new name for this ${node.kind === 'directory' ? 'folder' : 'file'}.`,
-                submitLabel: 'Rename',
+                kind: 'rename',
+                entry: node,
                 defaultValue: node.name,
                 extension,
-                placeholder: node.name,
                 validate: (value) => getNameError(folder, finalName(value), node.kind, node.path),
                 // Says what the entry will be called when that isn't what was typed, and how to leave the extension off.
                 note: (value) => {
@@ -124,14 +131,22 @@ export function useFileTreeEntryActions(): FileTreeEntryActions {
 
     const deleteWithConfirm = useCallback(
         async (node: FileNode) => {
-            const ok = await confirmDelete(node.name, node.kind === 'directory')
+            const ok = await confirmDelete(node)
             if (ok) await deleteEntry(node.path, node.kind === 'directory')
             return ok
         },
         [confirmDelete, deleteEntry]
     )
 
-    return { renameWithPrompt, deleteWithConfirm }
+    const moveWithPicker = useCallback(
+        async (node: FileNode) => {
+            const folder = await chooseFolder(node)
+            return folder ? moveEntry(node.path, node.kind === 'directory', folder) : null
+        },
+        [chooseFolder, moveEntry]
+    )
+
+    return { renameWithPrompt, deleteWithConfirm, moveWithPicker }
 }
 
 const TreeEntryActionsContext = createContext<FileTreeEntryActions | null>(null)

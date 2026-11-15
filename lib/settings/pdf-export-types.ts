@@ -1,7 +1,8 @@
 import type { AppThemeId } from '@/lib/theme/catalog'
-import type { ShikiTheme } from '@/lib/markdown/shiki-highlighter'
+import type { ShikiTheme } from '@/lib/markdown/code-themes'
 
-export type PdfPageSize = 'a4' | 'letter'
+/** A named paper size, or `custom` for the profile's own `page.customSizeMm`. */
+export type PdfPageSize = 'a3' | 'a4' | 'a5' | 'letter' | 'legal' | 'custom'
 export type PdfPageOrientation = 'portrait' | 'landscape'
 
 export type PdfMarginsMm = {
@@ -44,6 +45,8 @@ export type PdfExportChrome = {
 export type PdfExportFooter = PdfExportChrome & {
     /** Owns the right-hand text slot: a preset counter, or `custom` to render `right.text`. */
     pageNumbers: PdfPageNumberFormat
+    /** Page 1 is the first body page: the title and contents pages aren't counted. Applies to the Contents page and Word too. */
+    numberFromBody: boolean
 }
 
 export type PdfExportProfile = {
@@ -51,6 +54,8 @@ export type PdfExportProfile = {
     name: string
     page: {
         size: PdfPageSize
+        /** The upright sheet for the `custom` size. Kept while a named size is picked. */
+        customSizeMm: { width: number; height: number }
         orientation: PdfPageOrientation
         marginsMm: PdfMarginsMm
     }
@@ -75,6 +80,8 @@ export type PdfExportProfile = {
         toc: boolean
         tocDepth: PdfTocDepth
         tocExcludeH1: boolean
+        /** Heading of the contents page. Empty prints "Contents"; a document's `toc-title:` front matter wins. */
+        tocTitle: string
     }
     header: PdfExportChrome
     footer: PdfExportFooter
@@ -139,6 +146,16 @@ export type PdfPrintOptions = {
     author?: string
     /** The subtitle, saved as the PDF's subject. Left out when empty. */
     subject?: string
+    /** Every heading in order, for the PDF's bookmarks; the heading at index `i` carries mark `SFH` + `i + 1`. Stamped exports only. */
+    headings?: PdfHeading[]
+    /** Page 1 is the first body page. Left out when off. */
+    numberFromBody?: boolean
+}
+
+/** A heading as the PDF stamper gets it, for its bookmark. */
+export type PdfHeading = {
+    level: number
+    text: string
 }
 
 /** The branded document plus what the printer needs to turn it into a PDF, produced by one call. */
@@ -146,4 +163,6 @@ export type PdfExportDocument = {
     html: string
     metadata: PdfExportMetadata
     print: PdfPrintOptions
+    /** Diagrams printed as a note or an error instead of a picture. */
+    diagramsNotDrawn: number
 }

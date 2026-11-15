@@ -19,9 +19,22 @@ permissions:
     contents: write
 
 jobs:
+    # One installer per architecture, as in release.yml. The ARM64 one is cross-compiled on the
+    # x64 runner.
     build-windows:
-        name: Build Windows installers
+        name: Build Windows installer (${{ matrix.arch }})
         runs-on: windows-latest
+        strategy:
+            # One at a time: each build reads latest.json from the release, adds its own installer
+            # and uploads it again, so two at once would drop one of them.
+            max-parallel: 1
+            # Same as CI's installer check (ci.yml bundle-windows), whose caches these builds read.
+            matrix:
+                include:
+                    - arch: x64
+                      target: x86_64-pc-windows-msvc
+                    - arch: arm64
+                      target: aarch64-pc-windows-msvc
         steps:
             # The tag is typed by hand and reaches every later step, which hold the signing key.
             # Anything but a release tag stops the run here.
@@ -51,7 +64,6 @@ jobs:
                   path: .release-tools
                   sparse-checkout: |
                       .github/actions
-                      scripts/patch-updater-manifest.mjs
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
 
@@ -63,6 +75,7 @@ jobs:
               uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
               with:
                   toolchain: 1.97.1
+                  targets: ${{ matrix.target }}
 
             # Dev's compiled crates, as in release.yml. An older tag with a different Cargo.lock or
             # Cargo.toml gets a partial match and Cargo rebuilds what changed. Read-only, so an old
@@ -71,7 +84,7 @@ jobs:
               uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
               with:
                   workspaces: src-tauri -> target
-                  shared-key: windows-release
+                  shared-key: windows-release-${{ matrix.arch }}
                   save-if: false
 
             - name: Get release ID
@@ -87,7 +100,7 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   TAG: ${{ inputs.tag }}
 
-            - name: Build and upload installers
+            - name: Build and upload the installer
               uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -104,11 +117,41 @@ jobs:
                   uploadUpdaterSignatures: false
                   # Only the per-user setup.exe ships. Explicit, so rebuilding an older tag (whose config
                   # still builds every target) doesn't add an MSI, or fail on one for an rc version.
-                  args: --bundles nsis
+                  args: --target ${{ matrix.target }} --bundles nsis
 
-            - name: Add release notes to updater manifest
+    # Once both installers are on the release, and only when both builds passed (which also
+    # means the tag passed the check above).
+    publish:
+        name: Publish the release
+        needs: build-windows
+        if: ${{ !cancelled() && needs.build-windows.result == 'success' }}
+        runs-on: ubuntu-latest
+        steps:
+            # The script comes from this workflow's own commit, like the build tooling above.
+            - name: Checkout release tooling
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  sparse-checkout: scripts/patch-updater-manifest.mjs
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+
+            - name: Get release ID
+              id: gh_release
               shell: bash
-              run: node .release-tools/scripts/patch-updater-manifest.mjs
+              run: |
+                  # gh release view also finds drafts; the releases/tags API does not.
+                  read -r id draft prerelease < <(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json databaseId,isDraft,isPrerelease --jq '"\(.databaseId) \(.isDraft) \(.isPrerelease)"')
+                  echo "id=$id" >> "$GITHUB_OUTPUT"
+                  echo "draft=$draft" >> "$GITHUB_OUTPUT"
+                  echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAG: ${{ inputs.tag }}
+
+            # Fails, leaving the release a draft, if latest.json lacks either installer.
+            - name: Check updater manifest and add release notes
+              shell: bash
+              run: node scripts/patch-updater-manifest.mjs
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   VERSION: ${{ inputs.tag }}

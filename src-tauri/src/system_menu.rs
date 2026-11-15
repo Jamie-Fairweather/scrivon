@@ -13,9 +13,9 @@
 const SC_SIZE: u32 = 0xF000;
 const SC_MOVE: u32 = 0xF010;
 const SC_MINIMIZE: u32 = 0xF020;
-const SC_MAXIMIZE: u32 = 0xF030;
+pub(crate) const SC_MAXIMIZE: u32 = 0xF030;
 const SC_CLOSE: u32 = 0xF060;
-const SC_RESTORE: u32 = 0xF120;
+pub(crate) const SC_RESTORE: u32 = 0xF120;
 
 /// Which items can be chosen. Windows does this itself for a title bar it
 /// draws, but not for a menu shown like this: Restore only when maximized;
@@ -45,7 +45,7 @@ pub fn show_system_menu(window: tauri::WebviewWindow) -> Result<(), String> {
         window
             .run_on_main_thread(move || {
                 if let Err(err) = native::show(hwnd as *mut std::ffi::c_void) {
-                    eprintln!("Could not show the window menu: {err}");
+                    log::warn!("Could not show the window menu: {err}");
                 }
             })
             .map_err(|e| e.to_string())?;

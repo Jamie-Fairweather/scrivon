@@ -22,3 +22,18 @@ export function registerEditorFocus(focus: FocusEditorFor): () => void {
 export function focusEditorFor(path: string): void {
     registered?.(path)
 }
+
+let registeredNow: (() => boolean) | null = null
+
+/** Called by the editor panel, with a function that focuses the editor at once. Returns the function that removes it again. */
+export function registerEditorFocusNow(focus: () => boolean): () => void {
+    registeredNow = focus
+    return () => {
+        if (registeredNow === focus) registeredNow = null
+    }
+}
+
+/** Puts keyboard focus in the editor now (Focus Editor, F6). False when there is no editor, or it is hidden or shows no file. */
+export function focusEditorNow(): boolean {
+    return registeredNow?.() ?? false
+}

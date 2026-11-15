@@ -31,6 +31,30 @@ export function hexColorMix(fg: string, bg: string, fgPercent: number): string {
     )
 }
 
+/** The colour `degrees` round the colour wheel, as strong and as light as `hex`. Greys stay grey. */
+export function rotateHue(hex: string, degrees: number): string {
+    const rgb = parseHexColor(hex)
+    if (!rgb) return hex
+    const [r, g, b] = [rgb.r / 255, rgb.g / 255, rgb.b / 255]
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const chroma = max - min
+    if (chroma === 0) return hex
+
+    const hue = max === r ? ((g - b) / chroma + 6) % 6 : max === g ? (b - r) / chroma + 2 : (r - g) / chroma + 4
+    const turned = (((hue * 60 + degrees) % 360) + 360) % 360
+    const x = chroma * (1 - Math.abs(((turned / 60) % 2) - 1))
+    const [red, green, blue] = [
+        [chroma, x, 0],
+        [x, chroma, 0],
+        [0, chroma, x],
+        [0, x, chroma],
+        [x, 0, chroma],
+        [chroma, 0, x],
+    ][Math.floor(turned / 60)]!
+    return toHexColor((red! + min) * 255, (green! + min) * 255, (blue! + min) * 255)
+}
+
 /** WCAG 2.x relative luminance (0 = black, 1 = white), or null for an unparseable colour. */
 export function relativeLuminance(hex: string): number | null {
     const rgb = parseHexColor(hex)

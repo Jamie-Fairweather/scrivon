@@ -1,6 +1,7 @@
 'use client'
 
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { logError } from '@/lib/diagnostics/app-log'
 
 type DialogErrorBoundaryProps = {
     children: ReactNode
@@ -45,6 +46,7 @@ export class DialogErrorBoundary extends Component<DialogErrorBoundaryProps, Dia
 
     componentDidCatch(error: unknown, info: ErrorInfo) {
         console.error('A dialog hit an error while rendering:', error, info.componentStack)
+        logError('A dialog hit an error while rendering', error)
         this.props.onCrash?.(toError(error))
     }
 

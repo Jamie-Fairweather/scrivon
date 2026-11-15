@@ -1,5 +1,5 @@
 import type { editor } from 'monaco-editor'
-import { ensureContrast, hexColorMix, parseHexColor } from '@/lib/theme/color-mix'
+import { ensureContrast, hexColorMix, parseHexColor, rotateHue } from '@/lib/theme/color-mix'
 import type { ResolvedThemeTokens } from '@/lib/theme/resolve-theme-tokens'
 
 export const MONACO_DIAGRAM_THEME_ID = 'scrivon-diagram'
@@ -25,7 +25,7 @@ function withAlpha(hex: string, alpha: number): string {
     return `${hex}${Math.round(alpha).toString(16).padStart(2, '0')}`
 }
 
-/** The colour each kind of Markdown syntax gets, before it is made readable on the theme's background. */
+/** The colour each kind of Markdown and Mermaid syntax gets, before it is made readable on the theme's background. */
 type SyntaxColors = {
     heading: string
     link: string
@@ -38,6 +38,11 @@ type SyntaxColors = {
     tag: string
     attribute: string
     htmlString: string
+    /** Mermaid arrows and relationships. */
+    operator: string
+    /** Mermaid class names and <<annotations>>. */
+    type: string
+    number: string
 }
 
 /**
@@ -54,6 +59,9 @@ const VSCODE_SYNTAX: Record<'light' | 'dark', SyntaxColors> = {
         tag: '#800000',
         attribute: '#ff0000',
         htmlString: '#0000ff',
+        operator: '#af00db',
+        type: '#267f99',
+        number: '#098658',
     },
     dark: {
         heading: '#569cd6',
@@ -64,6 +72,9 @@ const VSCODE_SYNTAX: Record<'light' | 'dark', SyntaxColors> = {
         tag: '#569cd6',
         attribute: '#9cdcfe',
         htmlString: '#ce9178',
+        operator: '#c586c0',
+        type: '#4ec9b0',
+        number: '#b5cea8',
     },
 }
 
@@ -80,7 +91,11 @@ function isGrey(hex: string): boolean {
     return Math.max(rgb.r, rgb.g, rgb.b) - Math.min(rgb.r, rgb.g, rgb.b) < GREY_SPREAD
 }
 
-/** Syntax colours from the palette's accent, so they match the theme instead of VS Code's blues and reds. */
+/**
+ * Syntax colours from the palette's accent, so they match the theme instead of VS Code's blues and reds.
+ * Mermaid has more kinds of syntax than one accent can tell apart, so those take the accent's neighbours
+ * on the colour wheel: as strong and as light, so they sit well with it.
+ */
 function paletteSyntax(tokens: ResolvedThemeTokens): SyntaxColors {
     const code = hexColorMix(tokens.accent, tokens.fg, 50)
     return {
@@ -92,12 +107,17 @@ function paletteSyntax(tokens: ResolvedThemeTokens): SyntaxColors {
         tag: code,
         attribute: tokens.textSecondary,
         htmlString: code,
+        operator: rotateHue(tokens.accent, 60),
+        type: rotateHue(tokens.accent, -60),
+        number: rotateHue(tokens.accent, 180),
     }
 }
 
 /**
- * Syntax colours for Monaco's Markdown tokenizer (also used for .mmd files): from the palette when it
- * has a colour of its own, VS Code's otherwise. Every rule is set here, so none falls back to the base theme.
+ * Syntax colours for Monaco's Markdown tokenizer and the Mermaid grammar (lib/monaco/mermaid-language.ts):
+ * from the palette when it has a colour of its own, VS Code's otherwise. Every rule is set here, so none
+ * falls back to the base theme. Mermaid labels, comments and front matter use the Markdown rules for
+ * strings, comments and attributes; the rules ending in .mermaid apply only to Mermaid.
  */
 function tokenRules(tokens: ResolvedThemeTokens, isLight: boolean): editor.ITokenThemeRule[] {
     // Readable on the editor background and on the current line's highlight, in every palette.
@@ -131,6 +151,14 @@ function tokenRules(tokens: ResolvedThemeTokens, isLight: boolean): editor.IToke
         { token: 'delimiter.html', foreground: secondary },
         { token: 'strong', fontStyle: 'bold' },
         { token: 'emphasis', fontStyle: 'italic' },
+        // Mermaid: keywords like headings but not bold, arrows, node brackets and colons, class names, numbers.
+        { token: 'keyword.mermaid', foreground: heading, fontStyle: '' },
+        { token: 'operator.mermaid', foreground: readable(syntax.operator) },
+        { token: 'delimiter.mermaid', foreground: secondary },
+        // The base theme colours delimiter.bracket, which would otherwise win over delimiter.mermaid.
+        { token: 'delimiter.bracket.mermaid', foreground: secondary },
+        { token: 'type.mermaid', foreground: readable(syntax.type) },
+        { token: 'number.mermaid', foreground: readable(syntax.number) },
     ]
 }
 

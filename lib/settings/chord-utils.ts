@@ -78,6 +78,11 @@ export function isReservedKey(key: string): boolean {
     return RESERVED_KEYS.has(key.toLowerCase())
 }
 
+/** Ctrl+Tab and Ctrl+Shift+Tab, which tabbed apps use to switch tabs. Windows and macOS take Alt+Tab and Cmd+Tab. */
+function isCtrlTab(chord: KeybindChord): boolean {
+    return chord.key.toLowerCase() === 'tab' && Boolean(chord.ctrl) && !chord.alt && !chord.meta
+}
+
 /**
  * What KeyboardEvent.key says when it can't name the key: an input method (IME) is composing,
  * a dead key (´ ^ ` on many layouts) is waiting for the next letter, or the key is unknown.
@@ -117,11 +122,20 @@ export function typesAltGraphCharacter(event: {
 }
 
 /**
+ * True for Alt with a number-pad digit. On Windows that types a character by its code
+ * (Alt+0233 is é), so Alt+0 can't fire on the first digit of one.
+ */
+export function isAltCodeKey(event: { code?: string; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }): boolean {
+    return Boolean(event.altKey && !event.ctrlKey && !event.metaKey) && /^Numpad[0-9]$/.test(event.code ?? '')
+}
+
+/**
  * Whether a chord can be an app shortcut: it needs Ctrl, Alt or Cmd unless it is a function key,
- * and it can never use Tab, Enter, Space, Escape, Backspace, Delete, the arrow keys, or a key
- * the browser can't name (IME, dead keys).
+ * and it can never use Enter, Space, Escape, Backspace, Delete, the arrow keys, Tab (except
+ * Ctrl+Tab), or a key the browser can't name (IME, dead keys).
  */
 export function isAllowedChord(chord: KeybindChord): boolean {
+    if (isCtrlTab(chord)) return true
     if (isReservedKey(chord.key) || isUnnamedKey(chord.key)) return false
     return hasCommandModifier(chord) || isFunctionKey(chord.key)
 }
@@ -153,17 +167,19 @@ export function baseKeyFromCode(code: string | undefined): string | null {
 // Plain ASCII and Latin letters (é, ö, ß…) are kept as typed.
 const LATIN_OR_ASCII = /^[\x20-\x7eÀ-ɏ]$/
 
+const DIGIT = /^[0-9]$/
+
 /**
  * The physical key to use when KeyboardEvent.key can't be: non-Latin layouts (Russian, Greek,
- * Hebrew…) report their own letter, so Ctrl+S arrives as "ы", and Shift turns digits into
- * layout-specific symbols, so Ctrl+Shift+1 arrives as "!". Latin layouts (AZERTY, Dvorak…)
- * keep event.key, so shortcuts follow the letter printed on the key.
+ * Hebrew…) report their own letter, so Ctrl+S arrives as "ы", and the digit keys type symbols,
+ * so Ctrl+Shift+1 arrives as "!" and, on AZERTY, Ctrl+1 as "&". Letters on Latin layouts
+ * (AZERTY, Dvorak…) keep event.key, so shortcuts follow the letter printed on the key.
  */
-export function physicalKeyFallback(event: { key: string; code?: string; shiftKey?: boolean }): string | null {
+export function physicalKeyFallback(event: { key: string; code?: string }): string | null {
     const base = baseKeyFromCode(event.code)
     if (!base || base === event.key.toLowerCase()) return null
     if ([...event.key].length === 1 && !LATIN_OR_ASCII.test(event.key)) return base
-    if (event.shiftKey && /^[0-9]$/.test(base)) return base
+    if (DIGIT.test(base) && !DIGIT.test(event.key)) return base
     return null
 }
 

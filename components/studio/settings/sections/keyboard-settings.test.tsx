@@ -46,9 +46,9 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
 
         fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
-        press('b', { ctrlKey: true })
+        press('b', { ctrlKey: true, shiftKey: true })
 
-        expect(screen.getByText('Ctrl+B is already assigned to Toggle explorer')).toBeInTheDocument()
+        expect(screen.getByText('Ctrl+Shift+B is already assigned to Toggle explorer')).toBeInTheDocument()
         expect(screen.queryByText('Press shortcut…')).not.toBeInTheDocument()
 
         press('Tab')
@@ -98,6 +98,28 @@ describe('KeyboardSettings recording', () => {
         fireEvent.click(within(explorer).getByRole('button', { name: /^Edit shortcut/ }))
         press('!', { ctrlKey: true, shiftKey: true, code: 'Digit1' })
         expect(within(explorer).getByText('Ctrl+Shift+1')).toBeInTheDocument()
+    })
+
+    it('records the digit on AZERTY, so it clashes with a Ctrl+1 shortcut', () => {
+        renderKeyboardSettings()
+
+        fireEvent.click(within(row('Toggle editor')).getByRole('button', { name: /^Edit shortcut/ }))
+        press('&', { ctrlKey: true, code: 'Digit1' })
+        expect(screen.getByText('Ctrl+1 is already assigned to Focus editor')).toBeInTheDocument()
+    })
+
+    it("records the symbol AZERTY's 6 key types when that is already a shortcut, so the clash shows", () => {
+        renderKeyboardSettings()
+        const fit = row('Fit diagram to screen')
+
+        fireEvent.click(within(fit).getByRole('button', { name: /^Edit shortcut/ }))
+        press('-', { ctrlKey: true, code: 'Digit6' })
+        expect(within(fit).getByRole('alert')).toHaveTextContent('Ctrl+- is already assigned to Zoom out')
+
+        fireEvent.click(within(row('Zoom out')).getByRole('button', { name: /^Clear shortcut/ }))
+        fireEvent.click(within(fit).getByRole('button', { name: /^Edit shortcut/ }))
+        press('-', { ctrlKey: true, code: 'Digit6' })
+        expect(within(fit).getByText('Ctrl+6')).toBeInTheDocument()
     })
 
     it('refuses a character typed with AltGr and keeps recording', () => {
@@ -200,6 +222,49 @@ describe('KeyboardSettings recording', () => {
         expect(screen.queryByText(warning)).not.toBeInTheDocument()
     })
 
+    it("refuses the explorer's F2 and Shift+F10, the editor's Ctrl+. and the menu bar's F10, saying what uses them", () => {
+        renderKeyboardSettings()
+        const goToFile = row('Go to file')
+
+        fireEvent.click(within(goToFile).getByRole('button', { name: /^Edit shortcut/ }))
+        press('F2', { code: 'F2' })
+        expect(within(goToFile).getByRole('alert')).toHaveTextContent('F2 is used by the explorer')
+
+        fireEvent.click(within(goToFile).getByRole('button', { name: /^Edit shortcut/ }))
+        press('F10', { shiftKey: true, code: 'F10' })
+        expect(within(goToFile).getByRole('alert')).toHaveTextContent('Shift+F10 is used by the explorer')
+
+        fireEvent.click(within(goToFile).getByRole('button', { name: /^Edit shortcut/ }))
+        press('.', { ctrlKey: true, code: 'Period' })
+        expect(within(goToFile).getByRole('alert')).toHaveTextContent('Ctrl+. is used by the editor')
+
+        fireEvent.click(within(goToFile).getByRole('button', { name: /^Edit shortcut/ }))
+        press('F10', { code: 'F10' })
+        expect(within(goToFile).getByRole('alert')).toHaveTextContent('F10 is used by the menu bar')
+
+        expect(within(goToFile).getByText('Ctrl+Shift+N')).toBeInTheDocument()
+    })
+
+    it('warns on a row whose saved shortcut is an explorer key', () => {
+        store.set(SETTINGS_STORAGE_KEY, JSON.stringify({ keybinds: { 'palette.openFiles': [{ key: 'F2' }] } }))
+        renderKeyboardSettings()
+
+        expect(within(row('Go to file')).getByText('F2 is used by the explorer. Clear or reset this shortcut to give it back.')).toBeInTheDocument()
+    })
+
+    it('lists the Markdown actions, and says which app shortcut they take over while typing', () => {
+        renderKeyboardSettings()
+
+        expect(within(row('Bold')).getByText('Ctrl+B')).toBeInTheDocument()
+        expect(within(row('Link')).getByText('Ctrl+K')).toBeInTheDocument()
+        // Ctrl+K only starts two-key editor shortcuts, so it's no warning for a Markdown action.
+        expect(screen.queryByText(/used by the editor/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/Same shortcut/)).not.toBeInTheDocument()
+
+        expect(within(row('Toggle editor')).getByText('While typing in a Markdown file, Ctrl+E runs Inline code instead.')).toBeInTheDocument()
+        expect(within(row('Inline code')).queryByText(/While typing/)).not.toBeInTheDocument()
+    })
+
     it('shows why Reset did nothing when the default is taken', () => {
         renderKeyboardSettings()
 
@@ -229,9 +294,9 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
 
         fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
-        press('b', { ctrlKey: true })
+        press('b', { ctrlKey: true, shiftKey: true })
 
-        expect(within(editor).getByRole('alert')).toHaveTextContent('Ctrl+B is already assigned to Toggle explorer')
+        expect(within(editor).getByRole('alert')).toHaveTextContent('Ctrl+Shift+B is already assigned to Toggle explorer')
 
         fireEvent.click(within(row('Fit diagram to screen')).getByRole('button', { name: /^Edit shortcut/ }))
         expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -258,10 +323,10 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
 
         fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
-        press('b', { ctrlKey: true })
-        fireEvent.click(within(editor).getByRole('button', { name: 'Reassign Ctrl+B to Toggle editor' }))
+        press('b', { ctrlKey: true, shiftKey: true })
+        fireEvent.click(within(editor).getByRole('button', { name: 'Reassign Ctrl+Shift+B to Toggle editor' }))
 
-        expect(within(editor).getByText('Ctrl+B')).toBeInTheDocument()
+        expect(within(editor).getByText('Ctrl+Shift+B')).toBeInTheDocument()
         expect(within(row('Toggle explorer')).getByText('Not assigned')).toBeInTheDocument()
         expect(screen.queryByRole('alert')).not.toBeInTheDocument()
         expect(document.activeElement).toBe(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
@@ -272,12 +337,12 @@ describe('KeyboardSettings recording', () => {
         const editor = row('Toggle editor')
 
         fireEvent.click(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
-        press('b', { ctrlKey: true })
+        press('b', { ctrlKey: true, shiftKey: true })
         fireEvent.click(within(editor).getByRole('button', { name: 'Cancel' }))
 
         expect(screen.queryByRole('alert')).not.toBeInTheDocument()
         expect(within(editor).getByText('Ctrl+E')).toBeInTheDocument()
-        expect(within(row('Toggle explorer')).getByText('Ctrl+B')).toBeInTheDocument()
+        expect(within(row('Toggle explorer')).getByText('Ctrl+Shift+B')).toBeInTheDocument()
         expect(document.activeElement).toBe(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
     })
 

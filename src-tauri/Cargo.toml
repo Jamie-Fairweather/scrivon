@@ -1,6 +1,6 @@
 [package]
 name = "scrivon"
-version = "1.5.0"
+version = "1.6.0-rc.1"
 description = "Local-first editor for Mermaid diagrams and Markdown"
 authors = ["Jamie Fairweather"]
 license = "MIT"
@@ -24,7 +24,10 @@ crate-type = ["rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# image-png: the clipboard takes a diagram copied as PNG bytes (lib/tauri/clipboard.ts).
+tauri = { version = "2", features = ["image-png"] }
+# All clipboard reads and writes, so WebView2 never asks the user for clipboard access (#208).
+tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
 # watch: lets the app notice files changed by other programs (D10).
 tauri-plugin-fs = { version = "2", features = ["watch"] }
@@ -41,6 +44,15 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-prevent-default = { version = "6.0.1", features = ["platform-windows"] }
 font-kit = "0.14.3"
+# Downloads web images for PDF and Word exports (F03). The updater already builds reqwest and
+# rustls with these features, so nothing new is compiled.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# Deleting moves files and folders to the Recycle Bin, so a mistake can be undone (F01).
+trash = "5.3.0"
+# A log file to attach to bug reports (F25).
+tauri-plugin-log = "2"
+log = "0.4"
 
 # Page stamping parses every PDF content stream. lopdf's parser is the slow
 # part of export in debug builds; optimize just that crate.
@@ -61,9 +73,17 @@ strip = true
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"
 windows-core = "0.62.2"
+# Copy as SVG puts an SVG picture on the clipboard for Word and PowerPoint (src/svg_clipboard.rs). The
+# clipboard plugin already builds it (through arboard), so nothing new is compiled.
+clipboard-win = "5.3.1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 # One Scrivon process at a time, so two windows can't overwrite each other's files and sessions (B60, D20).
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
+
+[dev-dependencies]
+# The clipboard plugin's errors, checked in tests/clipboard_errors.rs. The plugin already builds it, so
+# nothing new is compiled.
+arboard = { version = "3", default-features = false }
 

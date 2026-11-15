@@ -1,7 +1,7 @@
-import { invoke } from '@tauri-apps/api/core'
 import { errorMessage } from '@/lib/notify'
-import { isTauri } from '@/lib/tauri/platform'
+import { PDF_EXPORT_IMAGE_SLOTS } from '@/lib/settings/pdf-export-images'
 import type { PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
+import { readExportImage } from '@/lib/tauri/export-image-access'
 
 /** A profile image the export needed but could not load, so it was left out. */
 export type PdfExportMissingImage = {
@@ -21,11 +21,10 @@ type ImageRead = { dataUrl: string; error?: string }
 async function readImageDataUrl(path: string): Promise<ImageRead> {
     if (!path) return { dataUrl: '' }
     if (path.startsWith('data:')) return { dataUrl: path }
-    if (!isTauri()) return { dataUrl: '', error: 'Images can only be read in the desktop app.' }
     try {
-        return { dataUrl: await invoke<string>('read_export_image', { path }) }
+        return { dataUrl: await readExportImage(path) }
     } catch (err) {
-        return { dataUrl: '', error: errorMessage(err, 'Could not read image.') }
+        return { dataUrl: '', error: errorMessage(err) }
     }
 }
 
@@ -34,25 +33,21 @@ async function readImageDataUrl(path: string): Promise<ImageRead> {
  * An image that can't be read is left out and listed in `missing`, so the caller can say so.
  */
 export async function resolvePdfExportAssets(profile: PdfExportProfile): Promise<PdfExportLoadedAssets> {
-    const slots: { slot: string; path: string; used: boolean }[] = [
-        { slot: 'Cover image', path: profile.brand.logoPath, used: profile.frontMatter.titlePage },
-        { slot: 'Header left image', path: profile.header.left.imagePath, used: profile.header.enabled },
-        { slot: 'Header right image', path: profile.header.right.imagePath, used: profile.header.enabled },
-        // Page numbers alone show a bare footer; its images need the Footer switch on.
-        { slot: 'Footer left image', path: profile.footer.left.imagePath, used: profile.footer.enabled },
-        { slot: 'Footer right image', path: profile.footer.right.imagePath, used: profile.footer.enabled },
-    ]
-    const reads = await Promise.all(slots.map(({ path, used }) => readImageDataUrl(used ? path.trim() : '')))
-    const missing = slots.flatMap(({ slot, path }, index) => {
-        const error = reads[index]!.error
-        return error ? [{ slot, path: path.trim(), reason: error }] : []
+    const paths = PDF_EXPORT_IMAGE_SLOTS.map(({ get, shown }) => (shown(profile) ? get(profile).trim() : ''))
+    const reads = await Promise.all(paths.map(readImageDataUrl))
+    // The profile with each image swapped for what was read, so each lands in its own place below.
+    const loaded = structuredClone(profile)
+    const missing: PdfExportMissingImage[] = []
+    PDF_EXPORT_IMAGE_SLOTS.forEach(({ slot, set }, index) => {
+        const { dataUrl, error } = reads[index]!
+        set(loaded, dataUrl)
+        if (error) missing.push({ slot, path: paths[index]!, reason: error })
     })
-    const [logo, headerLeft, headerRight, footerLeft, footerRight] = reads.map((read) => read.dataUrl)
     return {
         assets: {
-            logoDataUrl: logo!,
-            header: { left: headerLeft!, right: headerRight! },
-            footer: { left: footerLeft!, right: footerRight! },
+            logoDataUrl: loaded.brand.logoPath,
+            header: { left: loaded.header.left.imagePath, right: loaded.header.right.imagePath },
+            footer: { left: loaded.footer.left.imagePath, right: loaded.footer.right.imagePath },
         },
         missing,
     }

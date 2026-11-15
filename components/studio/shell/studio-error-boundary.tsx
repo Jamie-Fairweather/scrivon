@@ -4,8 +4,10 @@ import { Component, useEffect, useState, type ComponentType, type ErrorInfo, typ
 import { TITLEBAR_ABOVE_DIALOGS_CLASS, WindowTitlebarControls } from '@/components/studio/shell/window-titlebar-controls'
 import { Button } from '@/components/ui/button'
 import { APP_NAME } from '@/lib/app-branding'
+import { logError } from '@/lib/diagnostics/app-log'
 import { APP_VERSION } from '@/lib/legal/app-version'
 import { errorMessage } from '@/lib/notify'
+import { writeClipboardText } from '@/lib/tauri/clipboard'
 import { isTauri } from '@/lib/tauri/platform'
 import { clearWorkspaceStore } from '@/lib/tauri/store'
 import { cn } from '@/lib/utils'
@@ -55,6 +57,7 @@ export class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, Stu
 
     componentDidCatch(error: unknown, info: ErrorInfo) {
         console.error(`${APP_NAME} hit an error while rendering:`, error, info.componentStack)
+        logError(`${APP_NAME} hit an error while rendering`, error)
         this.setState({ componentStack: info.componentStack ?? '' })
     }
 
@@ -84,9 +87,7 @@ export function CopyErrorDetailsButton({ details }: { details: string }) {
 
     const copy = async () => {
         try {
-            // Missing where the page isn't allowed to use the clipboard.
-            if (!navigator.clipboard?.writeText) throw new Error('No clipboard')
-            await navigator.clipboard.writeText(details)
+            await writeClipboardText(details)
             setStatus('copied')
         } catch {
             setStatus('failed')

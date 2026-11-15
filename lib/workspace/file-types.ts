@@ -1,7 +1,8 @@
 export type DocumentKind = 'markdown' | 'mermaid'
 
 export function isMarkdownFile(name: string): boolean {
-    return name.toLowerCase().endsWith('.md')
+    const lower = name.toLowerCase()
+    return lower.endsWith('.md') || lower.endsWith('.markdown')
 }
 
 export function isMermaidFile(name: string): boolean {
@@ -20,20 +21,26 @@ export function documentKind(name: string): DocumentKind | null {
 }
 
 /** The extensions of the files Scrivon opens, in the order messages list them. */
-const SUPPORTED_EXTENSIONS = ['.md', '.mmd', '.mermaid']
+const SUPPORTED_EXTENSIONS = ['.md', '.markdown', '.mmd', '.mermaid']
 
-/** The supported extensions for a message: `.md, .mmd and .mermaid` (or `or`), so no message leaves one out. */
+/** The supported extensions for a message: `.md, .markdown, .mmd and .mermaid` (or `or`), so no message leaves one out. */
 export function supportedExtensionsLabel(conjunction: 'and' | 'or'): string {
     return `${SUPPORTED_EXTENSIONS.slice(0, -1).join(', ')} ${conjunction} ${SUPPORTED_EXTENSIONS.at(-1)}`
 }
 
-const DOCUMENT_EXTENSIONS = ['.mermaid', '.mmd', '.md']
+const DOCUMENT_EXTENSIONS = ['.markdown', '.mermaid', '.mmd', '.md']
 
-/** The extension that makes `name` a document Scrivon opens, as written (`.md`, `.MMD`, `.mermaid`), or null. */
+/** The extension that makes `name` a document Scrivon opens, as written (`.md`, `.Markdown`, `.MMD`, `.mermaid`), or null. */
 export function documentExtension(name: string): string | null {
     const lower = name.toLowerCase()
     const ext = DOCUMENT_EXTENSIONS.find((e) => lower.endsWith(e))
     return ext ? name.slice(name.length - ext.length) : null
+}
+
+/** `name` without the extension that makes it a document: `notes` for `notes.md` or `notes.markdown`. */
+export function withoutDocumentExtension(name: string): string {
+    const ext = documentExtension(name)
+    return ext ? name.slice(0, name.length - ext.length) : name
 }
 
 /**
