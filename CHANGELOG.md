@@ -1,3 +1,9 @@
+## [1.6.1](https://github.com/Jamie-Fairweather/scrivon/compare/v1.6.0...v1.6.1) (2026-11-18)
+
+### Bug Fixes
+
+* **editor:** keep the preview following after a document switch, and hide the collapsed editor's scrollbar ([#215](https://github.com/Jamie-Fairweather/scrivon/issues/215)) ([f64feac](https://github.com/Jamie-Fairweather/scrivon/commit/f64feac5517ea45f3d786dfaaff3479d752cf3ac))
+
 ## [1.6.0](https://github.com/Jamie-Fairweather/scrivon/compare/v1.5.0...v1.6.0) (2026-11-15)
 
 ### Features
