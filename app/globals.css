@@ -2,6 +2,11 @@
 @import 'tw-animate-css';
 @import './shadcn-base.css';
 
+/* Monaco marks its shown scrollbars with a plain `visible` class. Tailwind would make that its `visible` utility
+   (visibility: visible), because the word appears in the source, and the scrollbars of a hidden editor
+   (`invisible`) would stay on screen. The app never uses the utility. */
+@source not inline('visible');
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

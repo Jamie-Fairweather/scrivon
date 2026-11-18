@@ -13,7 +13,7 @@ export type ScrollableEditor = Pick<
     | 'setPosition'
     | 'revealLineInCenterIfOutsideViewport'
     | 'focus'
-    | 'getDomNode'
+    | 'getContainerDomNode'
     | 'onDidScrollChange'
     | 'onDidChangeCursorPosition'
 >
@@ -59,15 +59,17 @@ export function bindEditorScrollSync(
     })
     // Typing, clicking, and jumps from elsewhere (the palette) all move the cursor.
     const cursorMoved = codeEditor.onDidChangeCursorPosition(onUserEvent)
-    const node = codeEditor.getDomNode()
-    for (const type of USER_EVENTS) node?.addEventListener(type, onUserEvent, { capture: true, passive: true })
+    // On the element the editor was made in. Monaco builds the editor's own element (getDomNode) again each time it
+    // shows another file, so listening there would stop hearing the user after the first document switch.
+    const node = codeEditor.getContainerDomNode()
+    for (const type of USER_EVENTS) node.addEventListener(type, onUserEvent, { capture: true, passive: true })
 
     return {
         dispose() {
             unregister()
             scrolled.dispose()
             cursorMoved.dispose()
-            for (const type of USER_EVENTS) node?.removeEventListener(type, onUserEvent, { capture: true })
+            for (const type of USER_EVENTS) node.removeEventListener(type, onUserEvent, { capture: true })
         },
     }
 }

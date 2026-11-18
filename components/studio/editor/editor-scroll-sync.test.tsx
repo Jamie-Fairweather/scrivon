@@ -9,11 +9,14 @@ type Listener<T> = (event: T) => void
 function fakeEditor() {
     const scrollListeners = new Set<Listener<{ scrollTopChanged: boolean }>>()
     const cursorListeners = new Set<Listener<unknown>>()
-    const node = document.createElement('div')
-    document.body.append(node)
+    // Monaco makes the editor in a container, and builds the element inside it again each time it shows another file.
+    const container = document.createElement('div')
+    let view = document.createElement('div')
+    container.append(view)
+    document.body.append(container)
     let scrollTop = 0
     const editor = {
-        node,
+        view: () => view,
         getScrollTop: () => scrollTop,
         setScrollTop: vi.fn((top: number) => {
             scrollTop = top
@@ -25,7 +28,8 @@ function fakeEditor() {
         setPosition: vi.fn(),
         revealLineInCenterIfOutsideViewport: vi.fn(),
         focus: vi.fn(),
-        getDomNode: () => node,
+        getContainerDomNode: () => container,
+        getDomNode: () => view,
         onDidScrollChange: (listener: Listener<{ scrollTopChanged: boolean }>) => {
             scrollListeners.add(listener)
             return { dispose: () => scrollListeners.delete(listener) }
@@ -36,6 +40,11 @@ function fakeEditor() {
         },
         scroll: (scrollTopChanged = true) => scrollListeners.forEach((listener) => listener({ scrollTopChanged })),
         moveCursor: () => cursorListeners.forEach((listener) => listener({})),
+        showAnotherFile: () => {
+            const next = document.createElement('div')
+            view.replaceWith(next)
+            view = next
+        },
     }
     return editor
 }
@@ -122,7 +131,17 @@ describe('bindEditorScrollSync', () => {
         expect(sync.touched).toHaveBeenCalledWith('editor')
         for (const fire of [fireEvent.wheel, fireEvent.pointerDown, fireEvent.keyDown, fireEvent.touchStart]) {
             vi.mocked(sync.touched).mockClear()
-            fire(editor.node)
+            fire(editor.view())
+            expect(sync.touched).toHaveBeenCalledWith('editor')
+        }
+    })
+
+    it('still hears the user after the editor shows another file', () => {
+        const { sync, editor } = bind()
+        editor.showAnotherFile()
+        for (const fire of [fireEvent.wheel, fireEvent.pointerDown, fireEvent.keyDown, fireEvent.touchStart]) {
+            vi.mocked(sync.touched).mockClear()
+            fire(editor.view())
             expect(sync.touched).toHaveBeenCalledWith('editor')
         }
     })
@@ -133,7 +152,7 @@ describe('bindEditorScrollSync', () => {
         expect(unregister).toHaveBeenCalled()
         editor.scroll()
         editor.moveCursor()
-        fireEvent.wheel(editor.node)
+        fireEvent.wheel(editor.view())
         expect(sync.scrolled).not.toHaveBeenCalled()
         expect(sync.touched).not.toHaveBeenCalled()
     })
