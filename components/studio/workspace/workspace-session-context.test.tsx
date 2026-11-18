@@ -115,6 +115,9 @@ vi.mock('@/components/studio/dialogs/disk-change-dialog', async (importOriginal)
 
 const windowFocus = vi.hoisted(() => ({ handler: undefined as undefined | ((event: { payload: boolean }) => void) }))
 
+/** Tests that list a folder past MAX_TREE_ENTRIES build and sort 50,001 nodes, which a loaded Windows CI runner can take well past the default 5s to do. */
+const BIG_FOLDER_TIMEOUT = 30_000
+
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({
         onFocusChanged: async (handler: (event: { payload: boolean }) => void) => {
@@ -2008,28 +2011,32 @@ describe('changes made outside Scrivon', () => {
             expect(notifyError).not.toHaveBeenCalled()
         })
 
-        it("doesn't watch a folder too big to show it all, such as a drive, but still reads it on focus", async () => {
-            const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
-            vi.mocked(readDir).mockImplementation((async (dir: string) => {
-                if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
-                if (dir === 'D:\\big') return Array.from({ length: 50_001 }, (_, i) => entry(`f${i}.md`, false))
-                if (dir === 'D:\\sub') return [entry('deeper', true)]
-                return [entry('x.md', false)]
-            }) as unknown as typeof readDir)
-            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
-            await act(async () => {
-                await result.current.session.openWorkspace('D:\\')
-            })
-            await waitFor(() => expect(windowFocus.handler).toBeDefined())
-            expect(watchImmediate).not.toHaveBeenCalled()
-            const reads = vi.mocked(readDir).mock.calls.length
+        it(
+            "doesn't watch a folder too big to show it all, such as a drive, but still reads it on focus",
+            { timeout: BIG_FOLDER_TIMEOUT },
+            async () => {
+                const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
+                vi.mocked(readDir).mockImplementation((async (dir: string) => {
+                    if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
+                    if (dir === 'D:\\big') return Array.from({ length: 50_001 }, (_, i) => entry(`f${i}.md`, false))
+                    if (dir === 'D:\\sub') return [entry('deeper', true)]
+                    return [entry('x.md', false)]
+                }) as unknown as typeof readDir)
+                const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+                await act(async () => {
+                    await result.current.session.openWorkspace('D:\\')
+                })
+                await waitFor(() => expect(windowFocus.handler).toBeDefined())
+                expect(watchImmediate).not.toHaveBeenCalled()
+                const reads = vi.mocked(readDir).mock.calls.length
 
-            await act(async () => {
-                windowFocus.handler!({ payload: true })
-            })
+                await act(async () => {
+                    windowFocus.handler!({ payload: true })
+                })
 
-            await waitFor(() => expect(vi.mocked(readDir).mock.calls.length).toBeGreaterThan(reads))
-        })
+                await waitFor(() => expect(vi.mocked(readDir).mock.calls.length).toBeGreaterThan(reads))
+            }
+        )
     })
 
     it('leaves an open file without edits as it is when another app deleted it', async () => {
@@ -2504,7 +2511,7 @@ describe('opening folders one after another', () => {
         expect(notifyError).not.toHaveBeenCalled()
     })
 
-    it('says, until closed, when a folder has too many files to show them all', async () => {
+    it('says, until closed, when a folder has too many files to show them all', { timeout: BIG_FOLDER_TIMEOUT }, async () => {
         const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
         vi.mocked(readDir).mockImplementation((async (dir: string) => {
             if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
@@ -2531,52 +2538,56 @@ describe('opening folders one after another', () => {
         expect(dismissNotification).toHaveBeenCalledWith('folder-too-big')
     })
 
-    it('says when the open folder grows too big to show it all, takes that back once it shrinks, and says it again when reopened', async () => {
-        const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
-        let files = 3
-        vi.mocked(readDir).mockImplementation((async (dir: string) => {
-            if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
-            if (dir === 'D:\\big') return Array.from({ length: files }, (_, i) => entry(`f${i}.md`, false))
-            if (dir === 'D:\\sub') return [entry('deeper', true)]
-            return [entry('x.md', false)]
-        }) as unknown as typeof readDir)
-        const tooBigNotices = () => vi.mocked(notifyWarning).mock.calls.filter(([, options]) => options?.id === 'folder-too-big').length
-        const takenBack = () => vi.mocked(dismissNotification).mock.calls.filter(([id]) => id === 'folder-too-big').length
-        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
-        await act(async () => {
-            await result.current.session.openWorkspace('D:\\')
-        })
-        await waitFor(() => expect(windowFocus.handler).toBeDefined())
-        expect(tooBigNotices()).toBe(0)
+    it(
+        'says when the open folder grows too big to show it all, takes that back once it shrinks, and says it again when reopened',
+        { timeout: BIG_FOLDER_TIMEOUT },
+        async () => {
+            const entry = (name: string, isDirectory: boolean) => ({ name, isDirectory, isFile: !isDirectory, isSymlink: false })
+            let files = 3
+            vi.mocked(readDir).mockImplementation((async (dir: string) => {
+                if (dir === 'D:\\') return [entry('big', true), entry('sub', true)]
+                if (dir === 'D:\\big') return Array.from({ length: files }, (_, i) => entry(`f${i}.md`, false))
+                if (dir === 'D:\\sub') return [entry('deeper', true)]
+                return [entry('x.md', false)]
+            }) as unknown as typeof readDir)
+            const tooBigNotices = () => vi.mocked(notifyWarning).mock.calls.filter(([, options]) => options?.id === 'folder-too-big').length
+            const takenBack = () => vi.mocked(dismissNotification).mock.calls.filter(([id]) => id === 'folder-too-big').length
+            const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+            await act(async () => {
+                await result.current.session.openWorkspace('D:\\')
+            })
+            await waitFor(() => expect(windowFocus.handler).toBeDefined())
+            expect(tooBigNotices()).toBe(0)
 
-        // Another app filled a folder while Scrivon was in the background.
-        files = 50_001
-        await act(async () => {
-            windowFocus.handler!({ payload: true })
-        })
-        await waitFor(() => expect(tooBigNotices()).toBe(1))
-        expect(result.current.session.tree[1]).toMatchObject({ children: [{ name: 'deeper', truncated: true }] })
+            // Another app filled a folder while Scrivon was in the background.
+            files = 50_001
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+            await waitFor(() => expect(tooBigNotices()).toBe(1))
+            expect(result.current.session.tree[1]).toMatchObject({ children: [{ name: 'deeper', truncated: true }] })
 
-        // Read again, still too big: a notice the user closed doesn't keep coming back.
-        await act(async () => {
-            await result.current.session.refreshTree()
-        })
-        expect(tooBigNotices()).toBe(1)
+            // Read again, still too big: a notice the user closed doesn't keep coming back.
+            await act(async () => {
+                await result.current.session.refreshTree()
+            })
+            expect(tooBigNotices()).toBe(1)
 
-        // Opening it again says it again, as the first open does.
-        await act(async () => {
-            await result.current.session.openWorkspace('D:\\')
-        })
-        expect(tooBigNotices()).toBe(2)
+            // Opening it again says it again, as the first open does.
+            await act(async () => {
+                await result.current.session.openWorkspace('D:\\')
+            })
+            expect(tooBigNotices()).toBe(2)
 
-        files = 3
-        const before = takenBack()
-        await act(async () => {
-            await result.current.session.refreshTree()
-        })
-        expect(takenBack()).toBe(before + 1)
-        expect(result.current.session.tree[1]).toMatchObject({ children: [{ name: 'deeper', children: [{ name: 'x.md' }] }] })
-    })
+            files = 3
+            const before = takenBack()
+            await act(async () => {
+                await result.current.session.refreshTree()
+            })
+            expect(takenBack()).toBe(before + 1)
+            expect(result.current.session.tree[1]).toMatchObject({ children: [{ name: 'deeper', children: [{ name: 'x.md' }] }] })
+        }
+    )
 
     it('opens the folder clicked last when it is picked while a slow save holds up leaving the open one', async () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
