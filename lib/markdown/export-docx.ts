@@ -44,6 +44,7 @@ import {
     convertMillimetersToTwip,
     type ILevelsOptions,
     type ISectionOptions,
+    type Math as WordMath,
     type ParagraphChild,
 } from 'docx'
 import type { Root as HastRoot, RootContent as HastContent } from 'hast'
@@ -70,11 +71,13 @@ import type {
     TableRow as MdTableRow,
     Text,
 } from 'mdast'
+import type { InlineMath, Math as MdMath } from 'mdast-util-math'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
-import { visit } from 'unist-util-visit'
+import type { Node } from 'unist'
+import { EXIT, visit } from 'unist-util-visit'
 import { notifyWarning } from '@/lib/notify'
 import { exportCodeTheme } from '@/lib/markdown/code-themes'
 import type { ExportDocument } from '@/lib/markdown/export-document'
@@ -499,7 +502,7 @@ function trimHtmlLine(leaves: HtmlLeaf[]): HtmlLeaf[] {
 function htmlPhrasing(leaves: HtmlLeaf[]): PhrasingContent[] {
     const phrasing: PhrasingContent[] = []
     const key = ({ bold, italics, strike, href }: HtmlMarks) => JSON.stringify([bold, italics, strike, href])
-    for (let start = 0; start < leaves.length; ) {
+    for (let start = 0; start < leaves.length;) {
         const marks = leaves[start]!.marks
         let end = start
         const nodes: PhrasingContent[] = []
@@ -1018,9 +1021,13 @@ function bidi(text: string): true | undefined {
     return isRtl(text) || undefined
 }
 
+/** The Word equation each piece of math is written as. Math Word can't hold is code by then (see {@link prepareMath}). */
+type Equations = Map<MdMath | InlineMath, WordMath>
+
 type RenderState = {
     document: ExportDocument
     prepared: Map<Code, PreparedCode>
+    equations: Equations
     /** PNGs redrawn from images Word can't take, keyed by their data URL. */
     images: Map<string, DecodedImage>
     /** The cover logo, decoded once. Null when there is none or it can't be embedded. */
@@ -1127,7 +1134,12 @@ function tocEntries(document: ExportDocument): PdfExportOutlineItem[] {
     })
 }
 
-function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>, images: Map<string, DecodedImage>): RenderState {
+function createState(
+    document: ExportDocument,
+    prepared: Map<Code, PreparedCode>,
+    equations: Equations,
+    images: Map<string, DecodedImage>
+): RenderState {
     const { profile } = document
     const portrait = pdfPageSizeMm(profile)
     const landscape = profile.page.orientation === 'landscape'
@@ -1147,6 +1159,7 @@ function createState(document: ExportDocument, prepared: Map<Code, PreparedCode>
     return {
         document,
         prepared,
+        equations,
         images,
         logo: decodeImage(images, document.assets.logoDataUrl),
         numbering: [],
@@ -1292,7 +1305,7 @@ function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     })
 }
 
-type InlineChild = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun | Bookmark
+type InlineChild = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun | Bookmark | WordMath
 
 /** The bookmarks of a paragraph that showed nothing, for the start of the block written after it. None in a footnote. */
 function takePendingAnchors(state: RenderState): Bookmark[] {
@@ -1312,6 +1325,9 @@ function renderInlines(state: RenderState, nodes: PhrasingContent[], marks: Mark
             children.push(...renderInlines(state, node.children, { ...marks, strike: true }))
         } else if (node.type === 'inlineCode') {
             children.push(textRun(state, node.value, { ...marks, code: true }))
+        } else if (node.type === 'inlineMath') {
+            // An equation in the line. Word sets it in its math font, at the size of the text around it.
+            children.push(state.equations.get(node)!)
         } else if (node.type === 'break') {
             children.push(new TextRun({ break: 1 }))
         } else if (node.type === 'link' || node.type === 'linkReference') {
@@ -1895,6 +1911,15 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
     return renderCodeLines(state, prepared.lines.length > 0 ? prepared.lines : [[{ text: '' }]])
 }
 
+/** Display math: its equation alone in a centred paragraph, which Word shows in display style, as the PDF centres it. */
+function renderDisplayMath(state: RenderState, node: MdMath): Paragraph {
+    return new Paragraph({
+        ...paragraphOptions(state),
+        alignment: AlignmentType.CENTER,
+        children: [...takePendingAnchors(state), state.equations.get(node)!],
+    })
+}
+
 async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRoot = false): Promise<Block[]> {
     const blocks: Block[] = []
     for (let index = 0; index < nodes.length; index += 1) {
@@ -1909,6 +1934,7 @@ async function renderBlocks(state: RenderState, nodes: RootContent[], parentIsRo
         else if (node.type === 'list') blocks.push(...(await renderList(state, node, 0)))
         else if (node.type === 'blockquote') blocks.push(...(await renderBlockquote(state, node)))
         else if (node.type === 'code') blocks.push(...renderPrepared(state, state.prepared.get(node)!))
+        else if (node.type === 'math') blocks.push(renderDisplayMath(state, node))
         else if (node.type === 'table') blocks.push(...(state.inFootnote ? tableAsText(state, node) : [renderTable(state, node)]))
         else if (node.type === 'thematicBreak') {
             blocks.push(
@@ -2439,7 +2465,7 @@ function paragraphTwip(state: RenderState, node: MdParagraph, width: number): nu
                 const decoded = url === undefined ? null : decodeImage(state.images, url)
                 if (decoded) image = Math.max(image, imageTwip(state, decoded, width, givenSize(child)))
                 else add(imageText(state, child))
-            } else if (child.type === 'text' || child.type === 'inlineCode') add(child.value)
+            } else if (child.type === 'text' || child.type === 'inlineCode' || child.type === 'inlineMath') add(child.value)
             else if (child.type === 'break') lines.push('')
             else if ('children' in child) walk(child.children)
         }
@@ -2478,6 +2504,33 @@ function codeTwip(state: RenderState, node: Code, width: number): number {
     return note + 160 + lines * Math.round((276 * codeHalfPoints(state)) / 18)
 }
 
+/** A fraction, or a sum, integral or limit with limits under or over it, which make an equation about two lines tall. */
+const TALL_MATH = /\\d?frac(?![a-zA-Z])|\\(?:sum|int|lim)(?![a-zA-Z])\s*(?:\\(?:no)?limits(?![a-zA-Z])\s*)?[_^]/
+/** The environments whose rows `\\` splits, each row a line: matrices, cases and aligned equations. */
+const ROW_ENVIRONMENTS = /^(?:[pbBvV]?matrix|smallmatrix|array|d?cases|aligned|alignedat|gathered|split)\*?$/
+/** An environment's start or end, or a `\\` between rows. */
+const MATH_ROW_TOKEN = /\\(begin|end)\{([^}]*)\}|\\\\/g
+
+/**
+ * About how many body lines a display equation takes: one, two with a fraction or a sum, integral or limit with
+ * limits, and a line a row for the tallest matrix, `cases` or `aligned` in it. A `\\` after the last row starts none.
+ */
+function displayMathLines(tex: string): number {
+    let rows = 1
+    const open: { rows: number; counted: boolean }[] = []
+    for (const [, edge, name] of tex.replace(/\\\\\s*(?=\\end\{)/g, '').matchAll(MATH_ROW_TOKEN)) {
+        if (edge === 'begin') {
+            open.push({ rows: 1, counted: ROW_ENVIRONMENTS.test(name!.trim()) })
+        } else if (edge === 'end') {
+            const environment = open.pop()
+            if (environment?.counted) rows = Math.max(rows, environment.rows)
+        } else if (open.length > 0) {
+            open[open.length - 1]!.rows += 1
+        }
+    }
+    return Math.max(TALL_MATH.test(tex) ? 2 : 1, rows)
+}
+
 function measureFlow(
     state: RenderState,
     nodes: RootContent[],
@@ -2512,6 +2565,12 @@ function measureFlow(
             measureFlow(state, node.children, Math.max(200, width - QUOTE_STEP), pages, cursor, pageHeight, false)
         } else if (node.type === 'code') {
             placeBlock(cursor, pageHeight, codeTwip(state, node, width))
+        } else if (node.type === 'math') {
+            placeBlock(
+                cursor,
+                pageHeight,
+                displayMathLines(node.value) * lineBoxTwip(state.bodyHalfPoints, state.document.profile.typography.lineHeight) + 120
+            )
         } else if (node.type === 'table') {
             const widths = columnWidths(state, node, tableColumns(node), width)
             placeBlock(
@@ -2816,14 +2875,47 @@ function diagramNotDrawn(prepared: PreparedCode): boolean {
     return prepared.kind === 'diagram' && (!prepared.png || !imageSize('png', prepared.png))
 }
 
-/** Word can't draw MathML, so math is written as its TeX source in the code font: a block as code, inline math as inline code. */
-function mathAsCode(tree: Root): void {
-    visit(tree, (node, index, parent) => {
-        if (!parent || index === undefined) return
-        const children = parent.children as RootContent[]
-        if (node.type === 'math') children[index] = { type: 'code', lang: 'latex', value: node.value }
-        else if (node.type === 'inlineMath') children[index] = { type: 'inlineCode', value: node.value }
+/**
+ * Whether a node is math: `$…$`, `$$…$$`, or a ```` ```math ```` fence, which the preview and the PDF draw as math
+ * too (see hasMath in markdown-to-export-html).
+ */
+function isMath(node: Node): node is MdMath | InlineMath | Code {
+    return node.type === 'math' || node.type === 'inlineMath' || (node.type === 'code' && (node as Code).lang === 'math')
+}
+
+function hasMath(tree: Root): boolean {
+    let found = false
+    visit(tree, isMath, () => {
+        found = true
+        return EXIT
     })
+    return found
+}
+
+/**
+ * Turns the tree's math into Word equations: `$…$` inline, and `$$…$$` and ```` ```math ```` fences as display
+ * math. Math Word equations can't hold (see texToWordMath) becomes its TeX source in the code font instead, as
+ * all math was before: a `latex` code block for display math, inline code for inline math. docx's TeX reader is
+ * loaded only for a document with math, so the export of one without stays as it was.
+ */
+async function prepareMath(tree: Root): Promise<Equations> {
+    const equations: Equations = new Map()
+    if (!hasMath(tree)) return equations
+    const { texToWordMath } = await import('@/lib/markdown/docx-math')
+    visit(tree, (node, index, parent) => {
+        if (!isMath(node) || !parent || index === undefined) return
+        const children = parent.children as RootContent[]
+        const equation = texToWordMath(node.value)
+        if (!equation) {
+            children[index] =
+                node.type === 'inlineMath' ? { type: 'inlineCode', value: node.value } : { type: 'code', lang: 'latex', value: node.value }
+            return
+        }
+        const math: MdMath | InlineMath = node.type === 'code' ? { type: 'math', value: node.value } : node
+        children[index] = math
+        equations.set(math, equation)
+    })
+    return equations
 }
 
 /** The Word file, and how many diagrams it shows as a note, an error or their source instead of a picture. */
@@ -2832,7 +2924,7 @@ export type ExportDocxFile = { bytes: Uint8Array; diagramsNotDrawn: number }
 /** Word renderer for an {@link ExportDocument}. */
 export async function renderExportDocx(source: ExportDocument): Promise<ExportDocxFile> {
     const document = xmlSafeDocument(source)
-    mathAsCode(document.tree)
+    const equations = await prepareMath(document.tree)
     expandHtml(document.tree)
     const codes: Code[] = []
     visit(document.tree, 'code', (node: Code) => {
@@ -2840,7 +2932,7 @@ export async function renderExportDocx(source: ExportDocument): Promise<ExportDo
     })
     const preparedList = await Promise.all(codes.map((node) => prepareCode(node, document.profile)))
     const prepared = new Map(codes.map((node, index) => [node, preparedList[index]!]))
-    const state = createState(document, prepared, await convertImages(document))
+    const state = createState(document, prepared, equations, await convertImages(document))
     const body = await renderBlocks(state, document.tree.children, true)
     // Anchors after the last words still need somewhere to be.
     if (state.pendingAnchors.length > 0) body.push(new Paragraph({ spacing: { after: 0 }, children: takePendingAnchors(state) }))
