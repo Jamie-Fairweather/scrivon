@@ -53,6 +53,7 @@ vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({
     },
 }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
+vi.mock('@/components/studio/dialogs/file-history-provider', () => ({ useFileHistory: () => ({ showFileHistory: vi.fn() }) }))
 vi.mock('@/components/studio/editor/document-export-provider', () => ({
     DocumentExportProvider: ({ children }: { children: ReactNode }) => children,
 }))

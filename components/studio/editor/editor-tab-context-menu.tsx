@@ -3,6 +3,7 @@
 import { useCallback } from 'react'
 import { MenuItem, MenuSeparator } from '@/components/ui/menu'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
+import { useFileHistory } from '@/components/studio/dialogs/file-history-provider'
 import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
 import { useSaveExampleCopy } from '@/components/studio/workspace/use-save-example-copy'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
@@ -18,6 +19,7 @@ function SaveExampleCopyItem({ exampleId }: { exampleId: string }) {
 export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; children: React.ReactNode }) {
     const { tabs, closeTab, closeOtherTabs, closeTabsToRight, closeSavedTabs, closeAllTabs, revertTab } = useDocumentTabs()
     const { open, anchor, openAt, onOpenChange } = useContextMenuAtPoint()
+    const { showFileHistory } = useFileHistory()
 
     // The menu doesn't switch tabs, so closing a background tab leaves you on the one you were in.
     const onContextMenu = useCallback(
@@ -59,6 +61,8 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
                 {tab && exampleId === null && (
                     <>
                         <MenuItem onClick={() => void revertTab(tabId)}>Revert File</MenuItem>
+                        {/* Makes this the active tab first: the dialog compares with the editor's text. */}
+                        <MenuItem onClick={() => void showFileHistory(tabId)}>Show File History…</MenuItem>
                         <MenuSeparator />
                         {/* The Close items have no icons, so leave them off here too. */}
                         <PathMenuItems path={tab.path} icons={false} />

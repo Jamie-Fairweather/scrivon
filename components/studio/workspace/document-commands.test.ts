@@ -22,6 +22,7 @@ function context(overrides: Partial<DocumentCommandsContext> = {}): DocumentComm
         canReopenClosedTab: true,
         reopenClosedTab: vi.fn(async () => {}),
         revertTab: vi.fn(async () => {}),
+        showFileHistory: vi.fn(async () => {}),
         openExample: vi.fn(),
         saveExampleCopy: vi.fn(async () => {}),
         ...overrides,
@@ -134,6 +135,23 @@ describe('buildDocumentCommands tabs', () => {
             disabled: true,
             disabledReason: 'No workspace file open',
         })
+    })
+
+    it('shows the open file’s history, and says why it is off for an example or with no file open', () => {
+        const ctx = context()
+        expect(find(ctx, 'show-file-history')).toMatchObject({ label: 'Show File History…', disabled: false })
+        void find(ctx, 'show-file-history')!.run()
+        expect(ctx.showFileHistory).toHaveBeenCalledExactlyOnceWith('/ws/a.md')
+
+        expect(find(context({ activeTabId: 'example:flowchart' }), 'show-file-history')).toMatchObject({
+            disabled: true,
+            disabledReason: 'Examples have no file history',
+        })
+        expect(find(context({ activeTabId: null }), 'show-file-history')).toMatchObject({
+            disabled: true,
+            disabledReason: 'No workspace file open',
+        })
+        expect(find(context({ hasWorkspace: false }), 'show-file-history')?.disabled).toBe(true)
     })
 
     it('turns the tab commands off when a hidden tab is left over with no folder open', () => {

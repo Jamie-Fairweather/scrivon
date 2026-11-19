@@ -88,6 +88,9 @@ export function createDefaultSettings(isMac = false): AppSettings {
             enabled: true,
             delayMs: DEFAULT_AUTOSAVE_DELAY_MS,
         },
+        fileHistory: {
+            enabled: true,
+        },
         // Follows Windows light/dark. Settings saved before System mode keep their fixed theme (migrate.ts).
         theme: {
             id: FOLLOW_SYSTEM,

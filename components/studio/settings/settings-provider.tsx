@@ -61,6 +61,8 @@ type AppSettingsContextValue = {
     setSystemThemeId: (id: AppThemeId) => void
     setAutosaveEnabled: (enabled: boolean) => void
     setAutosaveDelayMs: (delayMs: number) => void
+    /** Turns keeping a copy of each saved version on or off. Versions already kept stay. */
+    setFileHistoryEnabled: (enabled: boolean) => void
     setLayoutExplorerOpen: (open: boolean) => void
     setEditorWidth: (width: number) => void
     resetEditorWidth: () => void
@@ -246,6 +248,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         [updateSettings]
     )
 
+    const setFileHistoryEnabled = useCallback(
+        (enabled: boolean) => {
+            updateSettings((current) => ({ ...current, fileHistory: { ...current.fileHistory, enabled } }))
+        },
+        [updateSettings]
+    )
+
     const setLayoutExplorerOpen = useCallback(
         (open: boolean) => {
             updateSettings((current) => ({ ...current, layout: { ...current.layout, explorerOpen: open } }))
@@ -372,6 +381,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             setSystemThemeId,
             setAutosaveEnabled,
             setAutosaveDelayMs,
+            setFileHistoryEnabled,
             setLayoutExplorerOpen,
             setEditorWidth,
             resetEditorWidth,
@@ -395,6 +405,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             setSystemThemeId,
             setAutosaveEnabled,
             setAutosaveDelayMs,
+            setFileHistoryEnabled,
             setLayoutExplorerOpen,
             setEditorWidth,
             resetEditorWidth,

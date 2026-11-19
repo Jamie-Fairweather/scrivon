@@ -42,6 +42,8 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: vi.fn(),
 }))
 vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: vi.fn() }) }))
+const showFileHistory = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@/components/studio/dialogs/file-history-provider', () => ({ useFileHistory: () => ({ showFileHistory }) }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: vi.fn() }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: vi.fn() }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({ useCanvasControls: vi.fn() }))
@@ -390,6 +392,7 @@ describe('StudioMenuBar File menu', () => {
             'SaveCtrl+S',
             'Save AllCtrl+Shift+S',
             'Revert File',
+            'Show File History…',
             'Close TabCtrl+W',
             'Reopen Closed TabCtrl+Shift+T',
             'Next TabCtrl+Tab or Ctrl+PageDown',
@@ -403,6 +406,7 @@ describe('StudioMenuBar File menu', () => {
             'Save Ctrl+S',
             'Save All Ctrl+Shift+S',
             'Revert File',
+            'Show File History…',
             'Close Tab Ctrl+W',
             'Reopen Closed Tab Ctrl+Shift+T',
             'Exit Alt+F4',
@@ -423,6 +427,16 @@ describe('StudioMenuBar File menu', () => {
 
         expect(vi.mocked(useDocumentTabs)().revertTab).toHaveBeenCalledWith('C:/work/a.md')
         expect(vi.mocked(useDocumentTabs)().reopenClosedTab).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows the open file’s history', async () => {
+        mockContexts({ isDesktop: true, workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md' })
+        render(<Studio />)
+        const user = userEvent.setup()
+
+        await user.click(within(await openMenu('File')).getByRole('menuitem', { name: 'Show File History…' }))
+
+        expect(showFileHistory).toHaveBeenCalledWith('C:/work/a.md')
     })
 
     it('asks for a new document in the open file’s folder', async () => {
@@ -474,7 +488,7 @@ describe('StudioMenuBar File menu', () => {
         render(<Studio />)
 
         const file = await openMenu('File')
-        for (const name of [/^Save Ctrl/, /^Save All/, 'Revert File', /^Close Tab/]) {
+        for (const name of [/^Save Ctrl/, /^Save All/, 'Revert File', 'Show File History…', /^Close Tab/]) {
             expect(within(file).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
         }
     })
@@ -529,7 +543,7 @@ describe('StudioMenuBar File → Export', () => {
         const { file, exportMenu } = await openExportMenu()
         const labels = menuLabels(file)
         const save = labels.indexOf('SaveCtrl+S')
-        expect(labels.slice(save, save + 4)).toEqual(['SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Revert File', 'Export'])
+        expect(labels.slice(save, save + 5)).toEqual(['SaveCtrl+S', 'Save AllCtrl+Shift+S', 'Revert File', 'Show File History…', 'Export'])
         expect(menuLabels(exportMenu)).toEqual([
             'PDF…',
             'Word…',
@@ -712,7 +726,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(54)
+        expect(compared).toBe(55)
     })
 })
 

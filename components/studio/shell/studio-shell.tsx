@@ -5,6 +5,7 @@ import { AppUpdateProvider } from '@/components/studio/app-update-provider'
 import { CommandPaletteProvider } from '@/components/studio/command-palette/command-palette-provider'
 import { CommandRegistryProvider } from '@/components/studio/commands/command-registry'
 import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
+import { FileHistoryProvider } from '@/components/studio/dialogs/file-history-provider'
 import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { MoveToProvider } from '@/components/studio/dialogs/move-to-provider'
 import { NamePromptProvider } from '@/components/studio/dialogs/name-prompt-provider'
@@ -68,20 +69,22 @@ export function StudioShell() {
                         <NamePromptProvider>
                             <DeleteConfirmProvider>
                                 <MoveToProvider>
-                                    <AppUpdateProvider>
-                                        {/* Below the providers above, so a command can use their dialogs and updates. */}
-                                        <StudioPalette>
-                                            {/* First, so these commands lead the palette's list. */}
-                                            <StudioCommands />
-                                            <HelpCommands />
-                                            <NativeWindowTitle />
-                                            <WindowFileDrop />
-                                            {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
-                                            <TooltipProvider delay={400}>
-                                                <StudioRouter />
-                                            </TooltipProvider>
-                                        </StudioPalette>
-                                    </AppUpdateProvider>
+                                    <FileHistoryProvider>
+                                        <AppUpdateProvider>
+                                            {/* Below the providers above, so a command can use their dialogs and updates. */}
+                                            <StudioPalette>
+                                                {/* First, so these commands lead the palette's list. */}
+                                                <StudioCommands />
+                                                <HelpCommands />
+                                                <NativeWindowTitle />
+                                                <WindowFileDrop />
+                                                {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
+                                                <TooltipProvider delay={400}>
+                                                    <StudioRouter />
+                                                </TooltipProvider>
+                                            </StudioPalette>
+                                        </AppUpdateProvider>
+                                    </FileHistoryProvider>
                                 </MoveToProvider>
                             </DeleteConfirmProvider>
                         </NamePromptProvider>

@@ -22,6 +22,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **File explorer** — Create, rename, duplicate, and delete `.md`, `.markdown`, `.mmd`, `.mermaid` files and folders from the sidebar
 - **Multi-tab editing** — Work across several documents in one session; tab state is restored per workspace
 - **Recent folders** — Quick access from the welcome screen and **File → Open Recent**
+- **File history** — Each save keeps a copy of that version in Scrivon's own data folder, never next to your document (up to 50 versions per file, for 30 days). **File → Show File History…** (also in the F1 palette and the tab's right-click menu) compares a version with the text in the editor and puts it back as one change that **Ctrl+Z** undoes. Turn it off, or delete it all, in **Settings → General**
 - **Open from File Explorer** — Double-click a `.md`, `.markdown`, `.mmd` or `.mermaid` file, or use **Open with**, to open it in a tab with its folder. If Scrivon is already open, that window opens it. Paths given on the command line work the same way, and so does dropping a file onto the window when no folder is open
 
 ### Mermaid diagrams
@@ -86,10 +87,11 @@ Your documents stay where you save them. Scrivon keeps its own data in your Wind
 | Recent folders, open tabs, window size, and unsaved edits kept for you | `%APPDATA%\io.github.jamie-fairweather.scrivon`                                                                                |
 | Settings (theme, shortcuts, export profiles)                           | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\EBWebView`, with a copy in `settings.json` in the `%APPDATA%` folder above |
 | Log (`scrivon.log`) and crash log                                      | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\logs`                                                                      |
+| File history (earlier saved versions of your files)                    | `%LOCALAPPDATA%\io.github.jamie-fairweather.scrivon\history`                                                                   |
 | Data from before version 1.4.1                                         | `com.diagram.app` in `%APPDATA%` and `%LOCALAPPDATA%` (copied across once, then left)                                          |
 | Downloaded updates                                                     | `%TEMP%\Scrivon-<version>-updater-…`, removed the next time Scrivon starts                                                     |
 
-To uninstall, open Windows **Settings → Apps**, find Scrivon and choose **Uninstall**. Tick **Delete the application data** to also remove your recent folders, settings and logs, and the old `com.diagram.app` folders. Your documents are never touched.
+To uninstall, open Windows **Settings → Apps**, find Scrivon and choose **Uninstall**. Tick **Delete the application data** to also remove your recent folders, settings, file history and logs, and the old `com.diagram.app` folders. Your documents are never touched.
 
 ### Build from source
 

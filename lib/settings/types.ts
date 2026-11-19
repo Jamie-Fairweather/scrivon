@@ -82,6 +82,11 @@ export type AppSettings = {
         enabled: boolean
         delayMs: number
     }
+    /** Local history: a copy of each saved version of a file, kept in the app's data folder (File → Show File History…). */
+    fileHistory: {
+        /** Off keeps nothing new; versions already kept stay until deleted. */
+        enabled: boolean
+    }
     theme: ThemeSetting
     appearance: {
         /** The whole app's zoom, one of APP_ZOOM_LEVELS: 1 is 100%. */

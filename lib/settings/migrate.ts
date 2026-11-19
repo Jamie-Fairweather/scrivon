@@ -210,6 +210,10 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             enabled: typeof source.autosave?.enabled === 'boolean' ? source.autosave.enabled : defaults.autosave.enabled,
             delayMs: readWholeNumber(source.autosave?.delayMs, defaults.autosave.delayMs, 200, 5000),
         },
+        // Settings saved before file history have none, so it starts on.
+        fileHistory: {
+            enabled: typeof source.fileHistory?.enabled === 'boolean' ? source.fileHistory.enabled : defaults.fileHistory.enabled,
+        },
         theme: normalizeTheme(source.theme, defaults.theme),
         // Settings saved before app zoom have none, so they start at 100% with 14px preview text.
         appearance: {
