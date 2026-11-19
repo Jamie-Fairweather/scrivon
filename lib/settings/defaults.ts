@@ -133,6 +133,11 @@ export function createDefaultSettings(isMac = false): AppSettings {
             transparent: false,
         },
         spellcheck: createDefaultSpellcheckSettings(),
+        workspaceSearch: {
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+        },
         keybinds: createDefaultKeybinds(isMac),
     }
 }

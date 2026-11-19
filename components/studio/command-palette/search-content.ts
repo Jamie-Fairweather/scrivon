@@ -1,7 +1,8 @@
 import { documentKind, getBaseName, stampChanged } from '@/lib/tauri/fs'
 import type { FileStamp } from '@/lib/workspace/types'
-import { foldLine, foldText, originalSpan } from '@/components/studio/command-palette/fold-text'
+import { matchFile as defaultMatchFile, REGEX_FILE_TIME_LIMIT_MS, type MatchFile } from '@/components/studio/command-palette/regex-match-client'
 import { relativePath } from '@/components/studio/command-palette/search-files'
+import { matchText, type TextMatch, type TextMatcher } from '@/components/studio/command-palette/text-matcher'
 import type { PaletteMode, TextSearchHit } from '@/components/studio/command-palette/types'
 
 export const MIN_QUERY_LENGTH = 2
@@ -101,10 +102,13 @@ function widenToWholeCharacters(line: string, start: number, end: number): { sta
     return { start, end }
 }
 
-/** A window of the line around the match, and where the match starts inside it (for highlighting). */
-export function buildPreview(line: string, matchIndex: number, matchLength: number): { preview: string; matchStart: number } {
+/**
+ * A window of the line around the match, where the match starts inside it, and how much of it the
+ * window shows (for highlighting). A match longer than the window starts the window.
+ */
+export function buildPreview(line: string, matchIndex: number, matchLength: number): { preview: string; matchStart: number; matchLength: number } {
     const max = PREVIEW_MAX_CHARS
-    const half = Math.floor((max - matchLength) / 2)
+    const half = Math.max(0, Math.floor((max - matchLength) / 2))
     let cutStart = Math.max(0, matchIndex - half)
     const cutEnd = Math.min(line.length, cutStart + max)
 
@@ -120,42 +124,32 @@ export function buildPreview(line: string, matchIndex: number, matchLength: numb
         matchStart += 1
     }
     if (end < line.length) preview = `${preview}…`
-    return { preview, matchStart }
+    // Only the part of the match inside the window, never the '…' after it.
+    const shown = Math.max(0, Math.min(matchLength, end - matchIndex))
+    return { preview, matchStart, matchLength: shown }
 }
 
-function searchInContent(content: string, query: string, path: string, source: 'buffer' | 'disk', maxHits: number): TextSearchHit[] {
-    const hits: TextSearchHit[] = []
-    const needle = foldText(query)
-    if (!needle) return hits
+/** Turns matches (in original-line positions) into hits with their previews. */
+function matchesToHits(content: string, matches: TextMatch[], path: string, source: 'buffer' | 'disk'): TextSearchHit[] {
+    if (matches.length === 0) return []
     const lines = content.split('\n')
-
-    for (let lineIdx = 0; lineIdx < lines.length && hits.length < maxHits; lineIdx++) {
-        const line = lines[lineIdx]!
-        const folded = foldLine(line)
-        let col = 0
-
-        while (col < folded.folded.length && hits.length < maxHits) {
-            const idx = folded.folded.indexOf(needle, col)
-            if (idx === -1) break
-
-            // Report the match where it sits in the original line, which folding may have shifted.
-            const match = originalSpan(folded, idx, needle.length)
-            const { preview, matchStart } = buildPreview(line, match.start, match.length)
-            hits.push({
-                path,
-                line: lineIdx + 1,
-                column: match.start + 1,
-                length: match.length,
-                preview,
-                previewMatchStart: matchStart,
-                source,
-            })
-            col = idx + needle.length
+    return matches.map(({ lineIndex, start, length }) => {
+        const { preview, matchStart, matchLength } = buildPreview(lines[lineIndex]!, start, length)
+        return {
+            path,
+            line: lineIndex + 1,
+            column: start + 1,
+            length,
+            preview,
+            previewMatchStart: matchStart,
+            previewMatchLength: matchLength,
+            source,
         }
-    }
-
-    return hits
+    })
 }
+
+/** Why a regex search stopped before it had looked at every file. */
+export type SearchStop = { reason: 'timedOut'; path: string } | { reason: 'unavailable' }
 
 async function scanDiskPaths(
     paths: string[],
@@ -191,7 +185,8 @@ async function scanDiskPaths(
 }
 
 export type SearchWorkspaceContentOptions = {
-    query: string
+    /** The query compiled for the search's options (compileTextQuery). */
+    matcher: TextMatcher
     paths: string[]
     openBuffers: Map<string, string>
     readFile: (path: string) => Promise<string>
@@ -200,6 +195,10 @@ export type SearchWorkspaceContentOptions = {
     /** Reuses file text from earlier searches; only used when the file's stamp is known. */
     cache?: ContentCache
     signal: AbortSignal
+    /** Runs a regex search in the worker. Only used in regex mode; the app's own worker by default. */
+    matchFile?: MatchFile
+    /** How long the worker gets for each file in regex mode. */
+    regexTimeLimitMs?: number
     maxHits?: number
     maxHitsPerFile?: number
     maxFileBytes?: number
@@ -214,17 +213,25 @@ export type SearchWorkspaceContentResult = {
     unreadableFiles: number
     /** Files with more matches than the per-file limit shows. */
     truncatedFiles: number
+    /** Lines skipped in regex mode for being longer than REGEX_MAX_LINE_LENGTH. */
+    longLinesSkipped: number
+    /** Set when a regex search stopped early. The hits found before it stopped are kept. */
+    stopped: SearchStop | null
 }
+
+const NO_RESULT: SearchWorkspaceContentResult = { hits: [], capped: false, unreadableFiles: 0, truncatedFiles: 0, longLinesSkipped: 0, stopped: null }
 
 export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions): Promise<SearchWorkspaceContentResult> {
     const {
-        query,
+        matcher,
         paths,
         openBuffers,
         readFile,
         getFileStamp,
         cache,
         signal,
+        matchFile = defaultMatchFile,
+        regexTimeLimitMs = REGEX_FILE_TIME_LIMIT_MS,
         maxHits = MAX_HITS,
         maxHitsPerFile = MAX_HITS_PER_FILE,
         maxFileBytes = MAX_FILE_BYTES,
@@ -234,21 +241,56 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
     const hits: TextSearchHit[] = []
     const bufferPaths = new Set(openBuffers.keys())
     let truncatedFiles = 0
+    let longLinesSkipped = 0
+    let stopped: SearchStop | null = null
+    // Aborted with the caller's signal, or when a regex search stops (a file took too long), so the files
+    // still being read or waiting for the worker are dropped.
+    const scan = new AbortController()
+    const stopScan = () => scan.abort()
+    if (signal.aborted) return NO_RESULT
+    signal.addEventListener('abort', stopScan, { once: true })
 
-    // Looks one hit past the per-file limit to tell whether the file had more.
-    const searchFile = (content: string, path: string, source: 'buffer' | 'disk'): TextSearchHit[] => {
-        const fileHits = searchInContent(content, query, path, source, maxHitsPerFile + 1)
+    /** The matches in one file: on this thread for a plain search, in the worker for a regex. Null once the search stopped. */
+    const findMatches = async (content: string, path: string): Promise<TextMatch[] | null> => {
+        // Looks one hit past the per-file limit to tell whether the file had more.
+        const limit = maxHitsPerFile + 1
+        if (!matcher.options.useRegex) return matchText(content, matcher, limit).matches
+
+        const result = await matchFile(content, matcher.query, matcher.options, {
+            maxHits: limit,
+            timeLimitMs: regexTimeLimitMs,
+            signal: scan.signal,
+        })
+        if (result.type === 'matches') {
+            longLinesSkipped += result.longLinesSkipped
+            return result.matches
+        }
+        if (result.type !== 'aborted' && !stopped) {
+            stopped = result.type === 'timedOut' ? { reason: 'timedOut', path } : { reason: 'unavailable' }
+            scan.abort()
+        }
+        return null
+    }
+
+    const searchFile = async (content: string, path: string, source: 'buffer' | 'disk'): Promise<TextSearchHit[]> => {
+        const matches = await findMatches(content, path)
+        if (!matches) return []
+        const fileHits = matchesToHits(content, matches, path, source)
         if (fileHits.length <= maxHitsPerFile) return fileHits
         truncatedFiles++
         return fileHits.slice(0, maxHitsPerFile)
     }
 
+    const finish = (capped: boolean, unreadableFiles: number): SearchWorkspaceContentResult => {
+        signal.removeEventListener('abort', stopScan)
+        return { hits: hits.slice(0, maxHits), capped, unreadableFiles, truncatedFiles, longLinesSkipped, stopped }
+    }
+
     for (const [path, content] of openBuffers) {
-        if (signal.aborted) return { hits: [], capped: false, unreadableFiles: 0, truncatedFiles: 0 }
-        hits.push(...searchFile(content, path, 'buffer'))
-        if (hits.length >= maxHits) {
-            return { hits: hits.slice(0, maxHits), capped: true, unreadableFiles: 0, truncatedFiles }
-        }
+        if (signal.aborted) return NO_RESULT
+        hits.push(...(await searchFile(content, path, 'buffer')))
+        if (hits.length >= maxHits) return finish(true, 0)
+        if (scan.signal.aborted) return signal.aborted ? NO_RESULT : finish(false, 0)
     }
 
     const diskPaths = paths.filter((path) => !bufferPaths.has(path))
@@ -266,21 +308,22 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
                 // Kept even if this search was cancelled meanwhile, so the next one can use it.
                 if (stamp !== null) cache?.set(path, stamp, content)
             }
-            if (signal.aborted) return []
+            if (scan.signal.aborted) return []
             if (content.length > maxFileBytes) return []
 
-            return searchFile(content, path, 'disk')
+            return await searchFile(content, path, 'disk')
         } catch {
             // One missing or locked file must not fail the whole search; skip it and count it.
-            if (!signal.aborted) unreadableFiles++
+            if (!scan.signal.aborted) unreadableFiles++
             return []
         }
     }
 
-    const diskHits = await scanDiskPaths(diskPaths, concurrency, maxHits - hits.length, scanDiskPath, signal)
+    const diskHits = await scanDiskPaths(diskPaths, concurrency, maxHits - hits.length, scanDiskPath, scan.signal)
+    if (signal.aborted) return NO_RESULT
     hits.push(...diskHits)
 
-    return { hits: hits.slice(0, maxHits), capped: hits.length >= maxHits, unreadableFiles, truncatedFiles }
+    return finish(hits.length >= maxHits, unreadableFiles)
 }
 
 export function textHitToPaletteItem(hit: TextSearchHit, workspaceRoot: string): import('@/components/studio/command-palette/types').TextPaletteItem {
@@ -298,6 +341,7 @@ export function textHitToPaletteItem(hit: TextSearchHit, workspaceRoot: string):
         length: hit.length,
         preview: hit.preview,
         previewMatchStart: hit.previewMatchStart,
+        previewMatchLength: hit.previewMatchLength,
         source: hit.source,
     }
 }

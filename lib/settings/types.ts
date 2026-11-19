@@ -129,6 +129,12 @@ export type AppSettings = {
     /** How diagrams look when saved or copied as SVG or PNG. */
     diagramExport: DiagramExportSettings
     spellcheck: SpellcheckSettings
+    /** Find in Workspace's options, switched in the palette and kept for next time (not in the Settings dialog). */
+    workspaceSearch: {
+        matchCase: boolean
+        wholeWord: boolean
+        useRegex: boolean
+    }
     keybinds: Record<KeybindActionId, KeybindChord[]>
 }
 

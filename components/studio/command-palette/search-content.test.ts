@@ -6,11 +6,26 @@ import {
     searchWorkspaceContent,
     textHitToPaletteItem,
 } from '@/components/studio/command-palette/search-content'
+import type { MatchFile, MatchFileResult } from '@/components/studio/command-palette/regex-match-client'
+import {
+    compileTextQuery,
+    matchText,
+    PLAIN_SEARCH_OPTIONS,
+    type TextMatcher,
+    type WorkspaceSearchOptions,
+} from '@/components/studio/command-palette/text-matcher'
 import type { FileStamp } from '@/lib/workspace/types'
 
 /** A file's size, and when it was last changed (any fixed time unless a test changes it). */
 function stamp(size: number, mtimeMs: number | null = 1_700_000_000_000): FileStamp {
     return { size, mtimeMs }
+}
+
+/** The query compiled for these options (all off by default: the plain search). */
+function plain(query: string, options: Partial<WorkspaceSearchOptions> = {}): TextMatcher {
+    const compiled = compileTextQuery(query, { ...PLAIN_SEARCH_OPTIONS, ...options })
+    if (!compiled.ok) throw new Error(compiled.error)
+    return compiled.matcher
 }
 
 describe('buildPreview', () => {
@@ -59,12 +74,24 @@ describe('buildPreview', () => {
     })
 
     it('returns short lines unchanged', () => {
-        expect(buildPreview('hello world', 6, 5)).toEqual({ preview: 'hello world', matchStart: 6 })
+        expect(buildPreview('hello world', 6, 5)).toEqual({ preview: 'hello world', matchStart: 6, matchLength: 5 })
     })
 
     it('adjusts start when the preview window is shorter than max', () => {
         const line = 'abc match xyz'
         expect(buildPreview(line, 4, 5).preview).toBe('abc match xyz')
+    })
+
+    it('starts the preview at a match longer than the preview, and only counts the part it shows', () => {
+        const match = 'M'.repeat(150)
+        const line = `${'x'.repeat(80)}${match}${'y'.repeat(20)}`
+        const { preview, matchStart, matchLength } = buildPreview(line, 80, match.length)
+
+        expect(preview.startsWith('…M')).toBe(true)
+        expect(preview.endsWith('M…')).toBe(true)
+        expect(matchStart).toBe(1)
+        expect(matchLength).toBe(100)
+        expect(preview.slice(matchStart, matchStart + matchLength)).toBe('M'.repeat(100))
     })
 
     it('reports where the match sits in a trimmed preview, after the leading ellipsis', () => {
@@ -84,6 +111,7 @@ describe('textHitToPaletteItem', () => {
                 length: 4,
                 preview: 'oauth flow',
                 previewMatchStart: 0,
+                previewMatchLength: 4,
                 source: 'buffer',
             },
             '/workspace'
@@ -97,7 +125,7 @@ describe('textHitToPaletteItem', () => {
     })
 
     it('treats upper-case extensions like the rest of the app', () => {
-        const hit = { line: 1, column: 1, length: 4, preview: 'flow', previewMatchStart: 0, source: 'disk' as const }
+        const hit = { line: 1, column: 1, length: 4, preview: 'flow', previewMatchStart: 0, previewMatchLength: 4, source: 'disk' as const }
         expect(textHitToPaletteItem({ ...hit, path: '/workspace/NOTES.Md' }, '/workspace').documentKind).toBe('markdown')
         expect(textHitToPaletteItem({ ...hit, path: '/workspace/FLOW.MMD' }, '/workspace').documentKind).toBe('mermaid')
     })
@@ -111,7 +139,7 @@ describe('searchWorkspaceContent', () => {
         }
 
         const result = await searchWorkspaceContent({
-            query: 'oauth',
+            matcher: plain('oauth'),
             paths: ['/open.md', '/disk-only.md'],
             openBuffers: new Map([['/open.md', 'buffer oauth value']]),
             readFile,
@@ -127,7 +155,7 @@ describe('searchWorkspaceContent', () => {
 
     it('is case-insensitive', async () => {
         const result = await searchWorkspaceContent({
-            query: 'OAuth',
+            matcher: plain('OAuth'),
             paths: [],
             openBuffers: new Map([['/a.md', 'configured OAUTH redirect']]),
             readFile: async () => '',
@@ -140,7 +168,7 @@ describe('searchWorkspaceContent', () => {
     it('respects max hits cap', async () => {
         const content = 'match match match match'
         const result = await searchWorkspaceContent({
-            query: 'match',
+            matcher: plain('match'),
             paths: [],
             openBuffers: new Map([['/a.md', content]]),
             readFile: async () => '',
@@ -157,7 +185,7 @@ describe('searchWorkspaceContent', () => {
         controller.abort()
 
         const result = await searchWorkspaceContent({
-            query: 'oauth',
+            matcher: plain('oauth'),
             paths: ['/slow.md'],
             openBuffers: new Map(),
             readFile: async () => 'oauth',
@@ -169,7 +197,7 @@ describe('searchWorkspaceContent', () => {
 
     it('skips files larger than max bytes', async () => {
         const result = await searchWorkspaceContent({
-            query: 'secret',
+            matcher: plain('secret'),
             paths: ['/large.md'],
             openBuffers: new Map(),
             readFile: async () => 'should not be read',
@@ -183,7 +211,7 @@ describe('searchWorkspaceContent', () => {
 
     it('caps during buffer search', async () => {
         const result = await searchWorkspaceContent({
-            query: 'x',
+            matcher: plain('x'),
             paths: [],
             openBuffers: new Map([['/a.md', 'x x x x']]),
             readFile: async () => '',
@@ -197,7 +225,7 @@ describe('searchWorkspaceContent', () => {
 
     it('skips disk files when read content exceeds max bytes', async () => {
         const result = await searchWorkspaceContent({
-            query: 'secret',
+            matcher: plain('secret'),
             paths: ['/large.md'],
             openBuffers: new Map(),
             readFile: async () => 'x'.repeat(2_000_000),
@@ -214,7 +242,7 @@ describe('searchWorkspaceContent', () => {
         const read: string[] = []
 
         const result = await searchWorkspaceContent({
-            query: 'roadmap',
+            matcher: plain('roadmap'),
             paths,
             openBuffers: new Map(),
             readFile: async (path) => {
@@ -231,7 +259,7 @@ describe('searchWorkspaceContent', () => {
 
     it('does not report capped when every file was searched without reaching the hit limit', async () => {
         const result = await searchWorkspaceContent({
-            query: 'hit',
+            matcher: plain('hit'),
             paths: ['/one.md', '/two.md', '/three.md'],
             openBuffers: new Map(),
             readFile: async (path) => (path === '/one.md' ? 'hit' : ''),
@@ -245,7 +273,7 @@ describe('searchWorkspaceContent', () => {
 
     it('skips files that cannot be read and still returns hits from the rest', async () => {
         const result = await searchWorkspaceContent({
-            query: 'oauth',
+            matcher: plain('oauth'),
             paths: ['/a.md', '/gone.md', '/b.md'],
             openBuffers: new Map(),
             readFile: async (path) => {
@@ -262,7 +290,7 @@ describe('searchWorkspaceContent', () => {
 
     it('skips files whose size check throws', async () => {
         const result = await searchWorkspaceContent({
-            query: 'oauth',
+            matcher: plain('oauth'),
             paths: ['/locked.md', '/ok.md'],
             openBuffers: new Map(),
             readFile: async () => 'oauth',
@@ -280,7 +308,7 @@ describe('searchWorkspaceContent', () => {
     it('matches decomposed text against a composed query and reports the original position', async () => {
         const line = 'Le cafe\u0301 est bon'
         const result = await searchWorkspaceContent({
-            query: 'caf\u00e9',
+            matcher: plain('caf\u00e9'),
             paths: [],
             openBuffers: new Map([['/a.md', line]]),
             readFile: async () => '',
@@ -295,7 +323,7 @@ describe('searchWorkspaceContent', () => {
     it('keeps columns right after decomposed Korean text', async () => {
         const line = `${'한글'.normalize('NFD')} target`
         const result = await searchWorkspaceContent({
-            query: 'target',
+            matcher: plain('target'),
             paths: [],
             openBuffers: new Map([['/a.md', line]]),
             readFile: async () => '',
@@ -308,7 +336,7 @@ describe('searchWorkspaceContent', () => {
 
     it('finds decomposed Korean when the query is typed composed', async () => {
         const result = await searchWorkspaceContent({
-            query: '한글',
+            matcher: plain('한글'),
             paths: [],
             openBuffers: new Map([['/a.md', `notes ${'한글'.normalize('NFD')}`]]),
             readFile: async () => '',
@@ -323,7 +351,7 @@ describe('searchWorkspaceContent', () => {
         const line = 'İSTANBUL İzmir Ankara notları'
         const search = (query: string) =>
             searchWorkspaceContent({
-                query,
+                matcher: plain(query),
                 paths: [],
                 openBuffers: new Map([['/a.md', line]]),
                 readFile: async () => '',
@@ -341,7 +369,7 @@ describe('searchWorkspaceContent', () => {
 
     it('matches Greek words however the sigma is written', async () => {
         const result = await searchWorkspaceContent({
-            query: 'ΟΔΟΣ',
+            matcher: plain('ΟΔΟΣ'),
             paths: [],
             openBuffers: new Map([['/a.md', 'ΟΔΟΣΗ and οδος']]),
             readFile: async () => '',
@@ -353,7 +381,7 @@ describe('searchWorkspaceContent', () => {
 
     it('gives each hit on a line its own highlight position', async () => {
         const result = await searchWorkspaceContent({
-            query: 'aa',
+            matcher: plain('aa'),
             paths: [],
             openBuffers: new Map([['/a.md', 'aa bb aa']]),
             readFile: async () => '',
@@ -370,7 +398,7 @@ describe('searchWorkspaceContent', () => {
             new Promise<string>((resolve) => setTimeout(() => resolve('hit'), (paths.length - paths.indexOf(path)) * 5))
 
         const all = await searchWorkspaceContent({
-            query: 'hit',
+            matcher: plain('hit'),
             paths,
             openBuffers: new Map(),
             readFile,
@@ -380,7 +408,7 @@ describe('searchWorkspaceContent', () => {
         expect(all.hits.map((hit) => hit.path)).toEqual(paths)
 
         const firstTwo = await searchWorkspaceContent({
-            query: 'hit',
+            matcher: plain('hit'),
             paths,
             openBuffers: new Map(),
             readFile,
@@ -395,7 +423,7 @@ describe('searchWorkspaceContent', () => {
     it("limits each file's hits so one busy file can't hide the rest", async () => {
         const busy = Array.from({ length: 50 }, () => 'A --> B').join('\n')
         const result = await searchWorkspaceContent({
-            query: '-->',
+            matcher: plain('-->'),
             paths: ['/busy.mmd', '/other.mmd'],
             openBuffers: new Map(),
             readFile: async (path) => (path === '/busy.mmd' ? busy : 'C --> D'),
@@ -411,7 +439,7 @@ describe('searchWorkspaceContent', () => {
 
     it('limits hits from a busy open tab too', async () => {
         const result = await searchWorkspaceContent({
-            query: '-->',
+            matcher: plain('-->'),
             paths: ['/other.mmd'],
             openBuffers: new Map([['/open.mmd', Array.from({ length: 200 }, () => 'A --> B').join('\n')]]),
             readFile: async () => 'C --> D',
@@ -425,7 +453,7 @@ describe('searchWorkspaceContent', () => {
 
     it('does not report a file as truncated when it has exactly the per-file limit', async () => {
         const result = await searchWorkspaceContent({
-            query: 'x',
+            matcher: plain('x'),
             paths: [],
             openBuffers: new Map([['/a.md', 'x x x']]),
             readFile: async () => '',
@@ -439,7 +467,7 @@ describe('searchWorkspaceContent', () => {
 
     it('finds multiple matches on one line', async () => {
         const result = await searchWorkspaceContent({
-            query: 'aa',
+            matcher: plain('aa'),
             paths: [],
             openBuffers: new Map([['/a.md', 'aa bb aa']]),
             readFile: async () => '',
@@ -454,7 +482,7 @@ describe('searchWorkspaceContent', () => {
         controller.abort()
 
         const result = await searchWorkspaceContent({
-            query: 'x',
+            matcher: plain('x'),
             paths: [],
             openBuffers: new Map([['/a.md', 'x']]),
             readFile: async () => '',
@@ -467,7 +495,7 @@ describe('searchWorkspaceContent', () => {
 
     it('reads disk when the file size is unknown', async () => {
         const result = await searchWorkspaceContent({
-            query: 'token',
+            matcher: plain('token'),
             paths: ['/disk.md'],
             openBuffers: new Map(),
             readFile: async () => 'token value',
@@ -481,7 +509,7 @@ describe('searchWorkspaceContent', () => {
 
     it('stops collecting disk hits once max hits is reached', async () => {
         const result = await searchWorkspaceContent({
-            query: 'hit',
+            matcher: plain('hit'),
             paths: ['/one.md', '/two.md'],
             openBuffers: new Map(),
             readFile: async () => 'hit',
@@ -497,7 +525,7 @@ describe('searchWorkspaceContent', () => {
     it('ignores disk content when aborted during read', async () => {
         const controller = new AbortController()
         const result = await searchWorkspaceContent({
-            query: 'x',
+            matcher: plain('x'),
             paths: ['/disk.md'],
             openBuffers: new Map(),
             readFile: async () => {
@@ -515,7 +543,7 @@ describe('searchWorkspaceContent', () => {
         controller.abort()
 
         const result = await searchWorkspaceContent({
-            query: 'x',
+            matcher: plain('x'),
             paths: ['/disk.md'],
             openBuffers: new Map(),
             readFile: async () => 'x',
@@ -528,7 +556,7 @@ describe('searchWorkspaceContent', () => {
 
     it('reads disk files when size is within the limit', async () => {
         const result = await searchWorkspaceContent({
-            query: 'token',
+            matcher: plain('token'),
             paths: ['/disk.md'],
             openBuffers: new Map(),
             readFile: async () => 'token value',
@@ -544,7 +572,7 @@ describe('searchWorkspaceContent', () => {
         let calls = 0
 
         const result = await searchWorkspaceContent({
-            query: 'x',
+            matcher: plain('x'),
             paths: ['/one.md', '/two.md'],
             openBuffers: new Map(),
             readFile: async () => 'x',
@@ -561,6 +589,117 @@ describe('searchWorkspaceContent', () => {
     })
 })
 
+describe('searchWorkspaceContent options', () => {
+    /** A stand-in for the regex worker, matching as the real one does. */
+    const workerMatchFile = vi.fn<MatchFile>(async (text, query, options, { maxHits }) => {
+        const compiled = compileTextQuery(query, options)
+        if (!compiled.ok) return { type: 'invalid', error: compiled.error }
+        return { type: 'matches', ...matchText(text, compiled.matcher, maxHits) }
+    })
+
+    const search = (
+        matcher: TextMatcher,
+        buffers: Record<string, string>,
+        disk: Record<string, string> = {},
+        matchFile: MatchFile = workerMatchFile
+    ) =>
+        searchWorkspaceContent({
+            matcher,
+            paths: [...Object.keys(buffers), ...Object.keys(disk)],
+            openBuffers: new Map(Object.entries(buffers)),
+            readFile: async (path) => disk[path]!,
+            signal: new AbortController().signal,
+            matchFile,
+        })
+
+    it('finds only the case typed with Match Case', async () => {
+        const result = await search(plain('Readme', { matchCase: true }), { '/a.md': 'readme\nReadme' })
+        expect(result.hits.map((hit) => hit.line)).toEqual([2])
+    })
+
+    it('finds whole words only with Match Whole Word, pointing at the original text', async () => {
+        const line = 'cats, cafés and a café.'
+        const result = await search(plain('café', { wholeWord: true }), { '/a.md': `concatenate\n${line}` })
+        expect(result.hits).toHaveLength(1)
+        const hit = result.hits[0]!
+        expect(hit).toMatchObject({ line: 2, column: line.lastIndexOf('café') + 1, length: 5 })
+        expect(hit.preview.slice(hit.previewMatchStart, hit.previewMatchStart + hit.previewMatchLength)).toBe('café')
+    })
+
+    it('searches without the worker unless regex is on', async () => {
+        workerMatchFile.mockClear()
+        await search(plain('a', { matchCase: true, wholeWord: true }), { '/a.md': 'a' }, { '/b.md': 'a' })
+        expect(workerMatchFile).not.toHaveBeenCalled()
+    })
+
+    it('matches every file in the worker with regex on, with real columns and lengths', async () => {
+        workerMatchFile.mockClear()
+        const result = await search(plain('\\d+$', { useRegex: true }), { '/a.md': 'v 12\r\nv 3' }, { '/b.md': 'x 456' })
+        expect(workerMatchFile).toHaveBeenCalledTimes(2)
+        expect(result.hits.map(({ path, line, column, length }) => ({ path, line, column, length }))).toEqual([
+            { path: '/a.md', line: 1, column: 3, length: 2 },
+            { path: '/a.md', line: 2, column: 3, length: 1 },
+            { path: '/b.md', line: 1, column: 3, length: 3 },
+        ])
+        expect(result.stopped).toBeNull()
+    })
+
+    it('counts the long lines skipped in regex mode', async () => {
+        const long = 'a'.repeat(10_001)
+        const result = await search(plain('a', { useRegex: true }), { '/a.md': `${long}\na` }, { '/b.md': `${long}\n${long}` })
+        expect(result.longLinesSkipped).toBe(3)
+        expect(result.hits).toHaveLength(1)
+    })
+
+    it('stops when a file takes too long, keeping the hits found before it', async () => {
+        const matchFile = vi.fn<MatchFile>(async (text, query, options, matchOptions) =>
+            text.includes('slow') ? { type: 'timedOut' } : workerMatchFile(text, query, options, matchOptions)
+        )
+        const result = await searchWorkspaceContent({
+            matcher: plain('hit', { useRegex: true }),
+            paths: ['/a.md', '/slow.md', '/c.md'],
+            openBuffers: new Map([['/a.md', 'hit']]),
+            readFile: async (path) => (path === '/slow.md' ? 'slow hit' : 'hit'),
+            signal: new AbortController().signal,
+            matchFile,
+            concurrency: 1,
+        })
+
+        expect(result.stopped).toEqual({ reason: 'timedOut', path: '/slow.md' })
+        expect(result.hits.map((hit) => hit.path)).toEqual(['/a.md'])
+        // The file after it is never sent.
+        expect(matchFile.mock.calls.map(([text]) => text)).toEqual(['hit', 'slow hit'])
+    })
+
+    it("stops when the worker isn't available, without matching anything on this thread", async () => {
+        const matchFile = vi.fn<MatchFile>(async () => ({ type: 'unavailable' }) satisfies MatchFileResult)
+        const result = await search(plain('a', { useRegex: true }), { '/a.md': 'a' }, { '/b.md': 'a', '/c.md': 'a' }, matchFile)
+        expect(result.stopped).toEqual({ reason: 'unavailable' })
+        expect(result.hits).toEqual([])
+        expect(matchFile).toHaveBeenCalledTimes(1)
+    })
+
+    it('tells the worker to stop the files still waiting when the search is cancelled', async () => {
+        const controller = new AbortController()
+        const signals: AbortSignal[] = []
+        const matchFile = vi.fn<MatchFile>(async (_text, _query, _options, { signal }) => {
+            signals.push(signal!)
+            controller.abort()
+            return { type: 'aborted' }
+        })
+        const result = await searchWorkspaceContent({
+            matcher: plain('a', { useRegex: true }),
+            paths: ['/a.md'],
+            openBuffers: new Map(),
+            readFile: async () => 'a',
+            signal: controller.signal,
+            matchFile,
+        })
+        expect(signals[0]!.aborted).toBe(true)
+        expect(result.hits).toEqual([])
+    })
+})
+
 describe('searchWorkspaceContent file cache', () => {
     const files: Record<string, string> = { '/a.md': 'the oauth flow', '/b.md': 'oauth tokens' }
 
@@ -572,7 +711,7 @@ describe('searchWorkspaceContent file cache', () => {
         mtimes: Record<string, number> = {}
     ) {
         return searchWorkspaceContent({
-            query,
+            matcher: plain(query),
             paths: Object.keys(files),
             openBuffers: new Map(),
             readFile,
@@ -634,8 +773,8 @@ describe('searchWorkspaceContent file cache', () => {
         const readFile = vi.fn(async () => 'oauth')
         const options = { paths: ['/a.md'], openBuffers: new Map<string, string>(), readFile, cache, signal: new AbortController().signal }
 
-        await searchWorkspaceContent({ ...options, query: 'oauth' })
-        await searchWorkspaceContent({ ...options, query: 'oau' })
+        await searchWorkspaceContent({ ...options, matcher: plain('oauth') })
+        await searchWorkspaceContent({ ...options, matcher: plain('oau') })
         expect(readFile).toHaveBeenCalledTimes(2)
     })
 
@@ -643,7 +782,7 @@ describe('searchWorkspaceContent file cache', () => {
         const cache = createContentCache()
         const controller = new AbortController()
         await searchWorkspaceContent({
-            query: 'oauth',
+            matcher: plain('oauth'),
             paths: ['/a.md'],
             openBuffers: new Map(),
             readFile: async () => {

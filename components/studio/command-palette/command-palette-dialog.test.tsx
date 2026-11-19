@@ -1,11 +1,20 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useState, type ComponentProps } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
+import { DEBOUNCE_MS } from '@/components/studio/command-palette/search-content'
+import type { WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
 import type { ActionPaletteItem, PaletteItem } from '@/components/studio/command-palette/types'
 import { notifyError } from '@/lib/notify'
 
+const platform = vi.hoisted(() => ({ isMac: false }))
+
 vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
+vi.mock('@/lib/settings/chord-utils', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/settings/chord-utils')>()),
+    isMacPlatform: () => platform.isMac,
+}))
 
 type DialogProps = ComponentProps<typeof CommandPaletteDialog>
 
@@ -159,11 +168,34 @@ describe('CommandPaletteDialog text results', () => {
             length: 2,
             preview: 'AA bb aa',
             previewMatchStart: 6,
+            previewMatchLength: 2,
             source: 'buffer',
         }
         renderDialog({ mode: 'text', query: 'aa', groups: [{ id: 'text', label: 'Text', items: [hit] }] })
         const option = screen.getByRole('option', { name: /a.md · 1:7/ })
         expect(option.querySelector('mark')?.textContent).toBe('aa')
+    })
+
+    it('highlights only the part of a long match that the preview shows', () => {
+        const hit: PaletteItem = {
+            kind: 'text',
+            value: 'text:/ws/a.md:1:81',
+            searchText: 'a.md',
+            path: '/ws/a.md',
+            name: 'a.md',
+            relativePath: 'a.md',
+            documentKind: 'markdown',
+            line: 1,
+            column: 81,
+            length: 150,
+            preview: `…${'M'.repeat(100)}…`,
+            previewMatchStart: 1,
+            previewMatchLength: 100,
+            source: 'buffer',
+        }
+        renderDialog({ mode: 'text', query: 'M+', groups: [{ id: 'text', label: 'Text', items: [hit] }] })
+        const option = screen.getByRole('option', { name: /a.md · 1:81/ })
+        expect(option.querySelector('mark')?.textContent).toBe('M'.repeat(100))
     })
 
     it("can't open a hit from the last search while a new one runs", () => {
@@ -180,6 +212,7 @@ describe('CommandPaletteDialog text results', () => {
             length: 5,
             preview: 'oauth',
             previewMatchStart: 0,
+            previewMatchLength: 5,
             source: 'disk',
             disabled: true,
         }
@@ -207,6 +240,7 @@ describe('CommandPaletteDialog same-named files', () => {
             length: 5,
             preview: '# oauth',
             previewMatchStart: 2,
+            previewMatchLength: 5,
             source: 'disk',
         }
     }
@@ -282,6 +316,7 @@ describe('CommandPaletteDialog right-to-left names', () => {
             length: 3,
             preview: 'abc',
             previewMatchStart: 0,
+            previewMatchLength: 3,
             source: 'disk',
         }
         renderDialog({ mode: 'text', query: 'abc', groups: [{ id: 'text', label: 'Text', items: [hit] }] })
@@ -525,5 +560,240 @@ describe('CommandPaletteDialog prefixes', () => {
     it.each([':', '@', '?', '>'])('leaves out the > hint once %s is typed', (query) => {
         renderDialog({ query })
         expect(screen.queryByText('Commands', { selector: 'span' })).toBeNull()
+    })
+})
+
+describe('CommandPaletteDialog Find in Workspace options', () => {
+    const OFF: WorkspaceSearchOptions = { matchCase: false, wholeWord: false, useRegex: false }
+    const hit = (line: number): PaletteItem => ({
+        kind: 'text',
+        value: `text:/ws/a.md:${line}:1`,
+        searchText: 'a.md oauth /ws/a.md',
+        path: '/ws/a.md',
+        name: 'a.md',
+        relativePath: 'a.md',
+        documentKind: 'markdown',
+        line,
+        column: 1,
+        length: 5,
+        preview: 'oauth',
+        previewMatchStart: 0,
+        previewMatchLength: 5,
+        source: 'disk',
+    })
+
+    /** The dialog with its options kept in state, as the provider keeps them in settings. */
+    function renderWithOptions(overrides: Partial<DialogProps> = {}, initial: WorkspaceSearchOptions = OFF) {
+        const changes: WorkspaceSearchOptions[] = []
+        function WithOptions() {
+            const [options, setOptions] = useState(initial)
+            return (
+                <CommandPaletteDialog
+                    groups={[]}
+                    hasWorkspace
+                    isSearchingText={false}
+                    mode="text"
+                    onModeChange={vi.fn()}
+                    onOpenChange={vi.fn()}
+                    onQueryChange={vi.fn()}
+                    onSearchOptionsChange={(next) => {
+                        changes.push(next)
+                        setOptions(next)
+                    }}
+                    onSelectItem={vi.fn()}
+                    open
+                    query="oauth"
+                    searchOptions={options}
+                    searchOptionsApply
+                    textCapped={false}
+                    textTruncatedFiles={0}
+                    textUnreadableFiles={0}
+                    {...overrides}
+                />
+            )
+        }
+        render(<WithOptions />)
+        return changes
+    }
+
+    const toggle = (name: string) => screen.getByRole('button', { name })
+    /** The palette's own status region (the empty message is a status too). */
+    const status = () => document.querySelector<HTMLElement>('.sr-only[role="status"]')!
+    /** A key press that isn't wrapped by Testing Library, so its default can be checked. */
+    const pressKey = (target: Element, init: KeyboardEventInit) => {
+        const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+        act(() => {
+            target.dispatchEvent(event)
+        })
+        return event
+    }
+
+    afterEach(() => {
+        platform.isMac = false
+        vi.useRealTimers()
+    })
+
+    it('shows three toggles under the search box, each with its name, state and key', async () => {
+        renderWithOptions({}, { ...OFF, wholeWord: true })
+        const group = screen.getByRole('group', { name: 'Search options' })
+        expect(
+            within(group)
+                .getAllByRole('button')
+                .map((button) => button.getAttribute('aria-label'))
+        ).toEqual(['Match Case', 'Match Whole Word', 'Use Regular Expression'])
+        expect(toggle('Match Case')).toHaveAttribute('aria-pressed', 'false')
+        expect(toggle('Match Whole Word')).toHaveAttribute('aria-pressed', 'true')
+        expect(toggle('Match Case')).toHaveAttribute('aria-keyshortcuts', 'Alt+C')
+        expect(toggle('Match Whole Word')).toHaveAttribute('aria-keyshortcuts', 'Alt+W')
+        expect(toggle('Use Regular Expression')).toHaveAttribute('aria-keyshortcuts', 'Alt+R')
+
+        act(() => toggle('Use Regular Expression').focus())
+        expect(await screen.findByText('Use Regular Expression (Alt+R)')).toBeInTheDocument()
+    })
+
+    it('marks the on state with a fill and a border, not colour alone', () => {
+        renderWithOptions({}, { ...OFF, matchCase: true })
+        expect(toggle('Match Case').className).toMatch(/aria-pressed:border-ring/)
+        expect(toggle('Match Case').className).toMatch(/aria-pressed:bg-ring/)
+    })
+
+    it('switches an option on click and keeps the keyboard in the search box', async () => {
+        const changes = renderWithOptions()
+        const input = screen.getByRole('combobox')
+        await waitFor(() => expect(input).toHaveFocus())
+
+        const button = toggle('Match Case')
+        // A pointer press doesn't take focus from the search box.
+        expect(fireEvent.mouseDown(button)).toBe(false)
+        fireEvent.click(button)
+
+        expect(changes).toEqual([{ ...OFF, matchCase: true }])
+        expect(toggle('Match Case')).toHaveAttribute('aria-pressed', 'true')
+        expect(input).toHaveFocus()
+    })
+
+    it('puts the toggles after the search box and the Text chip in the tab order', async () => {
+        const user = userEvent.setup()
+        renderWithOptions()
+        const input = screen.getByRole('combobox')
+        await waitFor(() => expect(input).toHaveFocus())
+
+        const order: string[] = []
+        for (let i = 0; i < 4; i++) {
+            await user.tab()
+            order.push(document.activeElement?.getAttribute('aria-label') ?? '')
+        }
+        expect(order).toEqual(['Text only. Show all results', 'Match Case', 'Match Whole Word', 'Use Regular Expression'])
+    })
+
+    it('switches the options with Alt+C, Alt+W and Alt+R, from the search box or a toggle', () => {
+        const changes = renderWithOptions()
+        const input = screen.getByRole('combobox')
+
+        expect(pressKey(input, { key: 'c', code: 'KeyC', altKey: true }).defaultPrevented).toBe(true)
+        expect(pressKey(toggle('Match Case'), { key: 'w', code: 'KeyW', altKey: true }).defaultPrevented).toBe(true)
+        pressKey(input, { key: 'r', code: 'KeyR', altKey: true })
+
+        expect(changes).toEqual([
+            { ...OFF, matchCase: true },
+            { ...OFF, matchCase: true, wholeWord: true },
+            { matchCase: true, wholeWord: true, useRegex: true },
+        ])
+    })
+
+    it('reads the keys on a Russian layout by the physical key', () => {
+        const changes = renderWithOptions()
+        pressKey(screen.getByRole('combobox'), { key: 'с', code: 'KeyC', altKey: true })
+        expect(changes).toEqual([{ ...OFF, matchCase: true }])
+    })
+
+    it("leaves Polish AltGr+C to type 'ć', and does nothing while an IME is composing", () => {
+        const changes = renderWithOptions()
+        const input = screen.getByRole('combobox')
+        // Windows reports AltGr as Ctrl+Alt.
+        const altGr = pressKey(input, { key: 'ć', code: 'KeyC', altKey: true, ctrlKey: true })
+        pressKey(input, { key: 'c', code: 'KeyC', altKey: true, isComposing: true })
+        pressKey(input, { key: 'Process', code: 'KeyC', altKey: true })
+
+        expect(changes).toEqual([])
+        expect(altGr.defaultPrevented).toBe(false)
+    })
+
+    it('needs Cmd+Option on macOS, where Option+C reports ç', () => {
+        platform.isMac = true
+        const changes = renderWithOptions()
+        const input = screen.getByRole('combobox')
+        expect(toggle('Match Case')).toHaveAttribute('aria-keyshortcuts', 'Meta+Alt+C')
+
+        pressKey(input, { key: 'ç', code: 'KeyC', altKey: true })
+        const cmdOptionC = pressKey(input, { key: 'ç', code: 'KeyC', altKey: true, metaKey: true })
+        expect(changes).toEqual([{ ...OFF, matchCase: true }])
+        expect(cmdOptionC.defaultPrevented).toBe(true)
+    })
+
+    it('hides the row and ignores the keys where the options do not apply', () => {
+        // The hook says so for the default list, after the Text chip is removed, and for a > query.
+        const changes = renderWithOptions({ searchOptionsApply: false, query: '>save' })
+        expect(screen.queryByRole('group', { name: 'Search options' })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Match Case' })).toBeNull()
+
+        const event = pressKey(screen.getByRole('combobox'), { key: 'c', code: 'KeyC', altKey: true })
+        expect(changes).toEqual([])
+        expect(event.defaultPrevented).toBe(false)
+        expect(screen.getByRole('dialog')).not.toHaveAttribute('data-search-option-keys')
+    })
+
+    it('marks the popup while the options show, so the app leaves their keys to it', () => {
+        renderWithOptions()
+        expect(screen.getByRole('dialog')).toHaveAttribute('data-search-option-keys')
+    })
+
+    it('announces an option switched by key with the new result count', () => {
+        renderWithOptions({ groups: [{ id: 'text', label: 'Text', items: [hit(1), hit(2)] }] })
+        pressKey(screen.getByRole('combobox'), { key: 'c', code: 'KeyC', altKey: true })
+        expect(status()).toHaveTextContent('Match Case on. 2 results')
+        pressKey(screen.getByRole('combobox'), { key: 'c', code: 'KeyC', altKey: true })
+        expect(status()).toHaveTextContent('Match Case off. 2 results')
+        // A click is seen, so it isn't announced.
+        fireEvent.click(toggle('Match Whole Word'))
+        expect(status()).toHaveTextContent(/^2 results$/)
+    })
+
+    it('shows an invalid pattern under the search box, marks the box, and announces it once typing pauses', async () => {
+        vi.useFakeTimers()
+        renderWithOptions({ query: 'a(', queryError: 'Invalid regular expression: Unterminated group' }, { ...OFF, useRegex: true })
+        const input = screen.getByRole('combobox')
+        const message = screen.getByText('Invalid regular expression: Unterminated group')
+
+        expect(input).toHaveAttribute('aria-invalid', 'true')
+        expect(input.getAttribute('aria-describedby')?.split(' ')).toContain(message.id)
+        expect(screen.queryByText(/No text matches/)).toBeNull()
+        expect(screen.queryByText(/Searching file contents/)).toBeNull()
+        expect(status()).toHaveTextContent('')
+
+        await act(() => vi.advanceTimersByTimeAsync(DEBOUNCE_MS))
+        expect(status()).toHaveTextContent('Invalid regular expression: Unterminated group')
+    })
+
+    it('says why a regex search stopped, in the footer and the status', () => {
+        const stopped = 'Search stopped: the regular expression took too long on notes.md. Try a simpler pattern.'
+        renderWithOptions({ textStopMessage: stopped, groups: [{ id: 'text', label: 'Text', items: [hit(1)] }] }, { ...OFF, useRegex: true })
+        expect(status()).toHaveTextContent(`${stopped} 1 result`)
+        expect(document.querySelector('[data-slot="search-note"]')).toHaveTextContent(stopped)
+    })
+
+    it.each([
+        [{ textStopMessage: 'Search stopped.', textCapped: true, textLongLinesSkipped: 3, textTruncatedFiles: 2 }, 'Search stopped.'],
+        [{ textCapped: true, textLongLinesSkipped: 3, textTruncatedFiles: 2 }, 'Showing first 100 matches — refine query'],
+        [{ textLongLinesSkipped: 3, textTruncatedFiles: 2 }, '3 long lines skipped'],
+        [{ textLongLinesSkipped: 1 }, '1 long line skipped'],
+        [{ textTruncatedFiles: 2 }, 'Showing up to 10 matches per file'],
+    ])('shows one search note at a time in the footer: %o', (overrides, note) => {
+        renderWithOptions({ ...overrides, textUnreadableFiles: 1 })
+        const notes = document.querySelectorAll('[data-slot="search-note"]')
+        expect(notes).toHaveLength(1)
+        expect(notes[0]).toHaveTextContent(note)
+        // Beside it, as before.
+        expect(screen.getByText("1 file couldn't be read")).toBeInTheDocument()
     })
 })

@@ -3,9 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 import { queryForMode, queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
+import type { WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
 import type { PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
+import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { DialogErrorBoundary } from '@/components/studio/shell/dialog-error-boundary'
 import { notifyError } from '@/lib/notify'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -77,6 +79,13 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
     const modeRef = useRef<PaletteMode>('all')
     const openRef = useRef(false)
     const editorHasFocus = useEditorHasFocus()
+    // Find in Workspace's options are saved with the settings, so they are the same next time and after a restart.
+    const { settings, updateSettings } = useAppSettings()
+    const searchOptions = settings.workspaceSearch
+    const setSearchOptions = useCallback(
+        (workspaceSearch: WorkspaceSearchOptions) => updateSettings((current) => ({ ...current, workspaceSearch })),
+        [updateSettings]
+    )
 
     const {
         query,
@@ -87,10 +96,14 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
         textCapped,
         textUnreadableFiles,
         textTruncatedFiles,
+        textLongLinesSkipped,
+        textStopMessage,
+        queryError,
+        searchOptionsApply,
         runItem,
         hasWorkspace,
         emptyHint,
-    } = usePaletteSearch(mode, mounted)
+    } = usePaletteSearch(mode, mounted, searchOptions)
 
     // Keeps a Find in Workspace search for '@media' a search when the Text filter is removed, not a jump to a heading.
     const setMode = useCallback(
@@ -111,14 +124,18 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
 
             // Reopened while still fading out: start fresh rather than from the last query.
             resetSearch()
-            // Like VS Code, only Find in Workspace starts from the editor selection.
-            const seed = nextMode === 'text' && editorHasFocus() ? queryFromEditorSelection(coordinator.getEditorSelectedText.current()) : null
+            // Like VS Code, only Find in Workspace starts from the editor selection. With Use Regular
+            // Expression on, its regex syntax is escaped, so it finds the text as selected.
+            const seed =
+                nextMode === 'text' && editorHasFocus()
+                    ? queryFromEditorSelection(coordinator.getEditorSelectedText.current(), { escapeRegex: searchOptions.useRegex })
+                    : null
             if (seed) setQuery(seed)
             openRef.current = true
             setMounted(true)
             setOpen(true)
         },
-        [coordinator, editorHasFocus, resetSearch, setQuery, setMode]
+        [coordinator, editorHasFocus, resetSearch, setQuery, setMode, searchOptions.useRegex]
     )
 
     const handleOpenChange = useCallback((nextOpen: boolean) => {
@@ -184,9 +201,15 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
                     onOpenChangeComplete={handleOpenChangeComplete}
                     onQueryChange={setQuery}
                     onSelectItem={handleSelectItem}
+                    onSearchOptionsChange={setSearchOptions}
                     open={open}
                     query={query}
+                    queryError={queryError}
+                    searchOptions={searchOptions}
+                    searchOptionsApply={searchOptionsApply}
                     textCapped={textCapped}
+                    textLongLinesSkipped={textLongLinesSkipped}
+                    textStopMessage={textStopMessage}
                     textTruncatedFiles={textTruncatedFiles}
                     textUnreadableFiles={textUnreadableFiles}
                 />

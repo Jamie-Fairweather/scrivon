@@ -1,11 +1,28 @@
 'use client'
 
-import { ArrowDownIcon, ArrowUpIcon, ClockIcon, CornerDownLeftIcon, FileTextIcon, FolderIcon, HashIcon, NetworkIcon, XIcon } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useRef, type FocusEvent, type KeyboardEvent } from 'react'
+import {
+    ArrowDownIcon,
+    ArrowUpIcon,
+    CaseSensitiveIcon,
+    ClockIcon,
+    CornerDownLeftIcon,
+    FileTextIcon,
+    FolderIcon,
+    HashIcon,
+    NetworkIcon,
+    RegexIcon,
+    WholeWordIcon,
+    XIcon,
+    type LucideIcon,
+} from 'lucide-react'
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { parsePaletteQuery } from '@/components/studio/command-palette/parse-palette-query'
-import { MAX_HITS, MAX_HITS_PER_FILE, meetsTextQueryMinimum } from '@/components/studio/command-palette/search-content'
+import { DEBOUNCE_MS, MAX_HITS, MAX_HITS_PER_FILE, meetsTextQueryMinimum } from '@/components/studio/command-palette/search-content'
+import { PLAIN_SEARCH_OPTIONS, type WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
 import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { IconTooltip } from '@/components/ui/icon-tooltip'
 import {
     Command,
     CommandCollection,
@@ -26,6 +43,15 @@ import {
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Spinner } from '@/components/ui/spinner'
 import { notifyError } from '@/lib/notify'
+import { isMacPlatform } from '@/lib/settings/chord-utils'
+import {
+    formatWorkspaceSearchOptionKey,
+    SEARCH_OPTION_KEYS_ATTRIBUTE,
+    WORKSPACE_SEARCH_OPTIONS,
+    workspaceSearchOptionAriaKeys,
+    workspaceSearchOptionForKey,
+    type WorkspaceSearchOption,
+} from '@/lib/settings/workspace-search-keys'
 import { cn } from '@/lib/utils'
 import { displayPath } from '@/lib/workspace/display-path'
 
@@ -48,6 +74,29 @@ type CommandPaletteDialogProps = {
     /** Shown instead of results when ':', '@' or '?' lists nothing, e.g. 'Type a line number…'. */
     emptyHint?: string | null
     onSelectItem: (item: PaletteItem) => void | Promise<void>
+    /** Find in Workspace's saved options. */
+    searchOptions?: WorkspaceSearchOptions
+    onSearchOptionsChange?: (options: WorkspaceSearchOptions) => void
+    /** Whether the options apply now (a Text-mode search): the toggles and their keys only work then. */
+    searchOptionsApply?: boolean
+    /** Why the query can't be searched (an invalid regular expression). */
+    queryError?: string | null
+    /** Lines a regex search skipped for being too long. */
+    textLongLinesSkipped?: number
+    /** Why a regex search stopped early. */
+    textStopMessage?: string | null
+}
+
+const SEARCH_OPTION_LABELS: Record<WorkspaceSearchOption, string> = {
+    matchCase: 'Match Case',
+    wholeWord: 'Match Whole Word',
+    useRegex: 'Use Regular Expression',
+}
+
+const SEARCH_OPTION_ICONS: Record<WorkspaceSearchOption, LucideIcon> = {
+    matchCase: CaseSensitiveIcon,
+    wholeWord: WholeWordIcon,
+    useRegex: RegexIcon,
 }
 
 /** Highlights the hit's own match, by position, rather than the first look-alike in the preview. */
@@ -219,7 +268,7 @@ function PaletteItemRow({ item, onSelect }: { item: PaletteItem; onSelect: (item
                     · {item.line}:{item.column}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">
-                    {highlightPreview(item.preview, item.previewMatchStart, item.length)}
+                    {highlightPreview(item.preview, item.previewMatchStart, item.previewMatchLength)}
                 </span>
             </span>
         </CommandItem>
@@ -239,12 +288,28 @@ const MODE_INPUT_LABELS: Record<PaletteMode, string> = {
     text: 'Find in workspace',
 }
 
-/** What the screen-reader status announces: the search progress, then how many results there are. */
-function statusMessageFor(groups: PaletteGroup[], isSearchingText: boolean): string {
+type StatusNotes = {
+    /** An invalid pattern's message, once typing has paused. */
+    queryError: string | null
+    /** Why a regex search stopped early. */
+    stopMessage: string | null
+    /** An option switched by its key, such as 'Match Case on'. */
+    optionChange: string | null
+}
+
+/**
+ * What the screen-reader status announces: the search progress, then how many results there are,
+ * after an option switched by key or a stopped search. An invalid pattern's message replaces it all.
+ */
+function statusMessageFor(groups: PaletteGroup[], isSearchingText: boolean, notes: StatusNotes): string {
+    if (notes.queryError) return notes.queryError
     const count = groups.reduce((total, group) => total + group.items.length, 0)
-    if (count === 0) return '' // The empty message announces itself, searching included.
-    if (isSearchingText) return 'Searching file contents…'
-    return count === 1 ? '1 result' : `${count} results`
+    // With no results, the empty message announces itself, searching included.
+    let results = ''
+    if (count > 0) results = isSearchingText ? 'Searching file contents…' : count === 1 ? '1 result' : `${count} results`
+    else if (notes.optionChange && !isSearchingText) results = 'No results'
+    const lead = [notes.optionChange && `${notes.optionChange}.`, notes.stopMessage].filter(Boolean).join(' ')
+    return [lead, results].filter(Boolean).join(' ')
 }
 
 /** Label of the filter chip shown while the palette is narrowed to one kind of result. */
@@ -294,6 +359,12 @@ export function CommandPaletteDialog({
     hasWorkspace,
     emptyHint,
     onSelectItem,
+    searchOptions = PLAIN_SEARCH_OPTIONS,
+    onSearchOptionsChange,
+    searchOptionsApply = false,
+    queryError = null,
+    textLongLinesSkipped = 0,
+    textStopMessage = null,
 }: CommandPaletteDialogProps) {
     // Set once an item is picked, until the palette opens again: a second Enter or click while it closes is ignored.
     const busyRef = useRef(false)
@@ -352,10 +423,55 @@ export function CommandPaletteDialog({
         [mode, onModeChange]
     )
 
+    const isMac = isMacPlatform()
+    // An option switched by its key is announced, with the results it brings, until the query changes.
+    const [optionChange, setOptionChange] = useState<{ message: string; query: string } | null>(null)
+
+    const toggleSearchOption = useCallback(
+        (option: WorkspaceSearchOption, byKey: boolean) => {
+            const on = !searchOptions[option]
+            onSearchOptionsChange?.({ ...searchOptions, [option]: on })
+            setOptionChange(byKey ? { message: `${SEARCH_OPTION_LABELS[option]} ${on ? 'on' : 'off'}`, query } : null)
+        },
+        [onSearchOptionsChange, searchOptions, query]
+    )
+
+    // On the popup, so the keys work from the search box and from a toggle alike.
+    const handlePopupKeyDown = useCallback(
+        (event: KeyboardEvent<HTMLDivElement>) => {
+            if (!searchOptionsApply) return
+            const option = workspaceSearchOptionForKey(event.nativeEvent, isMac)
+            if (!option) return
+            event.preventDefault()
+            toggleSearchOption(option, true)
+        },
+        [searchOptionsApply, isMac, toggleSearchOption]
+    )
+
+    // An invalid pattern is announced once typing pauses, not on every key.
+    const [announcedError, setAnnouncedError] = useState<string | null>(null)
+    useEffect(() => {
+        if (!queryError) return
+        const timer = window.setTimeout(() => setAnnouncedError(queryError), DEBOUNCE_MS)
+        return () => window.clearTimeout(timer)
+    }, [queryError])
+    const queryErrorId = useId()
+
     const emptyMessage = emptyHint ?? emptyMessageFor(hasWorkspace, mode, query, isSearchingText)
     // Point to the '>' prefix while the user is searching, not once a prefix is typed.
     const showCommandsHint = parsePaletteQuery(query, mode).kind === 'search'
-    const statusMessage = statusMessageFor(groups, isSearchingText)
+    const statusMessage = statusMessageFor(groups, isSearchingText, {
+        queryError: queryError && announcedError === queryError ? queryError : null,
+        stopMessage: textStopMessage,
+        optionChange: optionChange && optionChange.query === query && searchOptionsApply ? optionChange.message : null,
+    })
+
+    // One note about the search at a time, the most important first.
+    let searchNote: string | null = null
+    if (textStopMessage) searchNote = textStopMessage
+    else if (textCapped) searchNote = `Showing first ${MAX_HITS} matches — refine query`
+    else if (textLongLinesSkipped > 0) searchNote = textLongLinesSkipped === 1 ? '1 long line skipped' : `${textLongLinesSkipped} long lines skipped`
+    else if (textTruncatedFiles > 0) searchNote = `Showing up to ${MAX_HITS_PER_FILE} matches per file`
 
     const endAddon =
         isSearchingText || filterLabel ? (
@@ -381,13 +497,15 @@ export function CommandPaletteDialog({
 
     return (
         <CommandDialog onOpenChange={onOpenChange} onOpenChangeComplete={onOpenChangeComplete} open={open}>
-            <CommandDialogPopup>
+            <CommandDialogPopup onKeyDown={handlePopupKeyDown} {...(searchOptionsApply ? { [SEARCH_OPTION_KEYS_ATTRIBUTE]: '' } : {})}>
                 <CommandDialogPrimitive.Title className="sr-only">Command palette</CommandDialogPrimitive.Title>
                 <div aria-live="polite" className="sr-only" role="status">
                     {statusMessage}
                 </div>
                 <Command itemToStringValue={paletteItemToStringValue} items={groups} mode="none" onValueChange={onQueryChange} value={query}>
                     <CommandInput
+                        aria-describedby={queryError ? queryErrorId : undefined}
+                        aria-invalid={queryError ? true : undefined}
                         aria-label={MODE_INPUT_LABELS[mode]}
                         // Make room for the filter chip so typed text doesn't run under it.
                         className={cn(
@@ -405,8 +523,42 @@ export function CommandPaletteDialog({
                         placeholder={MODE_PLACEHOLDERS[mode]}
                         ref={inputRef}
                     />
+                    {searchOptionsApply ? (
+                        <div aria-label="Search options" className="-mt-1 flex items-center gap-1 px-4 pb-1.5" role="group">
+                            {WORKSPACE_SEARCH_OPTIONS.map((option) => {
+                                const Icon = SEARCH_OPTION_ICONS[option]
+                                const label = SEARCH_OPTION_LABELS[option]
+                                return (
+                                    <IconTooltip key={option} label={`${label} (${formatWorkspaceSearchOptionKey(option, isMac)})`}>
+                                        <Button
+                                            aria-keyshortcuts={workspaceSearchOptionAriaKeys(option, isMac)}
+                                            aria-label={label}
+                                            aria-pressed={searchOptions[option]}
+                                            // On: filled and outlined, so it shows without relying on colour.
+                                            className="text-muted-foreground aria-pressed:border-ring aria-pressed:bg-ring/20
+                                                aria-pressed:text-foreground"
+                                            onClick={() => toggleSearchOption(option, false)}
+                                            // Keeps the keyboard in the search box, so typing and Enter still work.
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            size="icon-xs"
+                                            type="button"
+                                            variant="ghost"
+                                        >
+                                            <Icon aria-hidden />
+                                        </Button>
+                                    </IconTooltip>
+                                )
+                            })}
+                        </div>
+                    ) : null}
                     <CommandPanel>
-                        <CommandEmpty>{emptyMessage}</CommandEmpty>
+                        {queryError ? (
+                            <p className="px-4 py-6 text-center text-base text-destructive-foreground sm:text-sm" id={queryErrorId}>
+                                {queryError}
+                            </p>
+                        ) : null}
+                        {/* The empty message announces itself, so an invalid pattern's goes through the status, after a pause. */}
+                        <CommandEmpty>{queryError ? null : emptyMessage}</CommandEmpty>
                         <CommandList>
                             {(group: PaletteGroup, index: number) => (
                                 <Fragment key={group.id}>
@@ -447,16 +599,16 @@ export function CommandPaletteDialog({
                                 </div>
                             ) : null}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
                             {textUnreadableFiles > 0 ? (
                                 <span className="text-muted-foreground">
                                     {textUnreadableFiles === 1 ? "1 file couldn't be read" : `${textUnreadableFiles} files couldn't be read`}
                                 </span>
                             ) : null}
-                            {textCapped ? (
-                                <span className="text-muted-foreground">Showing first {MAX_HITS} matches — refine query</span>
-                            ) : textTruncatedFiles > 0 ? (
-                                <span className="text-muted-foreground">Showing up to {MAX_HITS_PER_FILE} matches per file</span>
+                            {searchNote ? (
+                                <span className="min-w-0 text-right text-muted-foreground" data-slot="search-note">
+                                    {searchNote}
+                                </span>
                             ) : null}
                             <Kbd>Esc</Kbd>
                             <span>Close</span>

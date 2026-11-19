@@ -10,7 +10,8 @@ import vm from 'node:vm'
  * don't use the bundle: Turbopack picks a package's "browser" build for workers, and a "browser" build
  * may need a page (decode-named-character-reference's did, which stopped the spell check).
  *
- * The spell check worker is also asked to check a misspelt word, so a missing dictionary fails too.
+ * The spell check worker is also asked to check a misspelt word, so a missing dictionary fails too, and
+ * the regex worker to find a match.
  *
  * Run after `bun run build`: node scripts/check-workers.mjs
  */
@@ -51,6 +52,7 @@ const KINDS = [
     ['spell check', '"suggested"'], // lib/spellcheck/spellcheck-worker-core.ts
     ['outline', 'headings:'], // lib/markdown/outline.worker.ts
     ['Mermaid', '"rendered"'], // lib/mermaid/render-worker-core.ts
+    ['regex', '"regex-matched"'], // components/studio/command-palette/regex-match.worker.ts
     ['Monaco', '$computeDiff'], // Monaco's editor worker (lib/monaco/editor.worker.ts)
 ]
 
@@ -141,17 +143,34 @@ if (workers.length === 0) {
 
 let failed = false
 let spellcheckFound = false
+let regexFound = false
 const spellRequest = { type: 'check', id: 1, language: 'en-US', words: [], text: 'This has a mispelt wurd.', document: 'check' }
+const regexRequest = { id: 1, text: 'foo bar\r\nfoo', query: 'fo+$', options: { matchCase: false, wholeWord: false, useRegex: true }, maxHits: null }
 
 for (const worker of workers) {
     const kind = workerKind(worker)
     const spellcheck = kind === 'spell check'
+    const regex = kind === 'regex'
     if (spellcheck) spellcheckFound = true
-    const { sent, errors } = await runWorker(worker, spellcheck ? spellRequest : null)
+    if (regex) regexFound = true
+    const { sent, errors } = await runWorker(worker, spellcheck ? spellRequest : regex ? regexRequest : null)
     const name = `${kind ? `the ${kind} worker, ` : ''}${worker.chunks[0]}`
     if (errors.length > 0) {
         failed = true
         console.error(`✗ A worker (${name}) failed to load:`, ...errors.map(describeError))
+        continue
+    }
+    if (regex) {
+        const answer = sent.find((message) => message?.id === regexRequest.id)
+        if (!sent.some((message) => message?.type === 'ready')) {
+            failed = true
+            console.error(`✗ The regex worker (${name}) never said it was ready.`)
+        } else if (answer?.type !== 'regex-matched' || answer.matches.length !== 1 || answer.matches[0].lineIndex !== 1) {
+            failed = true
+            console.error(`✗ The regex worker (${name}) didn't find the match. It answered:`, answer)
+        } else {
+            console.log(`✓ The regex worker loads and finds matches (${name})`)
+        }
         continue
     }
     if (spellcheck) {
@@ -174,5 +193,9 @@ for (const worker of workers) {
 if (!spellcheckFound) {
     failed = true
     console.error('✗ Found no spell check worker in out/.')
+}
+if (!regexFound) {
+    failed = true
+    console.error('✗ Found no regex worker in out/.')
 }
 process.exit(failed ? 1 : 0)

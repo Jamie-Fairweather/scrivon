@@ -167,6 +167,18 @@ describe('describeEditorChordClash', () => {
         expect(describeEditorChordClash({ key: 'f10' }, true)).toBe('F10 is used by the menu bar')
     })
 
+    it("refuses Find in Workspace's option keys for actions that run inside the palette", () => {
+        expect(describeEditorChordClash({ key: 'r', alt: true }, false, 'palette.openFiles')).toBe('Alt+R is used by Find in Workspace')
+        expect(describeEditorChordClash({ key: 'C', alt: true }, false, 'palette.open')).toBe('Alt+C is used by Find in Workspace')
+        expect(describeEditorChordClash({ key: 'w', alt: true }, false, 'view.appZoomIn')).toBe('Alt+W is used by Find in Workspace')
+        expect(describeEditorChordClash({ key: 'r', meta: true, alt: true }, true, 'palette.openText')).toBe('⌥⌘R is used by Find in Workspace')
+        // The keys only work while the palette is open, so other actions may have them.
+        expect(describeEditorChordClash({ key: 'r', alt: true }, false, 'view.toggleEditor')).toBeNull()
+        expect(describeEditorChordClash({ key: 'r', alt: true, shift: true }, false, 'palette.openFiles')).toBeNull()
+        // Option alone types on macOS, so Alt+R isn't the Mac key.
+        expect(describeEditorChordClash({ key: 'r', alt: true }, true, 'palette.openFiles')).toBeNull()
+    })
+
     it('leaves F2 and F10 with other keys held free', () => {
         for (const chord of [
             { key: 'F2', alt: true },
