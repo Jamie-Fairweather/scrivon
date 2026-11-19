@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, type ComponentType } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import { remapTabsAfterRename } from '@/lib/workspace/tab-paths'
+import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 // --- A small stand-in for Monaco: one text buffer per URI, like the real thing. ---
@@ -19,6 +20,10 @@ class FakeUri {
 /** Monaco's EndOfLinePreference and EndOfLineSequence values. */
 const EOL_PREFERENCE = { TextDefined: 0, LF: 1, CRLF: 2 }
 const EOL_SEQUENCE = { LF: 0, CRLF: 1 }
+
+/** Monaco's line breaks: CRLF, CR or LF. */
+const LINE_BREAK = /\r\n|\r|\n/
+const LINE_BREAKS = /\r\n|\r|\n/g
 
 class FakeModel {
     disposed = false
@@ -49,8 +54,11 @@ class FakeModel {
         if (preference === EOL_PREFERENCE.CRLF) return this.lines.join('\r\n')
         return this.value
     }
+    /** Like Monaco, replacing the whole buffer wipes its undo history. */
     setValue(value: string) {
         this.value = value
+        this.undoStack.length = 0
+        this.stepOpen = false
         this.listeners.forEach((l) => l())
     }
     getEOL() {
@@ -58,8 +66,42 @@ class FakeModel {
     }
     /** The order of undo-stack calls, so a test can check a change is its own undo step. */
     readonly undoCalls: string[] = []
+    /** The text before each undo step, oldest first. */
+    private readonly undoStack: string[] = []
+    /** True while edits still join the newest undo step. */
+    private stepOpen = false
     pushStackElement() {
         this.undoCalls.push('pushStackElement')
+        this.stepOpen = false
+    }
+    /** Like Monaco: edits each range of the text as it was, as part of the open undo step (or a new one). */
+    pushEditOperations(_before: unknown, operations: TextEdit[]) {
+        this.undoCalls.push('pushEditOperations')
+        if (!this.stepOpen) this.undoStack.push(this.value)
+        this.stepOpen = true
+        const eol = this.eol
+        const next = applyTextEdits(
+            this.value,
+            operations.map((op) => ({ range: op.range, text: op.text.replace(LINE_BREAKS, eol) }))
+        )
+        this.lines = next.split(LINE_BREAK)
+        this.listeners.forEach((l) => l())
+        return null
+    }
+    /** What a keystroke does: adds text at the end as an undo step of its own. */
+    typeAtEnd(text: string) {
+        this.undoStack.push(this.value)
+        this.stepOpen = false
+        this.lines = (this.value + text).split(LINE_BREAK)
+        this.listeners.forEach((l) => l())
+    }
+    /** Ctrl+Z: puts back the text from before the newest undo step. */
+    undo() {
+        const before = this.undoStack.pop()
+        if (before === undefined) return
+        this.stepOpen = false
+        this.lines = before.split(LINE_BREAK)
+        this.listeners.forEach((l) => l())
     }
     /** Changes only the line ending, as an undo step (Monaco tells listeners). */
     pushEOL(sequence: number) {
@@ -162,7 +204,7 @@ class FakeEditor {
     }
     /** What a keystroke does: change the buffer and tell listeners. */
     type(text: string) {
-        this.model!.setValue(this.model!.getValue() + text)
+        this.model!.typeAtEnd(text)
     }
     onDidChangeModelContent(listener: Listener) {
         this.contentListeners.add(listener)
@@ -373,6 +415,7 @@ const coordinatorHandlers: {
     revealInEditor?: RevealInEditor
     getEditorSelectedText?: () => string | null
     replaceEditorText?: (tabId: string, text: string) => void
+    applyTabEdits?: (tabId: string, edits: readonly TextEdit[]) => boolean
 } = {}
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({
     registerCoordinatorRefs: (_refs: unknown, handlers: typeof coordinatorHandlers) => Object.assign(coordinatorHandlers, handlers),
@@ -719,6 +762,110 @@ describe('CodeEditorPanel models', () => {
         // A tab that isn't on screen catches up when it is shown.
         act(() => coordinatorHandlers.replaceEditorText!(b, 'B from disk'))
         expect(editor.getValue()).toBe('their text!')
+    })
+})
+
+const line1 = (startColumn: number, endColumn: number, text: string): TextEdit => ({
+    range: { startLineNumber: 1, startColumn, endLineNumber: 1, endColumn },
+    text,
+})
+
+describe('CodeEditorPanel applyTabEdits', () => {
+    it('edits the tab on screen as one undo step, passing the text on as typing does', async () => {
+        const a = '/w/a.md'
+        tabsState = { tabs: [tab(a, 'one two')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+        act(() => editor.type('!'))
+        setTabs(view, { tabs: [tab(a, 'one two!')], activeTabId: a })
+        const model = editor.getModel()!
+        const setValue = vi.spyOn(model, 'setValue')
+
+        let applied = false
+        act(() => {
+            applied = coordinatorHandlers.applyTabEdits!(a, [line1(1, 4, 'ONE'), line1(9, 9, '?')])
+        })
+
+        expect(applied).toBe(true)
+        expect(editor.getValue()).toBe('ONE two!?')
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'ONE two!?')
+        expect(model.undoCalls).toEqual(['pushStackElement', 'pushEditOperations', 'pushStackElement'])
+        // The tab catches up with the editor's own edit, which leaves the buffer alone.
+        setTabs(view, { tabs: [tab(a, 'ONE two!?')], activeTabId: a })
+        expect(editor.getModel()).toBe(model)
+
+        // Ctrl+Z takes the edits back in one step, and the typing before them is still there to undo.
+        act(() => model.undo())
+        expect(editor.getValue()).toBe('one two!')
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'one two!')
+        act(() => model.undo())
+        expect(editor.getValue()).toBe('one two')
+        expect(setValue).not.toHaveBeenCalled()
+    })
+
+    it('edits a background tab in its own buffer, which showing it again keeps, undo history and all', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A'), tab(b, 'B text')], activeTabId: b }
+        const { view, editor } = await mountEditor()
+        act(() => editor.type(' typed'))
+        const modelB = editor.getModel()!
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B text typed')], activeTabId: a })
+        expect(editor.getValue()).toBe('A')
+        const setValue = vi.spyOn(modelB, 'setValue')
+        updateTabContent.mockClear()
+
+        let applied = false
+        act(() => {
+            applied = coordinatorHandlers.applyTabEdits!(b, [line1(1, 2, 'Big')])
+        })
+
+        expect(applied).toBe(true)
+        // The tab gets its buffer's new text; the editor still shows a.md, untouched.
+        expect(updateTabContent).toHaveBeenCalledExactlyOnceWith(b, 'Big text typed')
+        expect(editor.getValue()).toBe('A')
+        expect(modelB.getValue()).toBe('Big text typed')
+
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'Big text typed')], activeTabId: b })
+        expect(editor.getModel()).toBe(modelB)
+        expect(editor.getValue()).toBe('Big text typed')
+        expect(setValue).not.toHaveBeenCalled()
+
+        act(() => modelB.undo())
+        expect(editor.getValue()).toBe('B text typed')
+        expect(updateTabContent).toHaveBeenLastCalledWith(b, 'B text typed')
+        act(() => modelB.undo())
+        expect(editor.getValue()).toBe('B text')
+        expect(setValue).not.toHaveBeenCalled()
+    })
+
+    it('gives a tab the editor has not shown yet its edited text straight away', async () => {
+        const a = '/w/a.md'
+        const c = '/w/c.md'
+        tabsState = { tabs: [tab(a, 'A'), tab(c, 'line one\r\nline two')], activeTabId: a }
+        await mountEditor()
+
+        let applied = false
+        act(() => {
+            applied = coordinatorHandlers.applyTabEdits!(c, [
+                { range: { startLineNumber: 2, startColumn: 6, endLineNumber: 2, endColumn: 9 }, text: '2' },
+            ])
+        })
+
+        expect(applied).toBe(true)
+        expect(updateTabContent).toHaveBeenCalledExactlyOnceWith(c, 'line one\r\nline 2')
+    })
+
+    it('changes nothing in a read-only tab, or one that is not open', async () => {
+        const a = '/w/a.md'
+        const example = 'example:flowchart'
+        tabsState = { tabs: [tab(a, 'A'), { ...tab(example, 'graph TD'), readOnly: true }], activeTabId: example }
+        const { editor } = await mountEditor()
+
+        expect(coordinatorHandlers.applyTabEdits!(example, [line1(1, 1, 'x')])).toBe(false)
+        expect(coordinatorHandlers.applyTabEdits!('/w/gone.md', [line1(1, 1, 'x')])).toBe(false)
+
+        expect(editor.getValue()).toBe('graph TD')
+        expect(updateTabContent).not.toHaveBeenCalled()
     })
 })
 

@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react'
 
 import type { UnsavedText } from '@/lib/tauri/fs'
+import type { TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 export type WorkspaceCoordinatorRefs = {
@@ -84,6 +85,14 @@ export type WorkspaceCoordinatorRefs = {
      * that tab is on screen, so a key pressed before the screen draws again edits the new text.
      */
     replaceEditorText: MutableRefObject<(tabId: string, text: string) => void>
+    /**
+     * Makes range edits to an open tab's text as one undo step, so Ctrl+Z in that tab takes them back and
+     * keeps its earlier undo steps. The tab shows as unsaved and is saved as after typing. Works for the tab
+     * on screen and for one in the background (its editor buffer is edited, never replaced), and for a tab
+     * the editor hasn't shown yet. Each range is read in the tab's text as it is now. False when the tab
+     * isn't open or is read-only, and nothing changed.
+     */
+    applyTabEdits: MutableRefObject<(tabId: string, edits: readonly TextEdit[]) => boolean>
     getEditorSelectedText: MutableRefObject<() => string | null>
 }
 
@@ -117,6 +126,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         openFile: { current: async () => {} },
         revealInEditor: { current: () => {} },
         replaceEditorText: { current: () => {} },
+        applyTabEdits: { current: () => false },
         getEditorSelectedText: { current: () => null },
     }
 }

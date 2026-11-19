@@ -29,6 +29,7 @@ import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-s
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { lineEndingsOf } from '@/lib/workspace/text-stats'
+import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
@@ -233,6 +234,13 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
     if (!samePaths(modelKeys.paths, tabPaths)) {
         setModelKeys(syncModelKeys(modelKeys, tabPaths))
     }
+    // For applyTabEdits, which can be asked to change any open tab.
+    const modelKeysRef = useRef(modelKeys)
+    const tabsRef = useRef(tabs)
+    useEffect(() => {
+        modelKeysRef.current = modelKeys
+        tabsRef.current = tabs
+    }, [modelKeys, tabs])
 
     useEffect(() => {
         activeTabIdRef.current = activeTab?.id ?? null
@@ -580,9 +588,52 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
         [syncEditorWithActiveTab]
     )
 
+    /**
+     * Edits any open tab as one undo step, never with setValue, which would wipe its undo history. The tab on
+     * screen is edited in its buffer and passes the new text on as typing does (onEditorChange). A tab in the
+     * background is edited in its own buffer, which then holds the same text as the tab, so showing it again
+     * leaves the buffer and its undo history as they are. Only a tab the editor hasn't shown has no buffer yet,
+     * and gets the edited text straight away.
+     */
+    const applyTabEdits = useCallback(
+        (tabId: string, edits: readonly TextEdit[]): boolean => {
+            const tab = tabsRef.current.find((t) => t.id === tabId)
+            if (!tab || tab.readOnly) return false
+            if (edits.length === 0) return true
+            const monaco = monacoRef.current
+            const key = modelKeysRef.current.keys.get(tab.path)
+            const model = monaco && key ? monaco.editor.getModel(monaco.Uri.parse(key)) : null
+            if (!model) {
+                updateTabContent(tabId, applyTextEdits(tab.content, edits))
+                return true
+            }
+            const operations = edits.map((edit) => ({ range: edit.range, text: edit.text }))
+            const editor = editorRef.current
+            const onScreen = editor !== null && editor.getModel() === model && activeTabIdRef.current === tabId
+            const edit = () => {
+                model.pushStackElement()
+                model.pushEditOperations(onScreen ? editor.getSelections() : [], operations, () => null)
+                model.pushStackElement()
+            }
+            if (onScreen) {
+                edit()
+                return true
+            }
+            suppressChangeRef.current = true
+            try {
+                edit()
+            } finally {
+                suppressChangeRef.current = false
+            }
+            updateTabContent(tabId, model.getValue())
+            return true
+        },
+        [updateTabContent]
+    )
+
     useEffect(() => {
-        registerCoordinatorRefs(coordinator, { replaceEditorText })
-    }, [coordinator, replaceEditorText])
+        registerCoordinatorRefs(coordinator, { replaceEditorText, applyTabEdits })
+    }, [coordinator, replaceEditorText, applyTabEdits])
 
     // Free the buffers of tabs that are no longer open.
     useEffect(() => {
