@@ -2,6 +2,7 @@ mod atomic_write;
 mod close_watchdog;
 mod crash_report;
 mod diagnostics;
+mod git_status;
 mod launch_paths;
 mod legacy_profile;
 mod navigation_guard;
@@ -366,6 +367,7 @@ pub fn run() {
             close_watchdog::close_ack,
             diagnostics::open_logs_folder,
             diagnostics::system_info,
+            git_status::git_status,
             launch_paths::take_launch_paths,
             pdf_export::export_html_to_pdf,
             pdf_export::preview::preview_html_pdf,
