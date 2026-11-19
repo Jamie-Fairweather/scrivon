@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { anySavedTabs, anyTabsToRight, formatFileSize, LARGE_FILE_BYTES, tabFromFile, tabFromPath, tabWithRecoveredText } from './document-tab'
+import {
+    anySavedTabs,
+    anyTabsToRight,
+    dropIndexAt,
+    formatFileSize,
+    indexAfterDrop,
+    LARGE_FILE_BYTES,
+    moveItem,
+    tabFromFile,
+    tabFromPath,
+    tabMovedMessage,
+    tabWithRecoveredText,
+} from './document-tab'
 
 describe('tabWithRecoveredText', () => {
     const backup = {
@@ -81,5 +93,77 @@ describe('tab checks for the close actions', () => {
         expect(anySavedTabs(tabs)).toBe(true)
         expect(anySavedTabs(tabs.map((t) => ({ ...t, isDirty: true })))).toBe(false)
         expect(anySavedTabs([])).toBe(false)
+    })
+})
+
+describe('moveItem', () => {
+    const list = ['a', 'b', 'c', 'd']
+
+    it('moves an item so it ends up at the index given', () => {
+        expect(moveItem(list, 0, 2)).toEqual(['b', 'c', 'a', 'd'])
+        expect(moveItem(list, 3, 0)).toEqual(['d', 'a', 'b', 'c'])
+        expect(moveItem(list, 1, 2)).toEqual(['a', 'c', 'b', 'd'])
+        // The list given is left as it was.
+        expect(list).toEqual(['a', 'b', 'c', 'd'])
+    })
+
+    it('keeps the index inside the list', () => {
+        expect(moveItem(list, 1, 99)).toEqual(['a', 'c', 'd', 'b'])
+        expect(moveItem(list, 2, -5)).toEqual(['c', 'a', 'b', 'd'])
+    })
+
+    it('hands back the same list when nothing moves', () => {
+        expect(moveItem(list, 2, 2)).toBe(list)
+        expect(moveItem(list, 3, 10)).toBe(list)
+        expect(moveItem(list, 0, -1)).toBe(list)
+        expect(moveItem(list, -1, 2)).toBe(list)
+        expect(moveItem(list, 4, 0)).toBe(list)
+    })
+})
+
+describe('dropIndexAt', () => {
+    // Three tabs, 100px wide, side by side from x = 50.
+    const rects = [
+        { left: 50, width: 100 },
+        { left: 150, width: 100 },
+        { left: 250, width: 100 },
+    ]
+
+    it('lands before the first tab whose middle is to the right of the pointer', () => {
+        expect(dropIndexAt(60, rects)).toBe(0)
+        expect(dropIndexAt(99, rects)).toBe(0)
+        expect(dropIndexAt(100, rects)).toBe(1)
+        expect(dropIndexAt(180, rects)).toBe(1)
+        expect(dropIndexAt(220, rects)).toBe(2)
+    })
+
+    it('lands at the end past the middle of the last tab, and at the start left of every tab', () => {
+        expect(dropIndexAt(320, rects)).toBe(3)
+        expect(dropIndexAt(900, rects)).toBe(3)
+        expect(dropIndexAt(0, rects)).toBe(0)
+    })
+
+    it('lands at the start of an empty strip', () => {
+        expect(dropIndexAt(100, [])).toBe(0)
+    })
+})
+
+describe('indexAfterDrop', () => {
+    it('turns the gap a tab is let go in into its index once it has moved', () => {
+        // Tab 1 of four dropped in the gap before tab 3 ends up at index 2.
+        expect(indexAfterDrop(1, 3)).toBe(2)
+        expect(indexAfterDrop(1, 4)).toBe(3)
+        expect(indexAfterDrop(2, 0)).toBe(0)
+    })
+
+    it('leaves a tab dropped either side of itself where it was', () => {
+        expect(indexAfterDrop(1, 1)).toBe(1)
+        expect(indexAfterDrop(1, 2)).toBe(1)
+    })
+})
+
+describe('tabMovedMessage', () => {
+    it('says where the tab went, counting from one', () => {
+        expect(tabMovedMessage('notes.md', 1, 4)).toBe('notes.md moved to position 2 of 4')
     })
 })

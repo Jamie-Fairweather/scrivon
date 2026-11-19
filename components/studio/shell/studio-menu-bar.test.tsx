@@ -394,6 +394,8 @@ describe('StudioMenuBar File menu', () => {
             'Reopen Closed TabCtrl+Shift+T',
             'Next TabCtrl+Tab or Ctrl+PageDown',
             'Previous TabCtrl+Shift+Tab or Ctrl+PageUp',
+            'Move Tab LeftCtrl+Shift+PageUp',
+            'Move Tab RightCtrl+Shift+PageDown',
             'ExitAlt+F4',
         ])
         for (const name of [
@@ -411,6 +413,8 @@ describe('StudioMenuBar File menu', () => {
         }
         // Only one tab is open.
         expect(within(file).getByRole('menuitem', { name: /^Next Tab/ })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(file).getByRole('menuitem', { name: /^Move Tab Left/ })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(file).getByRole('menuitem', { name: /^Move Tab Right/ })).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('reverts the open file and reopens the last closed tab', async () => {
@@ -712,7 +716,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(54)
+        expect(compared).toBe(56)
     })
 })
 

@@ -45,6 +45,8 @@ export type KeybindActionId =
     | 'tabs.close'
     | 'tabs.next'
     | 'tabs.previous'
+    | 'tabs.moveLeft'
+    | 'tabs.moveRight'
     | 'tabs.reopenClosed'
     | 'format.bold'
     | 'format.italic'

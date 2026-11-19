@@ -9,6 +9,8 @@ const setActiveTab = vi.fn(async (id: string) => {
     activeTabId = id
 })
 const closeTab = vi.fn(async () => {})
+const moveTab = vi.fn()
+let lastTabMove: { id: string } | null = null
 const fitToView = vi.fn()
 let canFitToView = false
 let previewOpen = true
@@ -20,6 +22,8 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         activeTab: tabs.find((t) => t.id === activeTabId) ?? null,
         setActiveTab,
         closeTab,
+        moveTab,
+        lastTabMove,
         closeOtherTabs: vi.fn(),
         closeAllTabs: vi.fn(),
     }),
@@ -47,6 +51,8 @@ function closeButton(container: HTMLElement, label: string) {
 beforeEach(() => {
     setActiveTab.mockClear()
     closeTab.mockClear()
+    moveTab.mockClear()
+    lastTabMove = null
     fitToView.mockClear()
     canFitToView = false
     previewOpen = true
@@ -341,5 +347,231 @@ describe('EditorTabBar', () => {
         fireEvent.click(close)
         expect(closeTab).toHaveBeenCalledWith('/w/c.mmd')
         expect(setActiveTab).not.toHaveBeenCalled()
+    })
+})
+
+describe('EditorTabBar moving tabs', () => {
+    const STRIP = { top: 0, bottom: 36, height: 36 }
+
+    /** Three tabs, 100px wide side by side from x = 0, in a strip 36px high (happy-dom has no layout). */
+    function renderStrip() {
+        tabs = [tab('/w/a.md'), tab('/w/b.md'), tab('/w/c.md')]
+        activeTabId = '/w/a.md'
+        const view = render(<EditorTabBar />)
+        const rect = (left: number, width: number) => ({ ...STRIP, left, width, right: left + width, x: left, y: 0, toJSON: () => ({}) }) as DOMRect
+        vi.spyOn(screen.getByRole('tablist'), 'getBoundingClientRect').mockReturnValue(rect(0, 600))
+        screen.getAllByRole('tab').forEach((t, i) => {
+            vi.spyOn(t.closest<HTMLElement>('[role="presentation"]')!, 'getBoundingClientRect').mockReturnValue(rect(i * 100, 100))
+        })
+        return view
+    }
+
+    const press = (name: string, x = 50) =>
+        fireEvent.pointerDown(screen.getByRole('tab', { name }), { button: 0, buttons: 1, clientX: x, clientY: 18, pointerId: 1 })
+    const moveTo = (x: number, y = 18) => fireEvent.pointerMove(document, { buttons: 1, clientX: x, clientY: y, pointerId: 1 })
+    const letGo = (x: number, y = 18) => fireEvent.pointerUp(document, { button: 0, clientX: x, clientY: y, pointerId: 1 })
+    const dropLine = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-drop-line]')
+
+    it('shows a line where a dragged tab will land, worked out from the middle of each tab, and moves it there', () => {
+        const { container } = renderStrip()
+
+        press('a.md')
+        moveTo(160)
+        // Past the middle of b.md, so before c.md.
+        expect(dropLine(container)).toHaveAttribute('data-drop-line', 'start')
+        expect(dropLine(container)!.closest('[role="presentation"]')).toContainElement(screen.getByRole('tab', { name: 'c.md' }))
+        expect(screen.getByRole('tab', { name: 'a.md' }).closest('[data-dragging]')).not.toBeNull()
+        // The line uses the theme's ring colour, and the system highlight in contrast themes.
+        expect(dropLine(container)).toHaveClass('bg-ring', 'forced-colors:bg-[Highlight]')
+
+        letGo(160)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 1)
+        expect(dropLine(container)).toBeNull()
+        expect(container.querySelector('[data-dragging]')).toBeNull()
+    })
+
+    it('moves a tab let go over the empty space after the last tab to the end', () => {
+        const { container } = renderStrip()
+
+        press('a.md')
+        moveTo(480)
+        expect(dropLine(container)).toHaveAttribute('data-drop-line', 'end')
+        expect(dropLine(container)!.closest('[role="presentation"]')).toContainElement(screen.getByRole('tab', { name: 'c.md' }))
+        letGo(480)
+
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2)
+    })
+
+    it('moves a tab to the start', () => {
+        renderStrip()
+
+        press('c.md', 250)
+        moveTo(20)
+        letGo(20)
+
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/c.md', 0)
+    })
+
+    it('swallows the click that comes as the button is let go after a drag', () => {
+        renderStrip()
+
+        press('a.md')
+        moveTo(160)
+        letGo(160)
+        fireEvent.click(screen.getByRole('tab', { name: 'b.md' }))
+        expect(setActiveTab).not.toHaveBeenCalled()
+        expect(moveTab).toHaveBeenCalledTimes(1)
+
+        // The next press is a click again.
+        press('c.md', 250)
+        letGo(250)
+        fireEvent.click(screen.getByRole('tab', { name: 'c.md' }))
+        expect(setActiveTab).toHaveBeenCalledExactlyOnceWith('/w/c.md')
+    })
+
+    it('puts everything back on Escape', () => {
+        const { container } = renderStrip()
+
+        press('a.md')
+        moveTo(260)
+        // Taken, so it doesn't also close something else.
+        expect(fireEvent.keyDown(document, { key: 'Escape' })).toBe(false)
+        expect(dropLine(container)).toBeNull()
+        // Moving on after Escape doesn't start the drag again.
+        moveTo(300)
+        expect(dropLine(container)).toBeNull()
+        letGo(300)
+        fireEvent.click(screen.getByRole('tab', { name: 'c.md' }))
+
+        expect(moveTab).not.toHaveBeenCalled()
+        expect(setActiveTab).not.toHaveBeenCalled()
+    })
+
+    it('hides the line above or below the tab bar, and cancels a tab let go there', () => {
+        const { container } = renderStrip()
+
+        press('a.md')
+        moveTo(260, 80)
+        expect(dropLine(container)).toBeNull()
+        moveTo(260, 18)
+        expect(dropLine(container)).not.toBeNull()
+        moveTo(260, -10)
+        expect(dropLine(container)).toBeNull()
+        letGo(260, -10)
+
+        expect(moveTab).not.toHaveBeenCalled()
+    })
+
+    it('leaves a tab dropped back where it started alone', () => {
+        renderStrip()
+
+        press('b.md', 150)
+        moveTo(120)
+        letGo(120)
+        press('b.md', 150)
+        moveTo(240)
+        letGo(240)
+
+        expect(moveTab).not.toHaveBeenCalled()
+    })
+
+    it('treats a short press as a click', () => {
+        const { container } = renderStrip()
+
+        press('b.md', 150)
+        moveTo(152)
+        expect(dropLine(container)).toBeNull()
+        letGo(152)
+        fireEvent.click(screen.getByRole('tab', { name: 'b.md' }))
+
+        expect(moveTab).not.toHaveBeenCalled()
+        expect(setActiveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+    })
+
+    it('does not drag with the middle or right button, which close the tab or open its menu', async () => {
+        const { container } = renderStrip()
+
+        fireEvent.pointerDown(screen.getByRole('tab', { name: 'b.md' }), { button: 1, buttons: 4, clientX: 150, clientY: 18 })
+        moveTo(260)
+        fireEvent.pointerDown(screen.getByRole('tab', { name: 'b.md' }), { button: 2, buttons: 2, clientX: 150, clientY: 18 })
+        moveTo(260)
+        expect(dropLine(container)).toBeNull()
+        letGo(260)
+
+        await userEvent.setup().pointer({ keys: '[MouseMiddle]', target: screen.getByRole('tab', { name: 'b.md' }) })
+        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+        expect(moveTab).not.toHaveBeenCalled()
+    })
+
+    it('keeps the keyboard on a moved tab, scrolls it into view, and says where it went', () => {
+        const scrollIntoView = vi.fn()
+        Element.prototype.scrollIntoView = scrollIntoView
+        tabs = [tab('/w/a.md'), tab('/w/b.md'), tab('/w/c.md'), tab('/w/notes.md')]
+        activeTabId = '/w/a.md'
+        const { rerender } = render(<EditorTabBar />)
+        screen.getByRole('tab', { name: 'a.md' }).focus()
+        scrollIntoView.mockClear()
+
+        // Move Tab Right, twice.
+        tabs = [tab('/w/b.md'), tab('/w/a.md'), tab('/w/c.md'), tab('/w/notes.md')]
+        lastTabMove = { id: '/w/a.md' }
+        rerender(<EditorTabBar />)
+        expect(screen.getByRole('tab', { name: 'a.md' })).toHaveFocus()
+        expect(screen.getByRole('status')).toHaveTextContent('a.md moved to position 2 of 4')
+
+        tabs = [tab('/w/b.md'), tab('/w/c.md'), tab('/w/a.md'), tab('/w/notes.md')]
+        lastTabMove = { id: '/w/a.md' }
+        rerender(<EditorTabBar />)
+        rerender(<EditorTabBar />)
+        expect(screen.getByRole('status')).toHaveTextContent('a.md moved to position 3 of 4')
+        expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['b.md', 'c.md', 'a.md', 'notes.md'])
+        expect(scrollIntoView).toHaveBeenCalled()
+        expect(scrollIntoView.mock.contexts.at(-1)).toBe(screen.getByRole('tab', { name: 'a.md' }))
+    })
+
+    it('leaves the keyboard in the editor when the open tab is moved from there', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        const view = () => (
+            <>
+                <EditorTabBar />
+                <textarea aria-label="editor" />
+            </>
+        )
+        const { rerender } = render(view())
+        const editor = screen.getByRole('textbox', { name: 'editor' })
+        editor.focus()
+
+        tabs = [tab('/w/b.md'), tab('/w/a.md')]
+        lastTabMove = { id: '/w/a.md' }
+        rerender(view())
+
+        expect(editor).toHaveFocus()
+        expect(screen.getByRole('status')).toHaveTextContent('a.md moved to position 2 of 2')
+    })
+
+    it('names the folder of a moved tab that shares its name with another', () => {
+        tabs = [tab('/w/api/README.md'), tab('/w/guide/README.md')]
+        activeTabId = '/w/api/README.md'
+        const { rerender } = render(<EditorTabBar />)
+
+        tabs = [tab('/w/guide/README.md'), tab('/w/api/README.md')]
+        lastTabMove = { id: '/w/api/README.md' }
+        rerender(<EditorTabBar />)
+
+        expect(screen.getByRole('status')).toHaveTextContent('README.md in api moved to position 2 of 2')
+    })
+
+    it('says nothing until a tab moves, or when the tabs change in another way', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md')]
+        activeTabId = '/w/a.md'
+        lastTabMove = { id: '/w/b.md' }
+        const { rerender } = render(<EditorTabBar />)
+        // A move from before the strip was drawn isn't news.
+        expect(screen.getByRole('status')).toBeEmptyDOMElement()
+
+        tabs = [tab('/w/a.md')]
+        rerender(<EditorTabBar />)
+        expect(screen.getByRole('status')).toBeEmptyDOMElement()
     })
 })

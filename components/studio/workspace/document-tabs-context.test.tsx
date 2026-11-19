@@ -1370,6 +1370,100 @@ describe('DocumentTabsProvider', () => {
     })
 })
 
+describe('moving tabs', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    const ids = (tabs: readonly DocumentTab[]) => tabs.map((t) => t.id)
+
+    async function renderTabs(tabs: DocumentTab[], activeTabId: string | null) {
+        const view = renderHook(() => useDocumentTabs(), {
+            wrapper: createTabsWrapper({ initial: { tabs, activeTabId }, workspaceRoot: '/ws' }),
+        })
+        await waitFor(() => expect(view.result.current.tabs).toHaveLength(tabs.length))
+        vi.mocked(setWorkspaceTabSession).mockClear()
+        return view
+    }
+
+    it('moves a tab to the place given, leaves the shown tab as it was, and saves the new order straight away', async () => {
+        const { result } = await renderTabs([tab('/ws/a.md'), tab('/ws/b.md'), tab('/ws/c.md')], '/ws/b.md')
+
+        act(() => result.current.moveTab('/ws/a.md', 2))
+
+        expect(ids(result.current.tabs)).toEqual(['/ws/b.md', '/ws/c.md', '/ws/a.md'])
+        expect(result.current.activeTabId).toBe('/ws/b.md')
+        expect(result.current.lastTabMove).toEqual({ id: '/ws/a.md' })
+        expect(setWorkspaceTabSession).toHaveBeenCalledExactlyOnceWith('/ws', {
+            tabIds: ['/ws/b.md', '/ws/c.md', '/ws/a.md'],
+            activeTabId: '/ws/b.md',
+        })
+    })
+
+    it('does nothing and saves nothing for a move that leaves the order as it was', async () => {
+        const { result } = await renderTabs([tab('/ws/a.md'), tab('/ws/b.md')], '/ws/a.md')
+        const before = result.current.tabs
+
+        act(() => result.current.moveTab('/ws/b.md', 1))
+        act(() => result.current.moveTab('/ws/b.md', 5))
+        act(() => result.current.moveTab('/ws/a.md', -1))
+        act(() => result.current.moveTab('/ws/missing.md', 0))
+
+        expect(result.current.tabs).toBe(before)
+        expect(result.current.lastTabMove).toBeNull()
+        expect(setWorkspaceTabSession).not.toHaveBeenCalled()
+    })
+
+    it('moves example tabs too, but still leaves them out of the saved order', async () => {
+        const { result } = await renderTabs(
+            [tab('example:sample-1', 'Simple Flow.mmd', { readOnly: true }), tab('/ws/a.md'), tab('/ws/b.md')],
+            '/ws/a.md'
+        )
+
+        // The files are in the same order, so there is nothing new to save.
+        act(() => result.current.moveTab('example:sample-1', 2))
+        expect(ids(result.current.tabs)).toEqual(['/ws/a.md', '/ws/b.md', 'example:sample-1'])
+        expect(setWorkspaceTabSession).not.toHaveBeenCalled()
+
+        act(() => result.current.moveTab('/ws/b.md', 0))
+        expect(ids(result.current.tabs)).toEqual(['/ws/b.md', '/ws/a.md', 'example:sample-1'])
+        expect(setWorkspaceTabSession).toHaveBeenCalledExactlyOnceWith('/ws', { tabIds: ['/ws/b.md', '/ws/a.md'], activeTabId: '/ws/a.md' })
+    })
+
+    it('switches tabs and closes the tabs to the right in the new order', async () => {
+        const { result } = await renderTabs([tab('/ws/a.md'), tab('/ws/b.md'), tab('/ws/c.md')], '/ws/a.md')
+
+        act(() => result.current.moveTab('/ws/c.md', 0))
+        await act(async () => {
+            await result.current.switchTab(-1)
+        })
+        expect(result.current.activeTabId).toBe('/ws/c.md')
+        await act(async () => {
+            await result.current.switchTab(1)
+        })
+        expect(result.current.activeTabId).toBe('/ws/a.md')
+
+        await act(async () => {
+            await result.current.closeTabsToRight('/ws/a.md')
+        })
+        expect(ids(result.current.tabs)).toEqual(['/ws/c.md', '/ws/a.md'])
+        expect(setWorkspaceTabSession).toHaveBeenLastCalledWith('/ws', { tabIds: ['/ws/c.md', '/ws/a.md'], activeTabId: '/ws/a.md' })
+    })
+
+    it('keeps the move when a keystroke comes before the tabs are drawn again', async () => {
+        const { result } = await renderTabs([tab('/ws/a.md'), tab('/ws/b.md')], '/ws/a.md')
+
+        act(() => {
+            result.current.moveTab('/ws/a.md', 1)
+            result.current.updateTabContent('/ws/a.md', 'typed')
+        })
+
+        expect(ids(result.current.tabs)).toEqual(['/ws/b.md', '/ws/a.md'])
+        expect(result.current.tabs[1]).toMatchObject({ content: 'typed', isDirty: true })
+    })
+})
+
 describe('closing tabs with unsaved changes', () => {
     beforeEach(() => {
         vi.clearAllMocks()

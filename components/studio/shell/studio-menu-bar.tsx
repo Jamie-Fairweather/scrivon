@@ -202,6 +202,8 @@ export function StudioMenuBar() {
                         <MenuGroup>
                             {item('next-tab')}
                             {item('previous-tab')}
+                            {item('move-tab-left')}
+                            {item('move-tab-right')}
                         </MenuGroup>
                         <MenuSeparator />
                         {item('exit')}
