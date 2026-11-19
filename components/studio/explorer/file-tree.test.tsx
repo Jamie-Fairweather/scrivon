@@ -3,15 +3,24 @@ import { Profiler } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { requestRevealActiveFile } from '@/components/studio/explorer/explorer-view'
 import { isMermaidFile } from '@/lib/tauri/fs'
+import type { GitEntry } from '@/lib/tauri/git'
+import { gitChangesFrom, NO_GIT_CHANGES, type GitChanges } from '@/lib/workspace/git-status'
 import type { FileNode } from '@/lib/workspace/types'
 import { FileTree } from './file-tree'
 
-const { tabs, tabContent, folders, session, confirmDelete, promptName, chooseFolder, fileDrops } = vi.hoisted(() => ({
+const { tabs, tabContent, folders, git, drawn, session, confirmDelete, promptName, chooseFolder, fileDrops } = vi.hoisted(() => ({
     tabs: { activeTabId: null as string | null, openFile: vi.fn(async () => undefined) },
     /** The tabs with their text, which change on every keystroke. */
     tabContent: { text: '', listeners: new Set<() => void>() },
     /** The session's open or closed folders, which outlive the tree. */
     folders: { toggles: new Map() as ReadonlyMap<string, boolean>, listeners: new Set<() => void>() },
+    /** The session's git changes, which a refresh replaces. */
+    git: {
+        changes: { files: new Map(), folders: new Set(), untrackedFolders: new Set(), key: '' } as import('@/lib/workspace/git-status').GitChanges,
+        listeners: new Set<() => void>(),
+    },
+    /** The names of the rows drawn, in order. */
+    drawn: [] as string[],
     session: {
         workspaceRoot: '/ws',
         setFolderExpanded: vi.fn((path: string, expanded: boolean) => {
@@ -56,7 +65,11 @@ vi.mock('@/components/studio/workspace/workspace-provider', async () => {
         useDocumentTabs: () => ({ ...tabs, text: useSyncExternalStore(subscribe(tabContent), () => tabContent.text) }),
         useActiveTabId: () => tabs.activeTabId,
         useDocumentTabActions: () => tabs,
-        useWorkspaceSession: () => ({ ...session, folderToggles: useSyncExternalStore(subscribe(folders), () => folders.toggles) }),
+        useWorkspaceSession: () => ({
+            ...session,
+            folderToggles: useSyncExternalStore(subscribe(folders), () => folders.toggles),
+            gitChanges: useSyncExternalStore(subscribe(git), () => git.changes),
+        }),
     }
 })
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete }) }))
@@ -70,6 +83,18 @@ vi.mock('@/lib/tauri/file-drop', () => ({
         }
     },
 }))
+// Notes each row as it draws, folders too: the memoised row, wrapped as it is.
+vi.mock('@/components/studio/explorer/file-tree-node', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/components/studio/explorer/file-tree-node')>()
+    const { createElement, memo } = await import('react')
+    const Row = (actual.FileTreeNode as unknown as { type: React.FC<Parameters<typeof actual.FileTreeNode>[0]> }).type
+    return {
+        FileTreeNode: memo(function CountedRow(props: Parameters<typeof actual.FileTreeNode>[0]) {
+            drawn.push(props.node.name)
+            return createElement(Row, props)
+        }),
+    }
+})
 // Each file row asks isMermaidFile once as it draws, which shows which rows were drawn again.
 vi.mock('@/lib/tauri/fs', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/tauri/fs')>()
@@ -393,6 +418,89 @@ describe('FileTree', () => {
         render(<FileTree tree={tree} />)
 
         expect(item('flow.mmd')).not.toContainElement(screen.getByLabelText('Actions for flow.mmd'))
+    })
+})
+
+describe('FileTree shows git changes', () => {
+    const changed = (xy: string, path: string): GitEntry => ({ kind: 'changed', xy, path, dir: false })
+
+    /** What a refresh of the session's git changes does. */
+    const showChanges = (changes: GitChanges) =>
+        act(() => {
+            git.changes = changes
+            git.listeners.forEach((l) => l())
+        })
+
+    const markOf = (name: string) => item(name).querySelector('[data-git-mark]')
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        tabs.activeTabId = null
+        folders.toggles = new Map()
+        git.changes = NO_GIT_CHANGES
+        drawn.length = 0
+    })
+
+    afterEach(() => {
+        git.changes = NO_GIT_CHANGES
+    })
+
+    it('marks a changed file with a letter and a colour, and its folder with a dot, in words too', () => {
+        git.changes = gitChangesFrom('/ws', [changed('.M', 'docs/notes.md'), { kind: 'untracked', xy: '??', path: 'photo.png', dir: false }])
+        render(<FileTree tree={tree} />)
+
+        expect(markOf('notes.md')).toHaveTextContent('M')
+        expect(markOf('notes.md')).toHaveAttribute('aria-hidden')
+        expect(item('notes.md')).toHaveAttribute('title', 'notes.md\nModified')
+        expect(item('notes.md')).toHaveAccessibleDescription('Modified')
+        expect(within(item('notes.md')).getByText('notes.md')).toHaveClass('text-warning-foreground')
+
+        expect(markOf('docs')).toHaveTextContent('●')
+        expect(item('docs')).toHaveAttribute('title', 'docs\nContains changes')
+        expect(item('docs')).toHaveAccessibleDescription('Contains changes')
+
+        // A row that says why it won't open says both.
+        const hint = 'Scrivon supports .md, .markdown, .mmd and .mermaid files only'
+        expect(markOf('photo.png')).toHaveTextContent('U')
+        expect(item('photo.png')).toHaveAttribute('title', `photo.png\n${hint}\nUntracked`)
+        expect(item('photo.png')).toHaveAccessibleDescription(`${hint} Untracked`)
+
+        expect(markOf('flow.mmd')).toBeNull()
+        expect(item('flow.mmd')).toHaveAttribute('title', 'flow.mmd')
+        expect(item('flow.mmd')).not.toHaveAttribute('aria-describedby')
+    })
+
+    it('draws again only the rows whose mark changed, and the folders above them', () => {
+        git.changes = gitChangesFrom('/ws', [changed('.M', 'docs/notes.md')])
+        render(<FileTree tree={tree} />)
+
+        drawn.length = 0
+        showChanges(gitChangesFrom('/ws', [changed('.M', 'docs/notes.md'), changed('.M', 'flow.mmd')]))
+        expect(drawn).toEqual(['flow.mmd'])
+        expect(markOf('flow.mmd')).toHaveTextContent('M')
+
+        drawn.length = 0
+        showChanges(gitChangesFrom('/ws', [changed('.M', 'flow.mmd')]))
+        expect(drawn.sort()).toEqual(['docs', 'notes.md'])
+        expect(markOf('docs')).toBeNull()
+
+        // The same marks again (another save, say): nothing draws.
+        drawn.length = 0
+        showChanges(gitChangesFrom('/ws', [changed('.M', 'flow.mmd')]))
+        expect(drawn).toEqual([])
+    })
+
+    it('draws no row again while the user types', () => {
+        git.changes = gitChangesFrom('/ws', [changed('.M', 'docs/notes.md')])
+        render(<FileTree tree={tree} />)
+        drawn.length = 0
+
+        act(() => {
+            tabContent.text = 'typed'
+            tabContent.listeners.forEach((l) => l())
+        })
+
+        expect(drawn).toEqual([])
     })
 })
 

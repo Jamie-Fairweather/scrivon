@@ -581,6 +581,28 @@ export function classifyWatchEvent(root: string, event: WatchEvent): WorkspaceCh
     return change.added.length + change.removed.length + change.changed.length > 0 ? change : null
 }
 
+/** git's own files in `.git` that change with a commit, a checkout, `git add` or a merge. */
+const GIT_SIGNAL_FILES = new Set(['index', 'head', 'merge_head'])
+
+/**
+ * True for an event on git's own files for the repository at the top of `root`: `.git/index`, `.git/HEAD`,
+ * `.git/MERGE_HEAD`, or anything under `.git/refs/heads`. Reads aren't changes, and git status reads them.
+ */
+export function isGitChangeEvent(root: string, event: WatchEvent): boolean {
+    const type = event.type
+    if (typeof type === 'object' && ('access' in type || ('modify' in type && type.modify.kind === 'metadata' && type.modify.mode === 'access-time'))) {
+        return false
+    }
+    return event.paths.some((path) => {
+        const rest = pathInside(path, root)
+        if (rest === null) return false
+        const [top, ...parts] = rest.toLowerCase().split(/[\\/]/)
+        if (top !== '.git') return false
+        if (parts.length === 1) return GIT_SIGNAL_FILES.has(parts[0]!)
+        return parts.length >= 3 && parts[0] === 'refs' && parts[1] === 'heads'
+    })
+}
+
 /** How long changes are gathered before they are reported together (a git checkout touches many files at once). */
 const WATCH_BATCH_MS = 300
 
@@ -622,14 +644,20 @@ function fromNetChange(net: Map<string, NetChange>): WorkspaceChange {
 
 /**
  * Tells `onChange` about files and folders that change inside `root`, everything in it included, leaving
- * out what classifyWatchEvent drops. Resolves to a function that stops watching; rejects where the folder
- * can't be watched (some network drives).
+ * out what classifyWatchEvent drops. Changes to git's own files (isGitChangeEvent) go to `onGitChange` instead,
+ * straight away, and never to `onChange`: they don't change the file list or any open file. Resolves to a
+ * function that stops watching; rejects where the folder can't be watched (some network drives).
  */
-export async function watchWorkspace(root: string, onChange: (change: WorkspaceChange) => void): Promise<() => void> {
+export async function watchWorkspace(
+    root: string,
+    onChange: (change: WorkspaceChange) => void,
+    onGitChange: () => void = () => {}
+): Promise<() => void> {
     if (!isTauri()) return () => {}
     const base = normalizePath(root)
     let gathered = new Map<string, NetChange>()
     let timer: ReturnType<typeof setTimeout> | undefined
+    let stopped = false
     const report = () => {
         timer = undefined
         const change = fromNetChange(gathered)
@@ -642,6 +670,7 @@ export async function watchWorkspace(root: string, onChange: (change: WorkspaceC
     const stop = await watchImmediate(
         base,
         (event) => {
+            if (!stopped && isGitChangeEvent(base, event)) onGitChange()
             const change = classifyWatchEvent(base, event)
             if (!change) return
             addToNetChange(gathered, change)
@@ -650,6 +679,7 @@ export async function watchWorkspace(root: string, onChange: (change: WorkspaceC
         { recursive: true }
     )
     return () => {
+        stopped = true
         clearTimeout(timer)
         gathered = new Map()
         stop()

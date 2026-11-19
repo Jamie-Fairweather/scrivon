@@ -177,6 +177,14 @@ describe('mergeStoredSettings', () => {
         expect(migrateLegacySettings(() => null, false).workspace.reopenLastFolder).toBe(true)
     })
 
+    it('shows git changes in the explorer by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).workspace.showGitChanges).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: false } }, false).workspace.showGitChanges).toBe(true)
+        expect(mergeStoredSettings({ workspace: { showGitChanges: false } }, false).workspace.showGitChanges).toBe(false)
+        expect(mergeStoredSettings({ workspace: { showGitChanges: 'off' } }, false).workspace.showGitChanges).toBe(true)
+    })
+
     it('shows the status bar unless the user hid it', () => {
         expect(createDefaultSettings(false).statusBar.visible).toBe(true)
         // Settings saved before the option existed.

@@ -53,6 +53,7 @@ function settingsSummary(settings: AppSettings): string[] {
         `Spelling: ${spellcheck.enabled ? `on, ${spellcheck.language}` : 'off'}`,
         `Check for updates on launch: ${onOff(settings.updates.checkOnLaunch)}`,
         `Reopen last folder: ${onOff(settings.workspace.reopenLastFolder)}`,
+        `Git changes in the explorer: ${onOff(settings.workspace.showGitChanges)}`,
         `Panels open: ${panels.join(', ') || 'none'}`,
         `Changed shortcuts: ${changedShortcuts(settings)}`,
     ]

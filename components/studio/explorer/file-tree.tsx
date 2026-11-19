@@ -11,6 +11,7 @@ import { isSupportedDocument, samePath } from '@/lib/tauri/fs'
 import { cn } from '@/lib/utils'
 import { focusTargetAfterChange, treeKeyAction, typeAheadMatch, visibleTreeRows } from '@/lib/workspace/flatten-file-tree'
 import { closedFoldersAbove, isFolderOpen } from '@/lib/workspace/folder-toggles'
+import { gitRowMark } from '@/lib/workspace/git-status'
 import { foldersHolding } from '@/lib/workspace/move-entry'
 import type { FileNode } from '@/lib/workspace/types'
 
@@ -73,6 +74,7 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
         setFoldersExpanded,
         moveEntry,
         copyIntoFolder,
+        gitChanges,
     } = useWorkspaceSession()
     const [focusedPath, setFocusedPath] = useState<string | null>(null)
 
@@ -329,6 +331,7 @@ export function FileTree({ tree }: { tree: FileNode[] }) {
                             isDragged={row.node.path === drag?.node.path}
                             isActive={row.node.kind === 'file' && row.node.path === activeTabId}
                             isTabStop={row.node.path === tabStopPath}
+                            gitMark={gitRowMark(gitChanges, row.node.path, row.node.kind)}
                             onActivate={activate}
                             onFocusRow={handleFocusRow}
                         />

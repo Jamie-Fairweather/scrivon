@@ -31,6 +31,7 @@ import {
 import { confirmOverwriteDiskChange } from '@/components/studio/dialogs/disk-change-dialog'
 import { deleteUnsavedBackup, listUnsavedBackups, saveUnsavedBackup, type UnsavedBackup } from '@/lib/tauri/backups'
 import { PathExistsError } from '@/lib/tauri/fs'
+import { readGitStatus, type GitStatusReply } from '@/lib/tauri/git'
 import { onLaunchPaths, takeLaunchPaths, type LaunchPath } from '@/lib/tauri/launch'
 import { isTauri } from '@/lib/tauri/platform'
 import {
@@ -47,6 +48,8 @@ import {
     setWorkspaceTabSession,
 } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
+import { gitRowMark, NO_GIT_CHANGES } from '@/lib/workspace/git-status'
+import { GIT_REFRESH_WAIT_MS } from '@/lib/workspace/git-status-refresh'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
@@ -55,7 +58,7 @@ import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '.
 
 const settingsState = vi.hoisted(() => ({
     autosave: { enabled: true, delayMs: 400 },
-    workspace: { maxRecentFolders: 10 } as { maxRecentFolders: number; reopenLastFolder?: boolean },
+    workspace: { maxRecentFolders: 10 } as { maxRecentFolders: number; reopenLastFolder?: boolean; showGitChanges?: boolean },
 }))
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
@@ -80,6 +83,9 @@ vi.mock('@/lib/tauri/store', () => ({
 }))
 
 vi.mock('@/lib/workspace/workspace-images', () => ({ forgetWorkspaceImages: vi.fn() }))
+
+// Off in most tests (the setting is left out); see 'git changes in the explorer'.
+vi.mock('@/lib/tauri/git', () => ({ readGitStatus: vi.fn(async () => ({ state: 'none' })) }))
 
 vi.mock('@/lib/tauri/backups', () => ({
     saveUnsavedBackup: vi.fn(async () => undefined),
@@ -3769,5 +3775,177 @@ describe('opening files from File Explorer', () => {
         await waitFor(() => expect(result.current.tabs.activeTabId).toBe('D:\\else\\x.mmd'))
         expect(warn).toHaveBeenCalledWith("Can't open files from File Explorer while Scrivon runs", expect.any(Error))
         warn.mockRestore()
+    })
+})
+
+describe('git changes in the explorer', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    let report: ((event: WatchEvent) => void) | undefined
+    const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+    const modified = (path: string): GitStatusReply => ({ state: 'changes', entries: [{ kind: 'changed', xy: '.M', path, dir: false }] })
+    const markOf = (result: { current: ReturnType<typeof useHarness> }, path: string) => gitRowMark(result.current.session.gitChanges, path, 'file')
+    const gitRuns = () => vi.mocked(readGitStatus).mock.calls.length
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        settingsState.workspace = { maxRecentFolders: 10, showGitChanges: true }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readGitStatus).mockResolvedValue(modified('notes.md'))
+        disk = createWindowsDisk({ 'C:\\ws\\notes.md': 'mine', 'C:\\ws\\docs\\a.md': 'a', 'C:\\other\\b.md': 'b' })
+        mountDisk(disk)
+        report = undefined
+        vi.mocked(watchImmediate).mockImplementation(async (_path, cb) => {
+            report = cb
+            return () => undefined
+        })
+    })
+
+    afterEach(() => {
+        settingsState.workspace = { maxRecentFolders: 10 }
+        vi.mocked(readGitStatus).mockReset()
+        vi.mocked(readGitStatus).mockResolvedValue({ state: 'none' })
+        vi.mocked(watchImmediate).mockReset()
+    })
+
+    async function open(result: { current: ReturnType<typeof useHarness> }, folder = 'C:\\ws') {
+        await act(async () => {
+            await result.current.session.openWorkspace(folder)
+        })
+    }
+
+    it('marks what git says changed as the folder opens', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\notes.md')).toBe('M'))
+        expect(readGitStatus).toHaveBeenCalledExactlyOnceWith('C:\\ws')
+        expect(markOf(result, 'C:\\ws\\docs\\a.md')).toBe('')
+    })
+
+    it('reads them again shortly after a save in Scrivon and a window focus', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+        await waitFor(() => expect(gitRuns()).toBe(1))
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\docs\\a.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\docs\\a.md', 'edited'))
+
+        vi.mocked(readGitStatus).mockResolvedValue(modified('docs/a.md'))
+        await act(async () => {
+            await coordinatorOut.current!.flushSave.current('C:\\ws\\docs\\a.md')
+        })
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\docs\\a.md')).toBe('M'))
+        expect(gitRuns()).toBe(2)
+
+        vi.mocked(readGitStatus).mockResolvedValue({ state: 'none' })
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\docs\\a.md')).toBe(''))
+    })
+
+    it('reads them again when git’s own files change, without reading the tree or the tabs again or forgetting images', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+        await waitFor(() => expect(report).toBeDefined())
+        await waitFor(() => expect(gitRuns()).toBe(1))
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\notes.md')
+        })
+        const reloadTabs = vi.spyOn(coordinatorOut.current!.reloadChangedTabs, 'current')
+        const readsBefore = vi.mocked(readDir).mock.calls.length
+        vi.mocked(forgetWorkspaceImages).mockClear()
+
+        // A commit in a terminal: the index and the branch change, nothing else.
+        vi.mocked(readGitStatus).mockResolvedValue({ state: 'none' })
+        await act(async () => {
+            report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\.git\\index'], attrs: null })
+            report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\.git\\refs\\heads\\main'], attrs: null })
+        })
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\notes.md')).toBe(''))
+
+        // One run for both.
+        expect(gitRuns()).toBe(2)
+        expect(readDir).toHaveBeenCalledTimes(readsBefore)
+        expect(reloadTabs).not.toHaveBeenCalled()
+        expect(forgetWorkspaceImages).not.toHaveBeenCalled()
+
+        // Another program changing a file reads them again too.
+        vi.mocked(readGitStatus).mockResolvedValue(modified('notes.md'))
+        await disk.write('C:\\ws\\notes.md', 'changed elsewhere')
+        await act(async () => {
+            report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\notes.md'], attrs: null })
+        })
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\notes.md')).toBe('M'))
+        expect(gitRuns()).toBe(3)
+    })
+
+    it('throws away a result for a folder that is no longer open', async () => {
+        let answer!: (reply: GitStatusReply) => void
+        vi.mocked(readGitStatus).mockImplementation((folder) =>
+            folder === 'C:\\ws' ? new Promise((resolve) => (answer = resolve)) : Promise.resolve({ state: 'none' })
+        )
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await open(result, 'C:\\other')
+        await waitFor(() => expect(readGitStatus).toHaveBeenCalledWith('C:\\other'))
+
+        await act(async () => answer(modified('notes.md')))
+
+        expect(result.current.session.gitChanges).toBe(NO_GIT_CHANGES)
+    })
+
+    it('after git times out, reads them again only on the next window focus', async () => {
+        vi.mocked(readGitStatus).mockResolvedValue({ state: 'timedOut' })
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await waitFor(() => expect(report).toBeDefined())
+        await waitFor(() => expect(gitRuns()).toBe(1))
+
+        await act(async () => {
+            report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\.git\\index'], attrs: null })
+            report!({ type: { modify: { kind: 'any' } }, paths: ['C:\\ws\\notes.md'], attrs: null })
+            await pause(GIT_REFRESH_WAIT_MS + 400)
+        })
+        expect(gitRuns()).toBe(1)
+        expect(result.current.session.gitChanges).toBe(NO_GIT_CHANGES)
+
+        vi.mocked(readGitStatus).mockResolvedValue(modified('notes.md'))
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\notes.md')).toBe('M'))
+    })
+
+    it('never runs git while the setting is off; turning it off clears the marks, and turning it on reads them at once', async () => {
+        settingsState.workspace = { maxRecentFolders: 10, showGitChanges: false }
+        const { result, rerender } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+            await pause(GIT_REFRESH_WAIT_MS + 100)
+        })
+        expect(readGitStatus).not.toHaveBeenCalled()
+
+        settingsState.workspace = { maxRecentFolders: 10, showGitChanges: true }
+        rerender()
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\notes.md')).toBe('M'))
+        expect(gitRuns()).toBe(1)
+
+        // Off while a run is still going: the marks go at once, and that run's result is thrown away.
+        let answer!: (reply: GitStatusReply) => void
+        vi.mocked(readGitStatus).mockImplementation(() => new Promise((resolve) => (answer = resolve)))
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(gitRuns()).toBe(2))
+        settingsState.workspace = { maxRecentFolders: 10, showGitChanges: false }
+        rerender()
+        expect(result.current.session.gitChanges).toBe(NO_GIT_CHANGES)
+        await act(async () => answer(modified('docs/a.md')))
+        expect(result.current.session.gitChanges).toBe(NO_GIT_CHANGES)
     })
 })
