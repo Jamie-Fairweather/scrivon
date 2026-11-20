@@ -57,6 +57,41 @@ function removeSharedElements(): void {
     for (const element of document.body.querySelectorAll(':scope > #cy, :scope > .mermaidTooltip')) element.remove()
 }
 
+/** The page's own top-level elements, before a render: none of them is ever removed. */
+function bodyChildren(): ReadonlySet<Element> {
+    return typeof document === 'undefined' ? new Set() : new Set(document.body.children)
+}
+
+/**
+ * The box Mermaid measures text in: a bare `<svg>` added to the body, which it takes away again only when measuring
+ * worked. Only one added since the render began is removed, so nothing of the page's own goes.
+ */
+function removeMeasuringBoxes(before: ReadonlySet<Element>): void {
+    if (typeof document === 'undefined') return
+    for (const element of document.body.querySelectorAll(':scope > svg:not([id])')) {
+        if (!before.has(element)) element.remove()
+    }
+}
+
+/**
+ * How long the next render waits for one that timed out to end. Mermaid runs its renders one at a time too, so
+ * until then the next would only queue behind it inside Mermaid, with its own time running out. After this long
+ * it goes ahead anyway, so one render that never ends can't hold up every one after it for good.
+ */
+export const STUCK_RENDER_WAIT_MS = RENDER_TIMEOUT_MS
+
+/** Resolves once `work` has settled, or after `ms`, whichever comes first. */
+function settledOrAfter(work: Promise<unknown>, ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, ms)
+        const done = () => {
+            clearTimeout(timer)
+            resolve()
+        }
+        work.then(done, done)
+    })
+}
+
 function asError(err: unknown): Error {
     return err instanceof Error ? err : new Error(String(err))
 }
@@ -77,7 +112,11 @@ function withTimeout<T>(work: Promise<T>): Promise<T> {
     })
 }
 
-async function runRender(source: string, themeId: AppThemeId, transparent: boolean): Promise<string> {
+/**
+ * One render. `onDrawing` is given a promise that settles once Mermaid has really finished with it, which for a
+ * render that timed out is later than the one this returns.
+ */
+async function runRender(source: string, themeId: AppThemeId, transparent: boolean, onDrawing: (finished: Promise<void>) => void): Promise<string> {
     let mermaid: Mermaid
     try {
         mermaid = await loadMermaid()
@@ -86,6 +125,11 @@ async function runRender(source: string, themeId: AppThemeId, transparent: boole
     }
 
     const id = `scrivon-mermaid-${RUN_ID}-${++renders}`
+    const before = bodyChildren()
+    const cleanUp = () => {
+        removeRenderElements(id)
+        removeMeasuringBoxes(before)
+    }
     const drawing = (async () => {
         // Settings and drawing as one step: render reads the settings before it first waits.
         mermaid.initialize(officialMermaidConfig(themeId))
@@ -93,16 +137,13 @@ async function runRender(source: string, themeId: AppThemeId, transparent: boole
         const { svg } = await mermaid.render(id, source)
         return svg
     })()
-    // A render that timed out may still finish later: what it added goes then.
-    drawing.then(
-        () => removeRenderElements(id),
-        () => removeRenderElements(id)
-    )
+    // A render that timed out may still finish later: what it added goes then, before the next render starts.
+    onDrawing(drawing.then(cleanUp, cleanUp))
     try {
         const svg = await withTimeout(drawing)
         return normaliseOfficialSvg(svg, { id, background: transparent ? null : getDiagramColors(themeId).bg })
     } finally {
-        removeRenderElements(id)
+        cleanUp()
         removeSharedElements()
     }
 }
@@ -112,9 +153,17 @@ async function runRender(source: string, themeId: AppThemeId, transparent: boole
  * (see normaliseOfficialSvg). Each render has its own id, so two pictures on one page never share one. Rejects
  * with Mermaid's own message for text that doesn't parse, with RENDER_TIMEOUT_MESSAGE when it takes longer than
  * RENDER_TIMEOUT_MS, and with RendererLoadError when mermaid couldn't be loaded (the next render tries again).
+ *
+ * After a timeout, the next render waits for the stuck one to end inside Mermaid (up to STUCK_RENDER_WAIT_MS)
+ * before it changes the settings and starts its own clock.
  */
 export function renderOfficialDiagram(source: string, themeId: AppThemeId, { transparent = true }: OfficialRenderOptions = {}): Promise<string> {
-    const result = queueTail.then(() => runRender(source, themeId, transparent))
-    queueTail = result.then(ignore, ignore)
+    let finished: Promise<void> = Promise.resolve()
+    const result = queueTail.then(() =>
+        runRender(source, themeId, transparent, (drawn) => {
+            finished = drawn
+        })
+    )
+    queueTail = result.then(ignore, ignore).then(() => settledOrAfter(finished, STUCK_RENDER_WAIT_MS))
     return result
 }

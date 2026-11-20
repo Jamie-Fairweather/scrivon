@@ -8,8 +8,10 @@ import { RENDER_TIMEOUT_MESSAGE, RENDER_TIMEOUT_MS, RendererLoadError } from '@/
 import { getDiagramColors } from '@/lib/theme/catalog'
 
 /**
- * Mermaid, faked: it can't lay a diagram out in happy-dom. Like the real one, a render reads the settings the last
- * `initialize` set, adds its working box (`#d<id>`) to the page, and leaves it there when it fails or never ends.
+ * Mermaid, faked: it can't lay a diagram out in happy-dom. Like the real one, renders run one at a time (its
+ * `executionQueue`), and each reads the settings the last `initialize` set when it starts, adds its working box
+ * (`#d<id>`) to the page, and leaves it there when it fails or never ends. A failed render also leaves behind the
+ * bare `<svg>` it measures text in.
  */
 const fake = vi.hoisted(() => {
     const state = {
@@ -21,6 +23,35 @@ const fake = vi.hoisted(() => {
         /** Renders still waiting for `finish`. */
         held: [] as { id: string; finish: (svg?: string) => void; fail: (err: unknown) => void }[],
         hold: false,
+        /** The last render queued inside the fake: the next starts once it has settled. */
+        tail: Promise.resolve() as Promise<unknown>,
+        running: false,
+    }
+    const draw = (id: string, text: string) => {
+        // Read as the real one reads them: when it starts, before it first waits.
+        const background = state.settings?.themeVariables?.background
+        state.log.push(`render ${id} ${background}`)
+        const box = document.createElement('div')
+        box.id = `d${id}`
+        document.body.append(box)
+        const tooltip = document.createElement('div')
+        tooltip.className = 'mermaidTooltip'
+        document.body.append(tooltip)
+        const svg = `<svg id="${id}" width="100%" style="max-width: 120px;" viewBox="0 0 120 80"><style>#${id}{fill:${background};}</style></svg>`
+        return new Promise<{ svg: string }>((resolve, reject) => {
+            const finish = (out = svg) => {
+                box.remove()
+                resolve({ svg: out })
+            }
+            // Mermaid with suppressErrorRendering throws its parser's error, and leaves its boxes behind when drawing fails.
+            const fail = (err: unknown) => {
+                document.body.append(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
+                reject(err)
+            }
+            if (text.startsWith('bad')) fail(new Error(`Parse error on line 2:\n${text}\n---^`))
+            else if (state.hold) state.held.push({ id, finish, fail })
+            else finish()
+        })
     }
     const mermaid = {
         initialize: (config: MermaidConfig) => {
@@ -28,27 +59,18 @@ const fake = vi.hoisted(() => {
             state.log.push(`init ${config.themeVariables?.background}`)
         },
         render: (id: string, text: string) => {
-            // Read as the real one reads them: at the start, before it first waits.
-            const background = state.settings?.themeVariables?.background
-            state.log.push(`render ${id} ${background}`)
-            const box = document.createElement('div')
-            box.id = `d${id}`
-            document.body.append(box)
-            const tooltip = document.createElement('div')
-            tooltip.className = 'mermaidTooltip'
-            document.body.append(tooltip)
-            const svg = `<svg id="${id}" width="100%" style="max-width: 120px;" viewBox="0 0 120 80"><style>#${id}{fill:${background};}</style></svg>`
-            return new Promise<{ svg: string }>((resolve, reject) => {
-                const finish = (out = svg) => {
-                    box.remove()
-                    resolve({ svg: out })
-                }
-                // Mermaid with suppressErrorRendering throws its parser's error, and leaves its box behind when drawing fails.
-                const fail = (err: unknown) => reject(err)
-                if (text.startsWith('bad')) fail(new Error(`Parse error on line 2:\n${text}\n---^`))
-                else if (state.hold) state.held.push({ id, finish, fail })
-                else finish()
+            // Starts straight away when nothing is drawing, as the real queue does, and otherwise waits its turn.
+            const result = state.running ? state.tail.then(() => draw(id, text)) : draw(id, text)
+            state.running = true
+            const settled = result.then(
+                () => {},
+                () => {}
+            )
+            state.tail = settled
+            void settled.then(() => {
+                if (state.tail === settled) state.running = false
             })
+            return result
         },
     }
     return { state, mermaid }
@@ -77,7 +99,7 @@ async function settle() {
 }
 
 beforeEach(() => {
-    Object.assign(fake.state, { loads: 0, failLoads: 0, settings: null, log: [], held: [], hold: false })
+    Object.assign(fake.state, { loads: 0, failLoads: 0, settings: null, log: [], held: [], hold: false, tail: Promise.resolve(), running: false })
     document.body.innerHTML = '<main id="app"></main>'
 })
 
@@ -180,7 +202,22 @@ describe('renderOfficialDiagram', () => {
         expect(document.body.innerHTML).toBe('<main id="app"></main>')
     })
 
-    it('gives up on a render that takes too long, cleans up, and draws the next one', async () => {
+    it('leaves the page’s own elements alone, even ones added while it drew', async () => {
+        const { renderOfficialDiagram } = await loadOfficial()
+        const sprite = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+        document.body.append(sprite)
+        fake.state.hold = true
+        const failing = renderOfficialDiagram('pie\n  "A" : 1', 'nord').catch(() => {})
+        await settle()
+        // A dialog opened while the diagram was drawing.
+        const dialog = document.createElement('div')
+        document.body.append(dialog)
+        fake.state.held.shift()!.fail(new Error('Lexical error'))
+        await failing
+        expect([...document.body.children]).toEqual([document.getElementById('app'), sprite, dialog])
+    })
+
+    it('gives up on a render that takes too long, cleans up, and draws the next once mermaid is free', async () => {
         vi.useFakeTimers()
         const { renderOfficialDiagram } = await loadOfficial()
         fake.state.hold = true
@@ -190,12 +227,31 @@ describe('renderOfficialDiagram', () => {
         await failed
         expect(document.body.innerHTML).toBe('<main id="app"></main>')
 
+        // Mermaid runs one render at a time, so the next waits for the stuck one rather than start its clock behind it.
         fake.state.hold = false
-        await expect(renderOfficialDiagram('pie\n  "B" : 1', 'nord')).resolves.toContain('<svg')
-        // The stuck render finishing late adds nothing back.
-        fake.state.held.shift()!.finish()
-        await settle()
+        const next = renderOfficialDiagram('pie\n  "B" : 1', 'scrivon-light')
+        await vi.advanceTimersByTimeAsync(RENDER_TIMEOUT_MS - 1)
+        expect(fake.state.log).toHaveLength(2)
+        // The stuck render finishing late adds nothing back, and the next one draws in its own theme.
+        fake.state.held.shift()!.fail(new Error('Too slow'))
+        await expect(next).resolves.toContain(`fill:${getDiagramColors('scrivon-light').bg}`)
         expect(document.body.innerHTML).toBe('<main id="app"></main>')
+    })
+
+    it('goes ahead after a while when a render that timed out never ends', async () => {
+        vi.useFakeTimers()
+        const { renderOfficialDiagram, STUCK_RENDER_WAIT_MS } = await loadOfficial()
+        fake.state.hold = true
+        const stuck = expect(renderOfficialDiagram('pie\n  "A" : 1', 'nord')).rejects.toThrow(RENDER_TIMEOUT_MESSAGE)
+        await vi.advanceTimersByTimeAsync(RENDER_TIMEOUT_MS)
+        await stuck
+        const next = renderOfficialDiagram('pie\n  "B" : 1', 'nord')
+        const nextFailed = expect(next).rejects.toThrow(RENDER_TIMEOUT_MESSAGE)
+        await vi.advanceTimersByTimeAsync(STUCK_RENDER_WAIT_MS)
+        // It sets its theme and asks mermaid to draw, though mermaid still has the stuck one to finish.
+        expect(fake.state.log.at(-1)).toMatch(/^init /)
+        await vi.advanceTimersByTimeAsync(RENDER_TIMEOUT_MS)
+        await nextFailed
     })
 
     it('loads mermaid only for the first render', async () => {
