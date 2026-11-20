@@ -1482,6 +1482,7 @@ describe('usePaletteSearch Replace in Workspace', () => {
             truncatedFiles: 0,
             truncatedPaths: [],
             longLinesSkipped: 0,
+            stopped: null,
         }
         const search = vi.mocked(searchWorkspaceContent)
         const actual = search.getMockImplementation()!
