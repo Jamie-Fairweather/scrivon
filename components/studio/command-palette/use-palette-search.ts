@@ -246,8 +246,7 @@ export function usePaletteSearch(
             wantsDiagramParts && activeTab
                 ? diagramPartRows({ file: activeTab, tabId: activeTab.id, themeId, previewOpen, query: parsedQueryState.query })
                 : null,
-        // renderVersion: diagramPartRows reads the render cache.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- diagramPartRows reads the render cache, which renderVersion follows
         [wantsDiagramParts, activeTab, themeId, previewOpen, parsedQueryState.query, renderVersion]
     )
 
