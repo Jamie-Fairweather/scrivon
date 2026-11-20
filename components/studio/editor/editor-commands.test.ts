@@ -330,9 +330,24 @@ describe('useEditorCommands table helpers', () => {
 })
 
 describe('useEditorCommands Insert Diagram Starter', () => {
-    function setUp(fileKind: 'markdown' | 'mermaid' = 'mermaid') {
+    function setUp(fileKind: 'markdown' | 'mermaid' = 'mermaid', { textFocus = true } = {}) {
         let model: object | null = {}
-        const codeEditor = { getModel: vi.fn(() => model), focus: vi.fn(), hasTextFocus: () => true }
+        // One entry per subscription, gone once it is disposed.
+        const listeners = new Set<object>()
+        const listen = () => {
+            const subscription = {}
+            listeners.add(subscription)
+            return { dispose: () => listeners.delete(subscription) }
+        }
+        const codeEditor = {
+            getModel: vi.fn(() => model),
+            focus: vi.fn(),
+            hasTextFocus: () => textFocus,
+            onDidChangeModelContent: vi.fn(listen),
+            onDidChangeCursorSelection: vi.fn(listen),
+            onDidChangeModel: vi.fn(listen),
+            onDidChangeConfiguration: vi.fn(listen),
+        }
         const openStarterGallery = vi.fn<(request: StarterGalleryRequest) => void>()
         renderHook(() =>
             useEditorCommands(codeEditor as unknown as editor.ICodeEditor, {
@@ -347,8 +362,46 @@ describe('useEditorCommands Insert Diagram Starter', () => {
         )
         act(() => void registered.current.find((command) => command.id === 'edit.insert-diagram-starter')!.run())
         const request = openStarterGallery.mock.calls[0]![0]
-        return { codeEditor, request, changeFile: () => (model = {}) }
+        return { codeEditor, request, listeners, changeFile: () => (model = {}) }
     }
+
+    it("tells the window when the file's text, the caret, the file shown or read-only changes, until it stops", () => {
+        const { codeEditor, request, listeners } = setUp('mermaid')
+        const onChange = vi.fn()
+
+        const stop = request.insert!.watch!(onChange)
+
+        for (const event of ['onDidChangeModelContent', 'onDidChangeCursorSelection', 'onDidChangeModel', 'onDidChangeConfiguration'] as const) {
+            expect(codeEditor[event]).toHaveBeenCalledWith(onChange)
+        }
+        expect(listeners.size).toBe(4)
+        stop()
+        expect(listeners.size).toBe(0)
+    })
+
+    it('gives the editor focus before inserting, once the window has handed it back', () => {
+        vi.mocked(insertDiagramStarter).mockClear()
+        const frames: FrameRequestCallback[] = []
+        const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+            frames.push(callback)
+            return frames.length
+        })
+        const { codeEditor, request } = setUp('markdown', { textFocus: false })
+        let focusedFirst = false
+        vi.mocked(insertDiagramStarter).mockImplementationOnce(() => {
+            focusedFirst = codeEditor.focus.mock.calls.length > 0
+            return null
+        })
+
+        request.insert!.run(MERMAID_SNIPPETS[0])
+        expect(insertDiagramStarter).not.toHaveBeenCalled()
+        for (const frame of frames.splice(0)) frame(0)
+
+        expect(codeEditor.focus).toHaveBeenCalledTimes(1)
+        expect(insertDiagramStarter).toHaveBeenCalledExactlyOnceWith(codeEditor, 'markdown', MERMAID_SNIPPETS[0])
+        expect(focusedFirst).toBe(true)
+        raf.mockRestore()
+    })
 
     it('opens the window with Insert as its main button, checking and inserting in this editor', () => {
         vi.mocked(starterInsertProblem).mockReturnValueOnce('This diagram file already has text')

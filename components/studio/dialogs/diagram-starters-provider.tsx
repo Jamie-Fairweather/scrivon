@@ -25,6 +25,11 @@ export type StarterGalleryRequest = {
     insert?: {
         /** Why the starter can't go in now, or null when it can. Asked as the window opens and again when Insert is pressed. */
         problem: () => string | null
+        /**
+         * Calls `onChange` whenever the answer to `problem` may have changed (the file's text, the caret, the file shown),
+         * so the window can turn Insert back on or off while it is open. Returns a function that stops it.
+         */
+        watch?: (onChange: () => void) => () => void
         /** Puts the starter in, once the window has closed. */
         run: (snippet: MermaidSnippet) => void
     }
@@ -205,6 +210,7 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
     const cardsRef = useRef<(HTMLDivElement | null)[]>([])
     const { previews, forgetFailures } = useStarterPreviews(open, themeId)
     const reasonId = useId()
+    const newFileReasonId = useId()
 
     const openStarterGallery = useCallback(
         (next: StarterGalleryRequest) => {
@@ -222,6 +228,13 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
 
     // Worked out as the window shows, so opening it doesn't depend on the file tree (and the commands that open it
     // aren't made again each time the tree changes).
+    // The file can change while the window is open (autosave, a reload from the disk-change dialog): Insert follows it.
+    useEffect(() => {
+        const target = open ? request?.insert : undefined
+        if (!target?.watch) return
+        return target.watch(() => setInsertProblem(target.problem()))
+    }, [open, request])
+
     const folder =
         request?.folder !== undefined
             ? request.folder
@@ -336,16 +349,18 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
                         </div>
                     </DialogPanel>
                     <DialogFooter className="sm:items-center">
-                        <p id={reasonId} role="status" className="text-sm text-muted-foreground empty:hidden sm:me-auto">
-                            {primaryProblem}
-                        </p>
+                        {/* Why a button is off, shown and read out, as a disabled button can't take focus to tell it. */}
+                        <div role="status" className="text-sm text-muted-foreground empty:hidden sm:me-auto">
+                            {primaryProblem ? <p id={reasonId}>{primaryProblem}</p> : null}
+                            {insertOffered && newFileProblem ? <p id={newFileReasonId}>{`${newFileProblem} to use New File`}</p> : null}
+                        </div>
                         <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
                         {insertOffered ? (
                             <Button
                                 type="button"
                                 variant="outline"
                                 disabled={newFileProblem !== null}
-                                title={newFileProblem ?? undefined}
+                                aria-describedby={newFileProblem ? newFileReasonId : undefined}
                                 onClick={() => newFile(snippet)}
                             >
                                 New File

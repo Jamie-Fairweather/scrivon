@@ -290,6 +290,16 @@ export function useEditorCommands(
                         primary: 'insert',
                         insert: {
                             problem: () => (sameFile() ? starterInsertProblem(codeEditor, fileKind) : 'No file open'),
+                            watch: (onChange) => {
+                                const subscriptions = [
+                                    codeEditor.onDidChangeModelContent(onChange),
+                                    codeEditor.onDidChangeCursorSelection(onChange),
+                                    codeEditor.onDidChangeModel(onChange),
+                                    // Read-only comes and goes as an option.
+                                    codeEditor.onDidChangeConfiguration(onChange),
+                                ]
+                                return () => subscriptions.forEach((subscription) => subscription.dispose())
+                            },
                             // Snippets go in at the focused editor's caret, so it takes focus first.
                             run: (snippet) =>
                                 runInEditor(codeEditor, () => {

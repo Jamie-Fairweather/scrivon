@@ -156,7 +156,8 @@ describe('DiagramStartersProvider', () => {
         fireEvent.click(sequence)
         expect(sequence).toHaveAttribute('aria-selected', 'true')
         fireEvent.click(screen.getByRole('button', { name: 'New File' }))
-        await waitFor(() => expect(session.createFile).toHaveBeenCalled())
+        // The failed card's own starter, not the first one.
+        await waitFor(() => expect(session.createFile).toHaveBeenCalledWith('/ws/docs', 'sequence 2.mmd', snippetText(MERMAID_SNIPPETS[1].body)))
     })
 
     it('makes a new file from the starter, with its text and a free name from its type', async () => {
@@ -286,5 +287,55 @@ describe('DiagramStartersProvider opened to insert', () => {
         expect(screen.getByRole('status')).toHaveTextContent('This diagram file already has text')
         expect(screen.getByRole('button', { name: 'Insert' })).toBeDisabled()
         expect(run).not.toHaveBeenCalled()
+    })
+
+    it('turns Insert back on, and off again, as the file changes while the window is open', async () => {
+        const run = vi.fn()
+        let problem: string | null = 'This diagram file already has text'
+        let changed: (() => void) | null = null
+        const stopWatching = vi.fn()
+        const watch = vi.fn((onChange: () => void) => {
+            changed = onChange
+            return stopWatching
+        })
+        await openGallery({ primary: 'insert', insert: { problem: () => problem, watch, run } })
+        const insertButton = screen.getByRole('button', { name: 'Insert' })
+        expect(insertButton).toBeDisabled()
+
+        // The file is emptied (a reload from disk), so Insert can go in after all.
+        problem = null
+        act(() => changed!())
+        expect(insertButton).toBeEnabled()
+        expect(screen.getByRole('status')).toBeEmptyDOMElement()
+
+        problem = 'This diagram file already has text'
+        act(() => changed!())
+        expect(insertButton).toBeDisabled()
+        expect(screen.getByRole('status')).toHaveTextContent('This diagram file already has text')
+
+        problem = null
+        act(() => changed!())
+        fireEvent.click(insertButton)
+        await waitFor(() => expect(run).toHaveBeenCalledExactlyOnceWith(MERMAID_SNIPPETS[0]))
+        // Closing the window stops listening to the file.
+        expect(stopWatching).toHaveBeenCalled()
+    })
+
+    it("says why New File is off as well as Insert's reason, when no folder is open", async () => {
+        await openGallery({ primary: 'insert', folder: null, insert: { problem: () => 'This diagram file already has text', run: vi.fn() } })
+
+        const status = screen.getByRole('status')
+        expect(status).toHaveTextContent('This diagram file already has text')
+        expect(status).toHaveTextContent('Open a folder first to use New File')
+        expect(screen.getByRole('button', { name: 'New File' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'New File' })).toHaveAccessibleDescription('Open a folder first to use New File')
+        expect(screen.getByRole('button', { name: 'Insert' })).toHaveAccessibleDescription('This diagram file already has text')
+    })
+
+    it('shows no New File reason while a folder is open', async () => {
+        await openGallery({ primary: 'insert', insert: { problem: () => null, run: vi.fn() } })
+
+        expect(screen.getByRole('status')).toBeEmptyDOMElement()
+        expect(screen.getByRole('button', { name: 'New File' })).toBeEnabled()
     })
 })
