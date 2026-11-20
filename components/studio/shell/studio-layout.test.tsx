@@ -54,7 +54,10 @@ vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({
 }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
 vi.mock('@/components/studio/editor/document-export-provider', () => ({
-    DocumentExportProvider: ({ children }: { children: ReactNode }) => children,
+    DocumentExportProvider: ({ children }: { children: ReactNode }) => <div data-testid="document-export">{children}</div>,
+}))
+vi.mock('@/components/studio/batch-export/batch-export-provider', () => ({
+    BatchExportProvider: ({ children }: { children: ReactNode }) => <div data-testid="batch-export">{children}</div>,
 }))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: () => {} }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {} } }) }))
@@ -134,6 +137,19 @@ describe('StudioLayout explorer', () => {
         layout = { explorerOpen: false, editorOpen: true, previewOpen: true }
         render(<StudioLayout />)
         expect(screen.queryByRole('navigation', { name: 'Explorer' })).not.toBeInTheDocument()
+    })
+})
+
+describe('StudioLayout folder export', () => {
+    it('puts the folder export around the explorer and the tabs, so both can start it and the tab bar sees it running', () => {
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen: true }
+        render(<StudioLayout />)
+
+        const batch = screen.getByTestId('batch-export')
+        expect(batch).toContainElement(screen.getByRole('navigation', { name: 'Explorer' }))
+        expect(batch).toContainElement(screen.getByRole('navigation', { name: 'Outline' }))
+        expect(batch).toContainElement(screen.getByTestId('document-export'))
+        expect(batch).toContainElement(screen.getByRole('main'))
     })
 })
 

@@ -38,6 +38,8 @@ vi.mock('@/lib/mermaid/render', async (importOriginal) => {
 import {
     buildExportSvg,
     copyPng,
+    DiagramExportError,
+    diagramExportProblem,
     copySvg,
     diagramFileStem,
     exportBaseName,
@@ -45,6 +47,7 @@ import {
     exportSvg,
     fitPngScale,
     markdownDiagramPosition,
+    renderDiagramImage,
     type DiagramLook,
 } from '@/lib/mermaid/export'
 import { getDiagramColors } from '@/lib/theme/catalog'
@@ -480,5 +483,81 @@ describe('PNG size limits (B106)', () => {
 
         expect(notify.notifyWarning).not.toHaveBeenCalled()
         expect(notify.notifyError).not.toHaveBeenCalled()
+    })
+})
+
+describe('the shared render function', () => {
+    const FLOW = 'graph TD\n  A --> B'
+    const SEQUENCE = 'sequenceDiagram\n  Alice->>Bob: Hello'
+
+    it('draws SVG text without the label halo, in the chosen look', async () => {
+        const image = await renderDiagramImage(SEQUENCE, { themeId: 'scrivon-dark', transparent: false }, { format: 'svg' })
+
+        expect(image.format).toBe('svg')
+        expect(image.svg).toMatch(/^<svg /)
+        expect(image.svg).not.toContain('paint-order')
+        expect(image.svg).toContain(`background:${getDiagramColors('scrivon-dark').bg}`)
+    })
+
+    it('draws PNG bytes, keeping the halo, and says when it had to draw it smaller', async () => {
+        stubCanvas()
+        const drawn = vi.spyOn(URL, 'createObjectURL')
+        onTestFinished(() => drawn.mockRestore())
+
+        const image = await renderDiagramImage(SEQUENCE, LIGHT, { format: 'png', scale: 2 })
+
+        expect(image).toEqual({ format: 'png', bytes: new TextEncoder().encode('png') })
+        expect(await (drawn.mock.calls[0]![0] as Blob).text()).toContain('paint-order: stroke')
+
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10000 400" width="10000" height="400"></svg>'
+        await expect(renderDiagramImage(FLOW, LIGHT, { format: 'png', scale: 4 })).resolves.toMatchObject({ smallerSize: '32767 × 1311 px' })
+    })
+
+    it('says which problem stopped it, so a batch can skip what has nothing to draw', async () => {
+        const problem = async (source: string, request: Parameters<typeof renderDiagramImage>[2]) =>
+            diagramExportProblem(await renderDiagramImage(source, LIGHT, request).catch((err: unknown) => err))
+
+        await expect(problem('  ', { format: 'svg' })).resolves.toBe('empty')
+        await expect(problem('graph TD', { format: 'svg' })).resolves.toBe('empty')
+        await expect(problem('pie\n  "A": 1', { format: 'svg' })).resolves.toBe('unsupported')
+        await expect(renderDiagramImage('pie\n  "A": 1', LIGHT, { format: 'svg' })).rejects.toThrow(/^Pie charts aren't supported yet/)
+        // A parse error is not one of them.
+        await expect(problem('notADiagram\n  A --> B', { format: 'svg' })).resolves.toBeNull()
+
+        render.fakeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 70000 300" width="70000" height="300"></svg>'
+        stubCanvas()
+        const tooBig = await renderDiagramImage(FLOW, LIGHT, { format: 'png', scale: 1 }).catch((err: unknown) => err)
+        expect(tooBig).toBeInstanceOf(DiagramExportError)
+        expect(tooBig).toMatchObject({ problem: 'png-too-big', message: 'This diagram is too big to save as a PNG. Save it as SVG instead.' })
+    })
+
+    it('is what Export Diagram as SVG… saves and Copy Diagram as SVG copies', async () => {
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\seq.svg')
+        const look: DiagramLook = { themeId: 'scrivon-dark', transparent: true }
+        const { svg } = await renderDiagramImage(SEQUENCE, look, { format: 'svg' })
+
+        await exportSvg(SEQUENCE, look, { tabName: 'seq.mmd' })
+        await copySvg(SEQUENCE, look)
+
+        expect(dialog.writeTextFileAtPath).toHaveBeenCalledWith('D:\\out\\seq.svg', svg)
+        expect(clipboard.writeClipboardSvg).toHaveBeenCalledWith(svg)
+    })
+
+    it('is what Export Diagram as PNG saves and Copy Diagram as PNG copies', async () => {
+        stubCanvas()
+        const drawn = vi.spyOn(URL, 'createObjectURL')
+        onTestFinished(() => drawn.mockRestore())
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\seq.png')
+        const look: DiagramLook = { themeId: 'scrivon-dark', transparent: false }
+
+        const image = await renderDiagramImage(SEQUENCE, look, { format: 'png', scale: 2 })
+        await exportPng(SEQUENCE, look, { tabName: 'seq.mmd' }, 2)
+        await copyPng(SEQUENCE, look)
+
+        expect(dialog.writeBinaryFile).toHaveBeenCalledWith('D:\\out\\seq.png', image.bytes)
+        expect(clipboard.writeClipboardPng).toHaveBeenCalledWith(image.bytes)
+        // Each drew the same picture.
+        const pictures = await Promise.all(drawn.mock.calls.map(([blob]) => (blob as Blob).text()))
+        expect(new Set(pictures).size).toBe(1)
     })
 })

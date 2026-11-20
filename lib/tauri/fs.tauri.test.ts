@@ -58,6 +58,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 import {
     classifyWatchEvent,
     copyWorkspaceEntry,
+    createWorkspaceBinaryFile,
     createWorkspaceDirectory,
     createWorkspaceFile,
     DiskChangedError,
@@ -69,6 +70,7 @@ import {
     joinPath,
     listFolderNames,
     listWorkspaceTree,
+    newTempFileName,
     PartialCopyError,
     PathExistsError,
     readEntryKind,
@@ -92,9 +94,9 @@ describe('workspace fs (Tauri)', () => {
         invokeMock.mockResolvedValue(undefined)
     })
 
-    /** What the last save asked the app's save command to write, and where (see saveRequestBody). */
-    function lastSave() {
-        const call = invokeMock.mock.calls.findLast(([command]) => command === 'save_workspace_file')
+    /** What the last save asked the app's save (or create) command to write, and where (see saveRequestBody). */
+    function lastSave(name = 'save_workspace_file') {
+        const call = invokeMock.mock.calls.findLast(([command]) => command === name)
         if (!call) return undefined
         const body = call[1] as Uint8Array
         const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true)
@@ -286,6 +288,28 @@ describe('workspace fs (Tauri)', () => {
         await createWorkspaceFile('/ws/docs/readme.md', '# Hello')
         expect(mkdirMock).toHaveBeenCalledWith('/ws/docs')
         expect(writeTextFileMock).toHaveBeenCalledWith('/ws/docs/readme.md', '# Hello', { createNew: true })
+    })
+
+    it('creates a file of bytes, such as a PNG, through the app command that flushes it to the disk', async () => {
+        const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+        await createWorkspaceBinaryFile('C:\\out\\flow.png', png)
+
+        expect(lastSave('create_workspace_file')).toEqual({ path: 'C:\\out\\flow.png', bytes: png })
+        // Not through the file plugin, whose writes aren't flushed before a move puts them in place.
+        expect(writeFileMock).not.toHaveBeenCalled()
+    })
+
+    it('never replaces a file when creating one of bytes, also one that turns up a moment before', async () => {
+        const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+        invokeMock.mockRejectedValueOnce('The file exists. (os error 80)')
+        await expect(createWorkspaceBinaryFile('C:\\out\\flow.png', png)).rejects.toEqual(new PathExistsError('C:\\out\\flow.png'))
+
+        invokeMock.mockRejectedValueOnce('File exists (os error 17)')
+        await expect(createWorkspaceBinaryFile('/out/flow.png', png)).rejects.toBeInstanceOf(PathExistsError)
+
+        // Any other failure comes through as it is.
+        invokeMock.mockRejectedValueOnce('There is not enough space on the disk. (os error 112)')
+        await expect(createWorkspaceBinaryFile('C:\\out\\flow.png', png)).rejects.toBe('There is not enough space on the disk. (os error 112)')
     })
 
     it('refuses to create a file or folder over one that already exists', async () => {
@@ -550,6 +574,32 @@ describe('workspace fs (Tauri)', () => {
         readDirMock.mockClear()
         expect(isTreeTruncated(await listWorkspaceTree('/drive'))).toBe(false)
         expect(readDirMock).toHaveBeenCalledWith('/drive/a/deep')
+    })
+
+    it('lists only the folder itself when asked to leave its subfolders unread', async () => {
+        const dir = (name: string) => ({ name, isDirectory: true, isFile: false, isSymlink: false })
+        const file = (name: string) => ({ name, isDirectory: false, isFile: true, isSymlink: false })
+        readDirMock.mockImplementation(async (dirPath: string) => {
+            if (dirPath === '/ws') return [dir('sub'), dir('.git'), file('flow.mmd')]
+            throw new Error(`unexpected read of ${dirPath}`)
+        })
+
+        const tree = await listWorkspaceTree('/ws', { subfolders: false })
+
+        expect(tree).toEqual([
+            { kind: 'directory', name: 'sub', path: '/ws/sub', children: [] },
+            { kind: 'file', name: 'flow.mmd', path: '/ws/flow.mmd' },
+        ])
+        expect(readDirMock).toHaveBeenCalledTimes(1)
+        expect(isTreeTruncated(tree)).toBe(false)
+    })
+
+    it('leaves a temporary file being moved into place out of the tree', async () => {
+        const temp = newTempFileName()
+        expect(newTempFileName()).not.toBe(temp)
+        readDirMock.mockResolvedValue([{ name: temp, isDirectory: false, isFile: true, isSymlink: false }])
+
+        expect(await listWorkspaceTree('/ws')).toEqual([])
     })
 
     it('stops reading when the read is replaced, and rejects instead of returning part of the tree', async () => {

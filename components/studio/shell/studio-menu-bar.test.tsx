@@ -9,6 +9,7 @@ import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { exportAvailability, type ExportState } from '@/components/studio/editor/export-availability'
 import { buildExportCommands } from '@/components/studio/editor/export-commands'
+import { batchExportAvailability, buildBatchExportCommands, type BatchExportState } from '@/components/studio/batch-export/batch-export-commands'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { StudioCommands } from '@/components/studio/shell/studio-commands'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
@@ -506,6 +507,17 @@ function ExportCommands({ state }: { state: ExportState }) {
     return null
 }
 
+const exportOpenFolder = vi.fn()
+
+/** Stands in for the folder export provider, which registers Export All Diagrams in Folder…. */
+function FolderExportCommand({ state }: { state: BatchExportState }) {
+    const commands = useMemo(() => buildBatchExportCommands({ availability: batchExportAvailability(state), exportOpenFolder }), [state])
+    useRegisterCommands(commands)
+    return null
+}
+
+const FOLDER_OPEN: BatchExportState = { isDesktop: true, hasFolder: true, exporting: false }
+
 async function openExportMenu() {
     const user = userEvent.setup()
     const file = await openMenu('File')
@@ -539,6 +551,58 @@ describe('StudioMenuBar File → Export', () => {
             'Copy Diagram as SVG',
             'Copy Diagram as PNG',
         ])
+    })
+
+    it('ends with the export of every diagram in the open folder', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={MARKDOWN} />
+                <FolderExportCommand state={FOLDER_OPEN} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        expect(menuLabels(exportMenu).at(-1)).toBe('All Diagrams in Folder…')
+        fireEvent.click(within(exportMenu).getByRole('menuitem', { name: 'All Diagrams in Folder…' }))
+        expect(exportOpenFolder).toHaveBeenCalled()
+    })
+
+    it('is on with a folder open and no tab, for the export of every diagram in the folder', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={{ ...MARKDOWN, tabKind: null, hasMarkdown: false }} />
+                <FolderExportCommand state={FOLDER_OPEN} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        expect(within(exportMenu).getByRole('menuitem', { name: 'PDF…' })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(exportMenu).getByRole('menuitem', { name: 'All Diagrams in Folder…' })).not.toHaveAttribute('aria-disabled')
+    })
+
+    it('is left out on the welcome screen, where the folder export is only in the palette, greyed out', async () => {
+        mockContexts({ isDesktop: true, workspaceRoot: null, openingWorkspace: null, recentWorkspaces: [] })
+        render(
+            <Studio>
+                <FolderExportCommand state={{ ...FOLDER_OPEN, hasFolder: false }} />
+            </Studio>
+        )
+
+        const file = await openMenu('File')
+        expect(within(file).getByRole('menuitem', { name: /^Save Ctrl/ })).toBeInTheDocument()
+        expect(within(file).queryByRole('menuitem', { name: 'Export' })).not.toBeInTheDocument()
+    })
+
+    it('greys out the folder export while another export runs', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={{ ...MARKDOWN, exporting: true }} />
+                <FolderExportCommand state={{ ...FOLDER_OPEN, exporting: true }} />
+            </Studio>
+        )
+
+        const file = await openMenu('File')
+        expect(within(file).getByRole('menuitem', { name: 'Export' })).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('turns on only what the active tab can export', async () => {

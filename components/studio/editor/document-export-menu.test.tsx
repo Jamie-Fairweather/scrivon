@@ -9,6 +9,7 @@ import type { AppSettings } from '@/lib/settings/types'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { DocumentExportMenu } from './document-export-menu'
 import { DocumentExportProvider, useDocumentExport } from './document-export-provider'
+import { BatchExportProvider, useExportRunning } from '@/components/studio/batch-export/batch-export-provider'
 
 const tabs = vi.hoisted(() => ({ activeTab: null as DocumentTab | null }))
 /** The Mermaid block expanded in the Markdown preview, if any. */
@@ -67,6 +68,8 @@ vi.mock('@/components/studio/settings/settings-provider', async () => {
     }
 })
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({ useMermaidSvg: () => ({ error: diagram.currentError, ...diagram }) }))
+// The folder export is desktop only; these tests check it shares the one export at a time.
+vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true, isWindowsTauri: () => true }))
 vi.mock('@/lib/mermaid/export', () => ({ exportSvg: vi.fn(), exportPng: vi.fn(), copySvg: vi.fn(), copyPng: vi.fn() }))
 vi.mock('@/components/studio/editor/pdf-export-dialog', () => ({
     PdfExportDialog: (props: DialogProps) => {
@@ -420,6 +423,50 @@ describe('export commands', () => {
 
         await act(async () => finish())
         await waitFor(() => expect(command('export').disabled).toBe(false))
+    })
+
+    it('tells the folder export while a single export runs, so only one runs at a time', async () => {
+        let finish = () => {}
+        vi.mocked(exportSvg).mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)))
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->B')
+        const seen: boolean[] = []
+        function FolderExport() {
+            // What the folder export reads before it starts.
+            seen.push(useExportRunning().exporting)
+            return null
+        }
+        render(
+            <BatchExportProvider>
+                <FolderExport />
+                <WithCommands />
+            </BatchExportProvider>
+        )
+        await waitFor(() => expect(command('export-svg').disabled).toBe(false))
+
+        act(() => void command('export-svg').run())
+
+        await waitFor(() => expect(seen.at(-1)).toBe(true))
+        await act(async () => finish())
+        await waitFor(() => expect(seen.at(-1)).toBe(false))
+    })
+
+    it('greys out the single export while the folder export runs', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->B')
+        function FolderExportRunning() {
+            // Stands in for a running folder export: the same flag.
+            const { setExporting } = useExportRunning()
+            useEffect(() => setExporting(true), [setExporting])
+            return null
+        }
+        render(
+            <BatchExportProvider>
+                <FolderExportRunning />
+                <WithCommands />
+            </BatchExportProvider>
+        )
+
+        await waitFor(() => expect(command('export').disabledReason).toBe('Exporting…'))
+        expect(command('export-svg').disabled).toBe(true)
     })
 
     it('says so when the export code fails to load', async () => {

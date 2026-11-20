@@ -362,6 +362,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             allow_workspace,
             forget_workspace,
+            atomic_write::create_workspace_file,
             atomic_write::rename_workspace_path,
             atomic_write::save_workspace_file,
             close_watchdog::close_ack,
