@@ -100,7 +100,7 @@ function frontMatterLines(lines: string[]): [start: number, end: number] | null 
 }
 
 /** Front matter holds settings and a title; the renderer would read it as the header. */
-function blankFrontMatter(lines: string[]): void {
+export function blankFrontMatter(lines: string[]): void {
     const range = frontMatterLines(lines)
     if (range) lines.fill('', range[0], range[1] + 1)
 }
@@ -117,7 +117,7 @@ export function readFrontMatterTitle(source: string): string | null {
  * `%%` comments and `%%{init}%%` settings. The renderer skips them, but not when they come before the header. A
  * directive may run over several lines (`%%{` … `}%%`), as Mermaid reads it, so every line up to its close goes.
  */
-function blankComments(lines: string[]): void {
+export function blankComments(lines: string[]): void {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i]!.trimStart()
         if (!line.startsWith('%%')) continue
@@ -146,12 +146,13 @@ function edgeTextEnd(line: string, i: number): number {
 }
 
 /**
- * A flowchart line split at its semicolons (`A --> B; B --> C`), leaving those inside quotes, node
- * labels (`A[a;b]`, the flag `A>a;b]`), `|edge text|` and inline edge text (`-- a;b -->`) alone.
- * Empty statements (a trailing `;`) are dropped.
+ * Where each statement of a flowchart line starts and ends (`A --> B; B --> C`), split at its semicolons but
+ * leaving those inside quotes, node labels (`A[a;b]`, the flag `A>a;b]`), `|edge text|` and inline edge text
+ * (`-- a;b -->`) alone. Every statement is listed, empty ones (after a trailing `;`) too, so a caller that maps a
+ * diagram part back to its text (source-locations.ts) reads the line exactly as the renderer does.
  */
-function flowchartStatements(line: string): string[] {
-    const statements: string[] = []
+export function flowchartStatementRanges(line: string): Array<[start: number, end: number]> {
+    const statements: Array<[start: number, end: number]> = []
     let depth = 0
     let quoted = false
     let piped = false
@@ -170,7 +171,7 @@ function flowchartStatements(line: string): string[] {
         else if (char === '>' && /\w/.test(line[i - 1] ?? '')) depth++
         else if (char === '|') piped = true
         else if (char === ';') {
-            statements.push(line.slice(start, i))
+            statements.push([start, i])
             start = i + 1
         } else if (edgeTextCloses && (char === '-' || char === '=')) {
             EDGE_TEXT_START.lastIndex = i
@@ -180,8 +181,13 @@ function flowchartStatements(line: string): string[] {
             else i = end - 1
         }
     }
-    statements.push(line.slice(start))
-    const [first, ...rest] = statements
+    statements.push([start, line.length])
+    return statements
+}
+
+/** A flowchart line split into its statements (see flowchartStatementRanges). Empty statements (a trailing `;`) are dropped. */
+function flowchartStatements(line: string): string[] {
+    const [first, ...rest] = flowchartStatementRanges(line).map(([start, end]) => line.slice(start, end))
     return [first!, ...rest.filter((statement) => statement.trim() !== '')]
 }
 
