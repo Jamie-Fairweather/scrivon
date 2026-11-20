@@ -151,7 +151,7 @@ function withoutCarriageReturn(line: string): string {
 
 /**
  * Finds the matches in one line, in the original line's positions, up to `maxMatches`. Never an empty
- * match. With Match Whole Word, a match must start and end on word boundaries; when one doesn't, the
+ * match, and never two that overlap. With Match Whole Word, a match must start and end on word boundaries; when one doesn't, the
  * search goes on from the next character, so 'aa' still finds the second pair in 'aaa aa'.
  */
 export function matchLine(line: string, matcher: TextMatcher, maxMatches = Number.POSITIVE_INFINITY): LineSpan[] {
@@ -191,7 +191,13 @@ export function forEachLineMatch(
         return boundaries(span.start) && boundaries(span.start + span.length)
     }
     let count = 0
+    // Where the last match taken ends in the line. A character the search sees as more than one ('ß' folds to
+    // 'ss', U+095B normalises to two code points) maps each of them back to the whole character, so two matches
+    // can be one span of the line. Only the first is taken: no two matches overlap, and none is replaced twice.
+    let lastEnd = 0
     const take = (span: LineSpan, found: RegExpExecArray | null) => {
+        if (span.start < lastEnd) return
+        lastEnd = span.start + span.length
         count++
         visit(span, { text, mapped, found })
     }

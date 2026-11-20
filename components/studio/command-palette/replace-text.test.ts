@@ -84,6 +84,28 @@ describe('findReplacements, regular expressions', () => {
         expect(replaceAll('', '.*', 'x', regex)).toBe('')
     })
 
+    it('replaces a character that normalises to two code points once, never twice', () => {
+        // U+095B (a precomposed Devanagari letter) is U+091C U+093C once normalised: two matches of [ऀ-ॿ] there,
+        // which both map back to the one character in the file.
+        const text = 'aज़b'
+        const { replacements } = findReplacements(text, matcher('[ऀ-ॿ]', regex), 'X')
+        expect(replacements).toEqual([{ lineIndex: 0, start: 1, length: 1, oldText: 'ज़', newText: 'X' }])
+        expect(applyReplacements(text, replacements)).toBe('aXb')
+        // A base letter with two marks, stored decomposed, is one character for '.' (it was 'YYYY').
+        expect(replaceAll('é̂ x', '.', 'Y', regex)).toBe('YYY')
+        // Editor edits for it never overlap, which Monaco would refuse.
+        expect(applyTextEdits(text, replacementEdits(text, replacements))).toBe('aXb')
+    })
+
+    it('never gives two matches for one folded character in plain text either', () => {
+        // An 'e' with three acute accents, stored decomposed, is 'é' and two accents once composed: two matches of
+        // the accent, which both map back to the one character in the file.
+        const text = 'xé́́y'
+        const { replacements } = findReplacements(text, matcher('́'), '_')
+        expect(replacements).toEqual([{ lineIndex: 0, start: 1, length: 4, oldText: 'é́́', newText: '_' }])
+        expect(applyReplacements(text, replacements)).toBe('x_y')
+    })
+
     it('leaves lines longer than the regex limit alone, and counts them', () => {
         const long = 'a'.repeat(REGEX_MAX_LINE_LENGTH + 1)
         const result = findReplacements(`a\n${long}\na`, matcher('a', regex), 'b')

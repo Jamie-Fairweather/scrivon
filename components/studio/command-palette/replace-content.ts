@@ -1,4 +1,12 @@
-import { DiskChangedError, getBaseName, isFileMissingError, samePath, type TextFileRead, type WriteWorkspaceFileOptions } from '@/lib/tauri/fs'
+import {
+    comparablePath,
+    DiskChangedError,
+    getBaseName,
+    isFileMissingError,
+    samePath,
+    type TextFileRead,
+    type WriteWorkspaceFileOptions,
+} from '@/lib/tauri/fs'
 import type { TextDecodeIssue } from '@/lib/workspace/text-encoding'
 import type { TextEdit } from '@/lib/workspace/text-edits'
 import type { FileStamp } from '@/lib/workspace/types'
@@ -40,7 +48,10 @@ export type ReplaceSkipReason =
     | 'timed-out'
     | 'unavailable'
     | 'not-opened'
+    /** Writing it to disk failed. */
     | 'failed'
+    /** Something went wrong while changing it (a tab's editor turned the edit down, say). */
+    | 'error'
 
 export type ReplaceSkip = { path: string; reason: ReplaceSkipReason; detail?: string }
 
@@ -57,6 +68,7 @@ const SKIP_REASONS: Record<ReplaceSkipReason, string> = {
     unavailable: "regular expressions aren't available",
     'not-opened': "it couldn't be opened",
     failed: "it couldn't be saved",
+    error: "it couldn't be changed",
 }
 
 /** Why a file was skipped, as a phrase: 'it is open read-only'. */
@@ -180,7 +192,9 @@ export async function planWorkspaceReplace(opts: PlanWorkspaceReplaceOptions): P
     } = opts
     // Examples aren't searched, so they aren't counted either.
     const openTabs = tabs.filter((tab) => !isExample(tab.id))
-    const diskPaths = paths.filter((path) => !findOpenTab(tabs, path))
+    // Each path worked out once, not once per tab: a big folder is filtered before the first progress shows.
+    const openPaths = new Set(tabs.map((tab) => comparablePath(tab.path)))
+    const diskPaths = paths.filter((path) => !openPaths.has(comparablePath(path)))
     const total = openTabs.length + diskPaths.length
     let done = 0
     const step = () => onProgress?.(++done, total)
@@ -270,6 +284,11 @@ export type ReplaceOutcome = {
     longLinesSkipped: number
     /** Stopped part way by the user. What was replaced before stays replaced. */
     cancelled: boolean
+    /**
+     * How many of the files Replace All set out to change it got through (changed, or left alone at the time),
+     * for 'stopped after 3 files of 12'. Left out, it is every file replaced or skipped.
+     */
+    filesDone?: number
 }
 
 export type ApplyWorkspaceReplaceOptions = ComputeReplacementsOptions & {
@@ -312,7 +331,14 @@ export async function applyWorkspaceReplace(opts: ApplyWorkspaceReplaceOptions):
         maxFileBytes = MAX_FILE_BYTES,
         yieldToUi = createYielder(),
     } = opts
-    const outcome: ReplaceOutcome = { replaced: [], replacedMatches: 0, skipped: [], longLinesSkipped: plan.longLinesSkipped, cancelled: false }
+    // The files the count already left alone (read-only tabs, Windows-1252 files...) are listed with the rest.
+    const outcome: ReplaceOutcome = {
+        replaced: [],
+        replacedMatches: 0,
+        skipped: [...plan.skipped],
+        longLinesSkipped: plan.longLinesSkipped,
+        cancelled: false,
+    }
     const skip = (path: string, reason: ReplaceSkipReason, detail?: string) =>
         outcome.skipped.push(detail ? { path, reason, detail } : { path, reason })
     const replaced = (path: string, count: number, route: ReplacedFile['route']) => {
@@ -378,12 +404,19 @@ export async function applyWorkspaceReplace(opts: ApplyWorkspaceReplaceOptions):
         const planned = plan.files[index]!
         // Read again for each file: a file opened since the count is changed in its tab, never on disk.
         const tab = findOpenTab(getTabs(), planned.path)
-        if (tab) await replaceInTab(planned, tab)
-        else await replaceOnDisk(planned)
+        try {
+            if (tab) await replaceInTab(planned, tab)
+            else await replaceOnDisk(planned)
+        } catch (err) {
+            // One file going wrong doesn't stop the rest, and the notice still lists what was already changed.
+            skip(planned.path, 'error', err instanceof Error ? err.message : String(err))
+        }
         onProgress?.(index + 1, total)
         await yieldToUi()
     }
-    outcome.cancelled = signal.aborted && outcome.replaced.length + outcome.skipped.length < total
+    const filesDone = outcome.replaced.length + outcome.skipped.length - plan.skipped.length
+    outcome.cancelled = signal.aborted && filesDone < total
+    if (outcome.cancelled) outcome.filesDone = filesDone
     return outcome
 }
 
@@ -412,7 +445,7 @@ export function describeOutcome(outcome: ReplaceOutcome, total?: number): Replac
     const files = outcome.replaced.length
     let message: string
     if (outcome.cancelled) {
-        message = `Replace All stopped after ${plural(files + outcome.skipped.length, 'file')}${total !== undefined ? ` of ${total.toLocaleString('en-GB')}` : ''}. Replaced ${plural(outcome.replacedMatches, 'match', 'matches')}.`
+        message = `Replace All stopped after ${plural(outcome.filesDone ?? files + outcome.skipped.length, 'file')}${total !== undefined ? ` of ${total.toLocaleString('en-GB')}` : ''}. Replaced ${plural(outcome.replacedMatches, 'match', 'matches')}.`
     } else if (files === 0) {
         message = outcome.skipped.length > 0 ? 'Nothing was replaced.' : 'No matches to replace.'
     } else if (files === 1) {

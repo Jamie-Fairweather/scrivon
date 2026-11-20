@@ -6,6 +6,7 @@ import type { FileStamp } from '@/lib/workspace/types'
 import type { ReplaceFile } from '@/components/studio/command-palette/regex-match-client'
 import {
     applyWorkspaceReplace,
+    createYielder,
     describeOutcome,
     findOpenTab,
     planWorkspaceReplace,
@@ -107,6 +108,7 @@ async function plan(opts: {
     tabs?: ReplaceTab[]
     disk: FakeDisk
     maxFileBytes?: number
+    yieldToUi?: () => Promise<void>
 }) {
     const result = await planWorkspaceReplace({
         matcher: matcher(opts.query ?? 'cat', opts.options),
@@ -119,7 +121,7 @@ async function plan(opts: {
         getFileStamp: opts.disk.getStamp,
         signal: new AbortController().signal,
         maxFileBytes: opts.maxFileBytes,
-        yieldToUi: noYield,
+        yieldToUi: opts.yieldToUi ?? noYield,
     })
     if (result.type !== 'plan') throw new Error(`No plan: ${result.type}`)
     return result.plan
@@ -134,6 +136,7 @@ function apply(opts: {
     tabs?: ReturnType<typeof openTabs>
     signal?: AbortSignal
     onProgress?: (done: number, total: number) => void
+    yieldToUi?: () => Promise<void>
 }) {
     const tabs = opts.tabs ?? openTabs([])
     return applyWorkspaceReplace({
@@ -148,7 +151,7 @@ function apply(opts: {
         writeTextFile: opts.disk.write,
         signal: opts.signal ?? new AbortController().signal,
         onProgress: opts.onProgress,
-        yieldToUi: noYield,
+        yieldToUi: opts.yieldToUi ?? noYield,
     })
 }
 
@@ -387,6 +390,101 @@ describe('applyWorkspaceReplace', () => {
         expect(outcome.cancelled).toBe(true)
         expect(outcome.replaced.map((r) => r.path)).toEqual(['/w/a.md', '/w/b.md'])
         expect(disk.text('/w/c.md')).toBe('cat')
+    })
+
+    it('lists the files the count left alone in its outcome, so the notice after Replace All names them', async () => {
+        const disk = new FakeDisk({ '/w/a.md': 'cat', '/w/ansi.md': new Uint8Array([0x63, 0x61, 0x74, 0x20, 0xe9]) })
+        const tabs = openTabs([{ id: '/w/ro.md', path: '/w/ro.md', content: 'cat', readOnly: true }])
+        const counted = await plan({ paths: ['/w/a.md', '/w/ansi.md'], tabs: tabs.state.tabs, disk })
+        expect(counted.files.map((f) => f.path)).toEqual(['/w/a.md'])
+
+        const outcome = await apply({ plan: counted, disk, tabs })
+        expect(outcome.skipped).toEqual([
+            { path: '/w/ro.md', reason: 'read-only' },
+            { path: '/w/ansi.md', reason: 'encoding' },
+        ])
+        expect(outcome.cancelled).toBe(false)
+        expect(describeOutcome(outcome, counted.files.length)).toEqual({
+            message: 'Replaced 1 match in a.md.',
+            details: ["Skipped 2 files: ro.md (it is open read-only); ansi.md (it isn't saved as UTF-8 or UTF-16, so Scrivon only reads it)."],
+        })
+    })
+
+    it('counts only the files it set out to change when it is stopped, not those the count left alone', async () => {
+        const disk = new FakeDisk({ '/w/a.md': 'cat', '/w/b.md': 'cat', '/w/ansi.md': new Uint8Array([0x63, 0x61, 0x74, 0xe9]) })
+        const counted = await plan({ paths: ['/w/a.md', '/w/b.md', '/w/ansi.md'], disk })
+        const controller = new AbortController()
+        const outcome = await apply({
+            plan: counted,
+            disk,
+            signal: controller.signal,
+            onProgress: (done) => {
+                if (done === 1) controller.abort()
+            },
+        })
+        expect(outcome).toMatchObject({ cancelled: true, filesDone: 1 })
+        expect(describeOutcome(outcome, counted.files.length).message).toBe('Replace All stopped after 1 file of 2. Replaced 1 match.')
+    })
+
+    it('goes on to the next file when changing one throws, and names it', async () => {
+        const disk = new FakeDisk({ '/w/b.md': 'cat' })
+        const tabs = openTabs([{ id: '/w/a.md', path: '/w/a.md', content: 'cat' }])
+        const counted = await plan({ paths: ['/w/b.md'], tabs: tabs.state.tabs, disk })
+        tabs.applyTabEdits.mockImplementationOnce(() => {
+            throw new Error('Overlapping ranges are not allowed!')
+        })
+        const outcome = await apply({ plan: counted, disk, tabs })
+        expect(outcome.skipped).toEqual([{ path: '/w/a.md', reason: 'error', detail: 'Overlapping ranges are not allowed!' }])
+        expect(outcome.replaced).toEqual([{ path: '/w/b.md', count: 1, route: 'disk' }])
+        expect(disk.text('/w/b.md')).toBe('dog')
+    })
+
+    it('hands the window back between files, in the count and in the run', async () => {
+        const disk = new FakeDisk({ '/w/a.md': 'cat', '/w/b.md': 'cat', '/w/c.md': 'no match' })
+        const tabs = openTabs([{ id: '/w/t.md', path: '/w/t.md', content: 'cat' }])
+        const countYield = vi.fn(async () => {})
+        const counted = await plan({ paths: ['/w/a.md', '/w/b.md', '/w/c.md'], tabs: tabs.state.tabs, disk, yieldToUi: countYield })
+        // Once for each file looked at: the tab and the three on disk.
+        expect(countYield).toHaveBeenCalledTimes(4)
+
+        const runYield = vi.fn(async () => {})
+        await apply({ plan: counted, disk, tabs, yieldToUi: runYield })
+        expect(runYield).toHaveBeenCalledTimes(counted.files.length)
+        expect(counted.files).toHaveLength(3)
+    })
+})
+
+describe('createYielder', () => {
+    it('lets the window draw once the time budget has gone by, and not before', async () => {
+        vi.useFakeTimers()
+        /** Whether the yield is over without any timer running. */
+        const doneAtOnce = async (pending: Promise<void>) => {
+            let done = false
+            void pending.then(() => (done = true))
+            for (let i = 0; i < 5; i++) await Promise.resolve()
+            return done
+        }
+        try {
+            let clock = 0
+            const yieldToUi = createYielder(12, () => clock)
+
+            clock = 5
+            expect(await doneAtOnce(yieldToUi())).toBe(true) // Within the budget: carries straight on.
+
+            clock = 13
+            const pending = yieldToUi()
+            expect(await doneAtOnce(pending)).toBe(false) // Waits for a timer, so the window can draw and take keys.
+            await vi.runAllTimersAsync()
+            await pending
+
+            clock = 20
+            expect(await doneAtOnce(yieldToUi())).toBe(true) // The budget starts again after each yield.
+            clock = 26
+            expect(await doneAtOnce(yieldToUi())).toBe(false)
+            await vi.runAllTimersAsync()
+        } finally {
+            vi.useRealTimers()
+        }
     })
 })
 
