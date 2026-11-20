@@ -3,6 +3,8 @@
  * plain text (lib/monaco/markdown-editing.ts hooks it up to the editor).
  */
 
+import { insideCodeBlock } from '@/lib/markdown/code-blocks'
+
 /** Replace columns `from` to `to` of the caret's line (0-based) with `text`; the caret goes after it. */
 export type LineEdit = { from: number; to: number; text: string }
 
@@ -10,23 +12,6 @@ export type LineEdit = { from: number; to: number; text: string }
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])([ \t]+)(\[[ xX]\](?:[ \t]+|$))?(.*)$/
 // A line of three or more - * or _ (spaces allowed between) is a divider, not a list.
 const THEMATIC_BREAK = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
-// Any indent, as a code block in a nested list item is indented with it. A ``` line with another
-// backtick after it is inline code, not a fence.
-const CODE_FENCE = /^\s*(`{3,}(?!.*`)|~{3,})(.*)$/
-
-/** Whether the line sits inside a ``` or ~~~ code block that starts above it. */
-function insideCodeBlock(lineAt: (index: number) => string, lineIndex: number): boolean {
-    let open: string | null = null
-    for (let index = 0; index < lineIndex; index += 1) {
-        const fence = CODE_FENCE.exec(lineAt(index))
-        if (!fence) continue
-        const [, marks, rest] = fence
-        if (open === null) open = marks
-        // Closed by the same kind of fence, at least as long, with nothing after it.
-        else if (marks[0] === open[0] && marks.length >= open.length && rest.trim() === '') open = null
-    }
-    return open !== null
-}
 
 /** The marker for the next item: the same bullet, or the next number. */
 function nextMarker(marker: string): string {
