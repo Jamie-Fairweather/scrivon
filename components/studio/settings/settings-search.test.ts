@@ -61,6 +61,14 @@ describe('searchSettings', () => {
         }
     })
 
+    it('finds the double-click jump by the diagram words people use for it', () => {
+        for (const query of ['diagram', 'node', 'double-click']) {
+            expect(searchSettings(query, BROWSER)).toContainEqual(
+                expect.objectContaining({ section: 'editor', label: 'Double-click the preview to jump to the editor' })
+            )
+        }
+    })
+
     it('lists settings whose name starts with the search first', () => {
         const labels = searchSettings('margin', BROWSER).map((entry) => entry.label)
         expect(labels.slice(0, 4)).toEqual(['Margin top (mm)', 'Margin right (mm)', 'Margin bottom (mm)', 'Margin left (mm)'])

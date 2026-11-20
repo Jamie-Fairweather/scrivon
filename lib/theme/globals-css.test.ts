@@ -165,6 +165,11 @@ describe('app/globals.css', () => {
             expect(rules.get('[data-drop-target]')).toEqual(['outline: 2px dashed Highlight', 'outline-offset: -2px'])
         })
 
+        it('draws the outline of the diagram part a double-click would pick in Highlight', () => {
+            // The canvas's outline path carries this slot (mermaid-canvas-picking.test.tsx checks it).
+            expect(rules.get("[data-slot='diagram-pick-outline']")).toEqual(['stroke: Highlight'])
+        })
+
         it('dims no paragraphs, as Dim Other Paragraphs only fades text outside them', () => {
             const outside = css.replace(`@media (forced-colors: none) {${mediaBlock('(forced-colors: none)')}}`, '')
             expect(rules.has('.monaco-editor .editor-dimmed-text')).toBe(false)

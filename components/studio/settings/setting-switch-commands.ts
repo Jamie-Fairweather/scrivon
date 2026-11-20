@@ -48,7 +48,7 @@ const SWITCHES: SettingSwitch[] = [
     {
         id: 'toggle-jump-from-preview',
         label: 'Jump to Editor on Double-Click',
-        keywords: 'double click preview jump source line cursor markdown',
+        keywords: 'double click preview jump source line cursor markdown diagram mermaid canvas node link state participant message',
         isOn: (s) => s.editor.jumpFromPreview,
         set: (s, jumpFromPreview) => ({ ...s, editor: { ...s.editor, jumpFromPreview } }),
     },

@@ -300,6 +300,9 @@ export function usePanZoom(
 
     const hasViewStateForTab = useCallback((id: string) => statesByTab.has(id), [statesByTab])
 
+    /** The view as it is now, for working out what is under the pointer. */
+    const getView = useCallback((): PanZoomState => stateRef.current, [])
+
     const setGrabbingCursor = useCallback(
         (grabbing: boolean) => {
             const el = containerRef.current
@@ -414,6 +417,7 @@ export function usePanZoom(
         zoomLevel,
         fitToView,
         hasViewStateForTab,
+        getView,
         handlers: {
             onPointerDown,
             onPointerMove,

@@ -111,6 +111,22 @@ export type HeadingPaletteItem = {
     depth: number
 }
 
+/** A part of the open diagram (a node, link, state, participant or message): the '@' prefix in a `.mmd` file. */
+export type DiagramPartPaletteItem = {
+    kind: 'diagram-part'
+    value: string
+    searchText: string
+    path: string
+    /** What kind of part it is: 'Node', 'Link', 'Participant' and so on. */
+    type: string
+    /** Its name as drawn: 'Start', or 'A → B: yes' for a link. */
+    name: string
+    /** Where its text is, to select in the editor. */
+    line: number
+    column: number
+    length: number
+}
+
 /** A prefix the palette understands, listed by '?'. Picking it types the prefix into the box. */
 export type PrefixPaletteItem = {
     kind: 'prefix'
@@ -129,6 +145,7 @@ export type PaletteItem =
     | WorkspacePaletteItem
     | LinePaletteItem
     | HeadingPaletteItem
+    | DiagramPartPaletteItem
     | PrefixPaletteItem
 
 export type PaletteGroup = {

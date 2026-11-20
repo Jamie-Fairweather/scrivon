@@ -5,6 +5,7 @@ import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { notifyInfo } from '@/lib/notify'
 import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
+import type { LocateInFile } from '@/components/studio/canvas/use-diagram-picking'
 import { MarkdownExpandProvider } from './markdown-expand-context'
 import { MarkdownDocumentViewer } from './markdown-document-viewer'
 import { findAnchorId } from './markdown-links'
@@ -26,8 +27,14 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => ({ workspaceRoot: workspace.workspaceRoot, tree: workspace.tree }),
 }))
 
+/** How the expanded canvas turns a place in its diagram into one in the file, as the viewer last gave it. */
+const canvasProps = vi.hoisted(() => ({ locateInFile: null as LocateInFile | null }))
+
 vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({
-    MermaidCanvas: ({ source }: { source: string }) => <div data-testid="expanded-canvas">{source}</div>,
+    MermaidCanvas: ({ source, locateInFile }: { source: string; locateInFile?: LocateInFile }) => {
+        canvasProps.locateInFile = locateInFile ?? null
+        return <div data-testid="expanded-canvas">{source}</div>
+    },
 }))
 
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({
@@ -501,6 +508,43 @@ describe('MarkdownDocumentViewer', () => {
             back.focus()
             fireEvent.click(back)
             expect(expand).toHaveFocus()
+        })
+
+        describe('double-click a part to the Markdown file', () => {
+            /** `A --> B` on the diagram's second line, from column 3. */
+            const LINK = { line: 2, column: 3, length: 7 }
+
+            function expandFirst(source: string) {
+                workspace.tabs = [fileTab(DOC_A, source)]
+                const view = render(viewer(DOC_A, source))
+                fireEvent.click(screen.getByRole('button', { name: 'Expand diagram 1' }))
+                return view
+            }
+
+            it('selects the part on its line in the file, below the fence', () => {
+                expandFirst(twoDiagrams)
+                // The fence is line 5, so the diagram's second line is line 7.
+                expect(canvasProps.locateInFile!(LINK)).toEqual({ path: DOC_A, line: 7, column: 3, length: 7 })
+            })
+
+            it('still selects the right line after lines are added above the block', async () => {
+                const { rerender } = expandFirst(twoDiagrams)
+                const longer = twoDiagrams.replace('# Diagrams', '# Diagrams\n\nOne more paragraph.\n')
+                workspace.tabs = [fileTab(DOC_A, longer)]
+                rerender(viewer(DOC_A, longer))
+
+                await waitFor(() => expect(canvasProps.locateInFile!(LINK)).toEqual({ path: DOC_A, line: 10, column: 3, length: 7 }))
+            })
+
+            it.each([
+                ['a list item', '- Steps\n\n  ```mermaid\n  flowchart TD\n    A --> B\n  ```', { line: 5, column: 5 }],
+                ['a > quote', '> ```mermaid\n> flowchart TD\n>   A --> B\n> ```', { line: 3, column: 5 }],
+                ['raw HTML', '# T\n\n<pre><code class="language-mermaid">flowchart TD\n  A --> B</code></pre>\n', { line: 4, column: 3 }],
+            ])('finds the column of a diagram inside %s', (_name, source, place) => {
+                expandFirst(source)
+                expect(screen.getByTestId('expanded-canvas').textContent).toBe('flowchart TD\n  A --> B')
+                expect(canvasProps.locateInFile!(LINK)).toEqual({ path: DOC_A, ...place, length: 7 })
+            })
         })
     })
 

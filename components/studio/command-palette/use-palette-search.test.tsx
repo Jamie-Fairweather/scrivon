@@ -11,6 +11,8 @@ import { getRecentFiles } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
 import { EMPTY_MATCH_REPLACE_HINT } from '@/components/studio/command-palette/replace-text'
 import { DEBOUNCE_MS, searchWorkspaceContent } from '@/components/studio/command-palette/search-content'
+import { renderMermaidDiagram } from '@/lib/mermaid/render'
+import { clearSvgCache, storeRenderError, storeSvg } from '@/lib/mermaid/svg-cache'
 import type { WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
 import type { PaletteGroup, PaletteMode } from '@/components/studio/command-palette/types'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
@@ -47,7 +49,12 @@ const state = vi.hoisted(() => ({
     },
     save: { autosaveEnabled: true, setAutosaveEnabled: () => {}, flushSave: async () => true, flushAllSaves: async () => true },
     layout: {
-        layout: { explorerOpen: true, editorOpen: true, outlineOpen: false },
+        layout: { explorerOpen: true, editorOpen: true, outlineOpen: false } as {
+            explorerOpen: boolean
+            editorOpen: boolean
+            outlineOpen: boolean
+            previewOpen?: boolean
+        },
         setExplorerOpen: () => {},
         setEditorOpen: (() => {}) as (open: boolean) => void,
         setOutlineOpen: () => {},
@@ -1029,8 +1036,9 @@ describe('usePaletteSearch prefixes', () => {
     })
 
     it.each([
-        ['no file is open', null, 'Open a Markdown file to jump to its headings.'],
-        ['the file is a diagram', tab('flow.mmd', 'graph TD\n  A --> B'), 'Only Markdown files have headings.'],
+        ['no file is open', null, 'Open a Markdown file to jump to its headings, or a diagram to jump to its parts.'],
+        // The preview isn't shown here, so the diagram's parts can't be listed.
+        ['the file is a diagram', tab('flow.mmd', 'graph TD\n  A --> B'), "Show the preview to list the diagram's parts."],
         ['the file has no headings', tab('plain.md', 'Just text.'), 'No headings yet. Start a line with # to add one.'],
     ])('says why @ lists nothing when %s', async (_, activeTab, hint) => {
         open(activeTab)
@@ -1065,6 +1073,182 @@ describe('usePaletteSearch prefixes', () => {
         act(() => result.current.setQuery('@media'))
         expect(result.current.isSearchingText).toBe(true)
         expect(result.current.emptyHint).toBeNull()
+    })
+})
+
+describe('usePaletteSearch diagram parts after @', () => {
+    type Tab = NonNullable<typeof state.tabs.activeTab>
+    const FLOW = 'graph TD\n  A --> B\n  A[Start]'
+    let setEditorOpen: ReturnType<typeof vi.fn<(open: boolean) => void>>
+
+    function openDiagram(content: string, name = 'flow.mmd'): Tab {
+        const tab: Tab = { id: `/ws/${name}`, path: `/ws/${name}`, name, content, isDirty: false }
+        state.tabs.tabs = [tab]
+        state.tabs.activeTabId = tab.id
+        state.tabs.activeTab = tab
+        return tab
+    }
+
+    /** What the canvas has drawn for the tab: the picture of `text`, kept under the tab's text `as`. */
+    function drawn(tab: Tab, text = tab.content, as = tab.content) {
+        storeSvg('scrivon-light', tab.id, as.trim(), renderMermaidDiagram(text, 'scrivon-light'))
+    }
+
+    function rows(result: { current: ReturnType<typeof usePaletteSearch> }) {
+        return result.current.groups
+            .flatMap((group) => group.items)
+            .map((item) => (item.kind === 'diagram-part' ? `${item.type}: ${item.name} · line ${item.line}` : item.kind))
+    }
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        clearSvgCache()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/flow.mmd')]
+        state.session.recentWorkspaces = []
+        state.theme.themeId = 'scrivon-light'
+        setEditorOpen = vi.fn<(open: boolean) => void>()
+        state.layout.setEditorOpen = setEditorOpen
+        state.layout.layout = { explorerOpen: true, editorOpen: true, outlineOpen: false, previewOpen: true }
+        vi.mocked(isTauri).mockReturnValue(false)
+    })
+
+    afterEach(() => {
+        state.layout.setEditorOpen = () => {}
+        state.layout.layout = { explorerOpen: true, editorOpen: true, outlineOpen: false }
+        state.tabs.tabs = []
+        state.tabs.activeTabId = null
+        state.tabs.activeTab = null
+        clearSvgCache()
+    })
+
+    it("lists the open diagram's parts in the order they are written", () => {
+        drawn(openDiagram(FLOW))
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+
+        expect(result.current.groups.map((group) => group.id)).toEqual(['diagram-parts'])
+        // A is drawn with the label it first had, as beautiful-mermaid does, but its row goes to where it gets one.
+        expect(rows(result)).toEqual(['Link: A → B · line 2', 'Node: B · line 2', 'Node: A · line 3'])
+        expect(result.current.emptyHint).toBeNull()
+    })
+
+    it("lists the parts once the canvas's render lands, without the query changing", () => {
+        const tab = openDiagram(FLOW)
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+        expect(result.current.emptyHint).toBe("Show the preview to list the diagram's parts.")
+
+        act(() => drawn(tab))
+        expect(rows(result)).toEqual(['Link: A → B · line 2', 'Node: B · line 2', 'Node: A · line 3'])
+        expect(result.current.emptyHint).toBeNull()
+    })
+
+    it('names states, transitions, participants and messages', () => {
+        drawn(openDiagram('stateDiagram-v2\n  state "Waiting" as W\n  W --> Done : finish'))
+        const { result, rerender } = renderHook(() => usePaletteSearch('all', true))
+        act(() => result.current.setQuery('@'))
+        expect(rows(result)).toEqual(['State: Waiting · line 2', 'Transition: Waiting → Done: finish · line 3', 'State: Done · line 3'])
+
+        drawn(openDiagram('sequenceDiagram\n  participant A as Alice\n  A->>B: Hello', 'talk.mmd'))
+        rerender()
+        expect(rows(result)).toEqual(['Participant: Alice · line 2', 'Message: Alice → B: Hello · line 3', 'Participant: B · line 3'])
+    })
+
+    it('narrows the list as a name is typed', () => {
+        drawn(openDiagram('graph TD\n  A[Start] --> B[Finish]'))
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@finish'))
+        expect(rows(result)[0]).toBe('Node: Finish · line 2')
+
+        act(() => result.current.setQuery('@zzz'))
+        expect(result.current.groups).toEqual([])
+        expect(result.current.emptyHint).toBe('No matching parts.')
+    })
+
+    it('shows a hidden editor and selects the part picked, whatever the double-click setting', async () => {
+        state.layout.layout = { explorerOpen: true, editorOpen: false, outlineOpen: false, previewOpen: true }
+        const settings = createDefaultSettings(false)
+        state.settings.settings = { ...settings, editor: { ...settings.editor, jumpFromPreview: false } }
+        drawn(openDiagram(FLOW))
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+        const nodeA = result.current.groups[0]!.items.find((item) => item.kind === 'diagram-part' && item.name === 'A')!
+        await act(() => result.current.runItem(nodeA))
+
+        expect(setEditorOpen).toHaveBeenCalledWith(true)
+        expect(state.coordinator.revealInEditor.current).toHaveBeenCalledWith('/ws/flow.mmd', 3, 3, 1)
+    })
+
+    it('lists what the older picture shows while the text has an error, leaving out parts the text no longer has', () => {
+        const older = 'graph TD\n  A --> Z'
+        const tab = openDiagram('graph TD\n  A --> Z\n  A -->')
+        drawn(tab, older, older)
+        storeRenderError('scrivon-light', tab.id, tab.content.trim(), 'Parse error')
+        const { result, rerender } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+        expect(rows(result)).toEqual(['Node: A · line 2', 'Link: A → Z · line 2', 'Node: Z · line 2'])
+
+        // Z taken out of the text: the older picture still has it, but it gets no row.
+        const edited = openDiagram('graph TD\n  A -->')
+        storeRenderError('scrivon-light', edited.id, edited.content.trim(), 'Parse error')
+        rerender()
+        expect(rows(result)).toEqual(['Node: A · line 2'])
+    })
+
+    it.each([
+        [
+            'the preview is hidden',
+            () => {
+                drawn(openDiagram(FLOW))
+                state.layout.layout = { explorerOpen: true, editorOpen: true, outlineOpen: false, previewOpen: false }
+            },
+            "Show the preview to list the diagram's parts.",
+        ],
+        [
+            'nothing is drawn yet for this text',
+            () => drawn(openDiagram(FLOW), 'graph TD\n  A --> B', 'graph TD\n  A --> B'),
+            "Show the preview to list the diagram's parts.",
+        ],
+        [
+            'nothing is drawn yet in this theme',
+            () => storeSvg('tokyo-night', openDiagram(FLOW).id, FLOW, renderMermaidDiagram(FLOW, 'tokyo-night')),
+            "Show the preview to list the diagram's parts.",
+        ],
+        [
+            'the text has an error and there is no older picture',
+            () => {
+                const tab = openDiagram('graph TD\n  A -->')
+                storeRenderError('scrivon-light', tab.id, tab.content.trim(), 'Parse error')
+            },
+            "Fix the diagram's error to list its parts.",
+        ],
+        [
+            'it is a class diagram',
+            () => drawn(openDiagram('classDiagram\n  class Animal')),
+            'Only flowchart, state and sequence diagrams list their parts so far.',
+        ],
+        [
+            'it is an entity relationship diagram',
+            () => drawn(openDiagram('erDiagram\n  CAR ||--o{ DRIVER : has')),
+            'Only flowchart, state and sequence diagrams list their parts so far.',
+        ],
+        ['the diagram has no parts', () => drawn(openDiagram('graph TD')), 'No parts to list yet.'],
+        ['the file is empty', () => void openDiagram(''), 'No parts to list yet.'],
+    ])('says why @ lists nothing when %s', (_name, arrange, hint) => {
+        arrange()
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+
+        expect(result.current.groups).toEqual([])
+        expect(result.current.emptyHint).toBe(hint)
     })
 })
 

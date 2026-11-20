@@ -513,6 +513,27 @@ describe('CommandPaletteDialog prefixes', () => {
         expect(screen.getByRole('option', { name: 'Windows , level 3 Line 5' })).toBeInTheDocument()
     })
 
+    it("names a diagram's parts and their lines", () => {
+        const part = (type: string, name: string, line: number): PaletteItem => ({
+            kind: 'diagram-part',
+            value: `part:${type}:${name}`,
+            searchText: `${type}: ${name}`,
+            path: '/ws/flow.mmd',
+            type,
+            name,
+            line,
+            column: 3,
+            length: 1,
+        })
+        renderDialog({
+            query: '@',
+            groups: [{ id: 'diagram-parts', label: 'Diagram Parts', items: [part('Node', 'Start', 3), part('Link', 'A → B', 5)] }],
+        })
+
+        expect(screen.getByRole('option', { name: 'Node: Start Line 3' })).toBeInTheDocument()
+        expect(screen.getByRole('option', { name: 'Link: A → B Line 5' })).toBeInTheDocument()
+    })
+
     it('shows the hint for a prefix that lists nothing', () => {
         renderDialog({ query: ':', emptyHint: 'Type a line number from 1 to 40. Add :5 to go to a column.' })
         expect(screen.getByText(/^Type a line number from 1 to 40\./)).toBeInTheDocument()

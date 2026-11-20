@@ -28,11 +28,13 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ activeTabId: 'flow.mmd', tabs: [{ id: 'flow.mmd', name: 'flow.mmd' }], openFile: async () => {} }),
     useCanvasFit: () => ({ canvasFitRequestId: 0, requestCanvasFit: () => {} }),
+    useStudioLayout: () => ({ layout: { editorOpen: true } }),
+    useWorkspaceCoordinator: () => ({ revealInEditor: { current: () => {} } }),
     useWorkspaceSession: () => ({ workspaceRoot: 'C:\\notes', tree: [] }),
 }))
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
-    useAppSettings: () => ({ settings: { keybinds: createDefaultKeybinds(false) } }),
+    useAppSettings: () => ({ settings: { keybinds: createDefaultKeybinds(false), editor: { jumpFromPreview: true } } }),
 }))
 
 vi.mock('@/components/theme/app-theme-provider', () => ({
