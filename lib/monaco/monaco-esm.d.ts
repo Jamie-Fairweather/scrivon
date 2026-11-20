@@ -173,3 +173,6 @@ declare module 'monaco-editor/platform/clipboard/common/clipboardService.js' {
 
 // Ctrl+. and its quick fix list, used by components/studio/editor/code-editor-panel-quick-fix.test.tsx with the real editor.
 declare module 'monaco-editor/editor/contrib/codeAction/browser/codeActionContributions.js'
+
+// Monaco's snippet controller, used by lib/monaco/diagram-starter-insert.test.tsx with the real editor.
+declare module 'monaco-editor/editor/contrib/snippet/browser/snippetController2.js'

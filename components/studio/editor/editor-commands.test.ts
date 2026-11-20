@@ -4,11 +4,20 @@ import type { editor } from 'monaco-editor'
 import { describe, expect, it, vi } from 'vitest'
 import { commandShortcut, type AppCommand } from '@/components/studio/commands/app-command'
 import { buildEditorCommands, useEditorCommands, type EditorCommandsContext } from '@/components/studio/editor/editor-commands'
+import type { StarterGalleryRequest } from '@/components/studio/dialogs/diagram-starters-provider'
 import type { TableSize } from '@/lib/markdown/markdown-table'
+import { insertDiagramStarter, starterInsertProblem } from '@/lib/monaco/diagram-starter-insert'
+import { MERMAID_SNIPPETS } from '@/lib/monaco/mermaid-snippets'
+import { notifyInfo } from '@/lib/notify'
 import { canInsertMarkdownTable, editMarkdownTable, insertMarkdownTable } from '@/lib/monaco/markdown-editing'
 import { describeEditorChordClash, findKeybindConflicts, wouldChordConflict } from '@/lib/settings/conflicts'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 
+vi.mock('@/lib/monaco/diagram-starter-insert', () => ({
+    starterInsertProblem: vi.fn(() => null),
+    insertDiagramStarter: vi.fn(() => null),
+}))
+vi.mock('@/lib/notify', () => ({ notifyInfo: vi.fn() }))
 vi.mock('@/lib/monaco/markdown-editing', () => ({
     formatMarkdown: vi.fn(),
     editMarkdownTable: vi.fn(),
@@ -34,6 +43,7 @@ function context(overrides: Partial<EditorCommandsContext> = {}): EditorCommands
         inTable: false,
         runTable: vi.fn(),
         insertTable: vi.fn(),
+        openStarters: vi.fn(),
         ...overrides,
     }
 }
@@ -92,6 +102,7 @@ describe('buildEditorCommands', () => {
             ['Table: Align Column Right', undefined],
             ['Table: Align Column None', undefined],
             ['Format Table', 'Alt+Shift+F'],
+            ['Insert Diagram Starter…', undefined],
         ])
         // Prefixed, so another feature's 'copy' or 'go-to-line' can't push these out of the shared list.
         expect(buildEditorCommands(ctx).every((c) => c.id.startsWith('edit.'))).toBe(true)
@@ -146,6 +157,7 @@ describe('buildEditorCommands', () => {
             'edit.link',
             'edit.table.insert',
             ...TABLE_IDS,
+            'edit.insert-diagram-starter',
         ])
         expect(find(context({ readOnly: true }), 'edit.paste')?.disabledReason).toBe('This file is read-only')
         expect(find(context({ readOnly: true }), 'edit.link')?.disabledReason).toBe('This file is read-only')
@@ -161,6 +173,28 @@ describe('buildEditorCommands', () => {
                 'Only in Markdown files',
             ])
         )
+    })
+})
+
+describe('buildEditorCommands Insert Diagram Starter', () => {
+    it('opens the Diagram Starters window, in Markdown and diagram files alike', () => {
+        for (const markdown of [true, false]) {
+            const ctx = context({ markdown })
+            const command = find(ctx, 'edit.insert-diagram-starter')!
+            expect(command).toMatchObject({ label: 'Insert Diagram Starter…', disabled: false })
+            expect(command.keybind).toBeUndefined()
+            void command.run()
+            expect(ctx.openStarters).toHaveBeenCalledTimes(1)
+        }
+    })
+
+    it.each([
+        [{ editor: 'none' } as const, 'No file open'],
+        [{ editor: 'hidden' } as const, 'The editor is hidden'],
+        [{ readOnly: true }, 'This file is read-only'],
+    ])('is off with %o, saying why as the other Edit commands do', (overrides, reason) => {
+        expect(find(context(overrides), 'edit.insert-diagram-starter')).toMatchObject({ disabled: true, disabledReason: reason })
+        expect(find(context(overrides), 'edit.cut')).toMatchObject({ disabledReason: reason })
     })
 })
 
@@ -238,7 +272,15 @@ describe('useEditorCommands table helpers', () => {
         const model = {}
         const codeEditor = { getModel: vi.fn(() => model), focus: vi.fn(), hasTextFocus: () => true }
         renderHook(() =>
-            useEditorCommands(codeEditor as unknown as editor.ICodeEditor, { shown: true, readOnly: false, markdown: true, inTable, askTableSize })
+            useEditorCommands(codeEditor as unknown as editor.ICodeEditor, {
+                shown: true,
+                readOnly: false,
+                markdown: true,
+                inTable,
+                askTableSize,
+                fileKind: 'markdown',
+                openStarterGallery: vi.fn(),
+            })
         )
         const run = (id: string) => act(() => void registered.current.find((command) => command.id === id)!.run())
         return { codeEditor, run }
@@ -284,5 +326,59 @@ describe('useEditorCommands table helpers', () => {
             [codeEditor, 'move-row-down'],
             [codeEditor, 'format'],
         ])
+    })
+})
+
+describe('useEditorCommands Insert Diagram Starter', () => {
+    function setUp(fileKind: 'markdown' | 'mermaid' = 'mermaid') {
+        let model: object | null = {}
+        const codeEditor = { getModel: vi.fn(() => model), focus: vi.fn(), hasTextFocus: () => true }
+        const openStarterGallery = vi.fn<(request: StarterGalleryRequest) => void>()
+        renderHook(() =>
+            useEditorCommands(codeEditor as unknown as editor.ICodeEditor, {
+                shown: true,
+                readOnly: false,
+                markdown: fileKind === 'markdown',
+                inTable: false,
+                askTableSize: async () => null,
+                fileKind,
+                openStarterGallery,
+            })
+        )
+        act(() => void registered.current.find((command) => command.id === 'edit.insert-diagram-starter')!.run())
+        const request = openStarterGallery.mock.calls[0]![0]
+        return { codeEditor, request, changeFile: () => (model = {}) }
+    }
+
+    it('opens the window with Insert as its main button, checking and inserting in this editor', () => {
+        vi.mocked(starterInsertProblem).mockReturnValueOnce('This diagram file already has text')
+        const { codeEditor, request } = setUp('mermaid')
+
+        expect(request.primary).toBe('insert')
+        expect(request.insert!.problem()).toBe('This diagram file already has text')
+        expect(starterInsertProblem).toHaveBeenLastCalledWith(codeEditor, 'mermaid')
+
+        request.insert!.run(MERMAID_SNIPPETS[2])
+        expect(insertDiagramStarter).toHaveBeenCalledExactlyOnceWith(codeEditor, 'mermaid', MERMAID_SNIPPETS[2])
+    })
+
+    it('says why when the insert fails on its final check', () => {
+        vi.mocked(insertDiagramStarter).mockReturnValueOnce('The cursor is inside a code block')
+        const { request } = setUp('markdown')
+
+        request.insert!.run(MERMAID_SNIPPETS[0])
+
+        expect(notifyInfo).toHaveBeenCalledWith('The cursor is inside a code block', expect.anything())
+    })
+
+    it('puts nothing in another file when the tab changed while the window was open', () => {
+        vi.mocked(insertDiagramStarter).mockClear()
+        const { request, changeFile } = setUp()
+
+        changeFile()
+
+        expect(request.insert!.problem()).toBe('No file open')
+        request.insert!.run(MERMAID_SNIPPETS[0])
+        expect(insertDiagramStarter).not.toHaveBeenCalled()
     })
 })

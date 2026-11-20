@@ -4,7 +4,10 @@ import { useMemo } from 'react'
 import type { editor } from 'monaco-editor'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
+import type { StarterGalleryRequest } from '@/components/studio/dialogs/diagram-starters-provider'
+import { insertDiagramStarter, starterInsertProblem, type StarterFileKind } from '@/lib/monaco/diagram-starter-insert'
 import { runEditorAction, runInEditor } from '@/lib/monaco/editor-actions'
+import { notifyInfo } from '@/lib/notify'
 import type { TableAction, TableSize } from '@/lib/markdown/markdown-table'
 import { canInsertMarkdownTable, editMarkdownTable, formatMarkdown, insertMarkdownTable, type MarkdownFormat } from '@/lib/monaco/markdown-editing'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
@@ -27,6 +30,8 @@ export type EditorCommandsContext = {
     runTable: (action: TableAction) => void
     /** Asks for the size of a new table and inserts it at the caret. */
     insertTable: () => void
+    /** Opens the Diagram Starters window, to insert a starter at the caret or start a new file from one. */
+    openStarters: () => void
 }
 
 type EditorCommandSpec = {
@@ -204,8 +209,21 @@ export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
         keepsKeysWhenOff: ctx.markdown,
         run: () => ctx.runFormat(spec.format),
     }))
-    return [...editorCommands, ...formatCommands, ...buildTableCommands(ctx, unavailable)]
+    // On in any file that can be edited: the window says when Insert can't go in this file, and New File still works.
+    const starterReason = unavailable ?? (ctx.readOnly ? 'This file is read-only' : null)
+    const insertStarter: AppCommand = {
+        id: INSERT_DIAGRAM_STARTER_ID,
+        label: 'Insert Diagram Starter…',
+        keywords: 'insert diagram starter gallery mermaid snippet flowchart sequence class state entity relationship er xy chart',
+        disabled: starterReason !== null,
+        disabledReason: starterReason ?? undefined,
+        run: () => ctx.openStarters(),
+    }
+    return [...editorCommands, ...formatCommands, ...buildTableCommands(ctx, unavailable), insertStarter]
 }
+
+/** The id of Insert Diagram Starter…, which the Edit menu shows after the Markdown helpers. */
+export const INSERT_DIAGRAM_STARTER_ID = 'edit.insert-diagram-starter'
 
 export type EditorCommandsState = {
     /** The editor pane is showing. */
@@ -217,6 +235,10 @@ export type EditorCommandsState = {
     inTable: boolean
     /** Asks for the size of a new table: null when the user cancels. */
     askTableSize: () => Promise<TableSize | null>
+    /** What kind of file is open, which says where a diagram starter goes in it. */
+    fileKind: StarterFileKind
+    /** Opens the Diagram Starters window (useDiagramStarters). */
+    openStarterGallery: (request: StarterGalleryRequest) => void
 }
 
 /**
@@ -226,7 +248,7 @@ export type EditorCommandsState = {
  */
 export function useEditorCommands(
     codeEditor: editor.ICodeEditor | null,
-    { shown, readOnly, markdown, inTable, askTableSize }: EditorCommandsState
+    { shown, readOnly, markdown, inTable, askTableSize, fileKind, openStarterGallery }: EditorCommandsState
 ): void {
     const commands = useMemo(
         () =>
@@ -259,8 +281,27 @@ export function useEditorCommands(
                         })
                     })
                 },
+                openStarters: () => {
+                    if (!codeEditor) return
+                    // The starter goes in the file open now; if the tab changes or closes meanwhile, it isn't put in another.
+                    const model = codeEditor.getModel()
+                    const sameFile = () => model !== null && codeEditor.getModel() === model
+                    openStarterGallery({
+                        primary: 'insert',
+                        insert: {
+                            problem: () => (sameFile() ? starterInsertProblem(codeEditor, fileKind) : 'No file open'),
+                            // Snippets go in at the focused editor's caret, so it takes focus first.
+                            run: (snippet) =>
+                                runInEditor(codeEditor, () => {
+                                    if (!sameFile()) return
+                                    const problem = insertDiagramStarter(codeEditor, fileKind, snippet)
+                                    if (problem) notifyInfo(problem, { id: 'diagram-starter' })
+                                }),
+                        },
+                    })
+                },
             }),
-        [codeEditor, shown, readOnly, markdown, inTable, askTableSize]
+        [codeEditor, shown, readOnly, markdown, inTable, askTableSize, fileKind, openStarterGallery]
     )
     useRegisterCommands(commands)
 }

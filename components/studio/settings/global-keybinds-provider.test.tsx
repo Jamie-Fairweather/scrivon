@@ -129,6 +129,7 @@ describe('GlobalKeybindsProvider', () => {
                     inTable: false,
                     runTable,
                     insertTable: vi.fn(),
+                    openStarters: vi.fn(),
                     ...file,
                 }),
                 { id: 'toggle-editor', label: 'Editor', keybind: 'view.toggleEditor', run: toggleEditor },
