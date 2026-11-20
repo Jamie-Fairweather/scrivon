@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { isFileMissingError, normalizePath, readWorkspaceTextFile } from '@/lib/tauri/fs'
+import { comparablePath, isFileMissingError, normalizePath, readStamp, readWorkspaceTextFile } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { isLargeFile, LARGE_FILE_BYTES } from '@/lib/workspace/document-tab'
 
@@ -45,18 +45,42 @@ export const MAX_HISTORY_FILE_BYTES = LARGE_FILE_BYTES
 
 /** True when `text` is too big to keep a version of (more than 5 MB as UTF-8). */
 export function isTooLargeForHistory(text: string): boolean {
-    // Each UTF-16 unit is at most 3 bytes in UTF-8, so short text needs no counting.
+    // Each UTF-16 unit is at least 1 byte in UTF-8 and at most 3, so only text in between needs counting.
+    if (text.length > MAX_HISTORY_FILE_BYTES) return true
     if (text.length * 3 <= MAX_HISTORY_FILE_BYTES) return false
     return new TextEncoder().encode(text).length > MAX_HISTORY_FILE_BYTES
 }
 
+/** Each file's history calls still to finish, by path, so they reach the app in the order they were made. */
+const queues = new Map<string, Promise<void>>()
+
+/**
+ * Runs `task` once every history call made before it for the same file has finished. The app runs each call
+ * on a thread of its own, and they wait for one lock, which doesn't go to them in turn: without this, the
+ * text of an older save could be kept after a newer one's, and look like the newest.
+ */
+function inTurn<T>(path: string, task: () => Promise<T>): Promise<T> {
+    const key = comparablePath(path)
+    const run = (queues.get(key) ?? Promise.resolve()).then(task)
+    const settled = run.then(
+        () => undefined,
+        () => undefined
+    )
+    queues.set(key, settled)
+    void settled.then(() => {
+        if (queues.get(key) === settled) queues.delete(key)
+    })
+    return run
+}
+
 /**
  * Keeps `text` as a version of the file at `path`. Resolves true when it was kept, false when it wasn't
- * needed (the same text as the newest version, a file over 5 MB, or outside the desktop app).
+ * needed (the same text as the newest version, a file over 5 MB, or outside the desktop app). Versions of one
+ * file are kept in the order they were asked for.
  */
 export async function recordFileVersion(path: string, text: string, kind: FileVersionKind): Promise<boolean> {
     if (!isTauri() || isTooLargeForHistory(text)) return false
-    return (await invoke<boolean>('record_file_version', { path: normalizePath(path), text, kind })) === true
+    return inTurn(path, async () => (await invoke<boolean>('record_file_version', { path: normalizePath(path), text, kind })) === true)
 }
 
 /** The versions kept of the file at `path`, newest first. None outside the desktop app. */
@@ -87,6 +111,9 @@ export async function deleteAllFileHistory(): Promise<void> {
  */
 export async function keepDiskVersion(path: string, kind: DiskVersionKind, signal?: AbortSignal): Promise<boolean> {
     if (!isTauri() || signal?.aborted) return false
+    // Looked at first, so a big file is never read in full (and decoded) only to be left out.
+    if (isLargeFile((await readStamp(path))?.size)) return false
+    if (signal?.aborted) return false
     let file: Awaited<ReturnType<typeof readWorkspaceTextFile>>
     try {
         file = await readWorkspaceTextFile(path)

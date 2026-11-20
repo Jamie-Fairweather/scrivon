@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import type { DiffBeforeMount, Monaco } from '@monaco-editor/react'
+import type { DiffBeforeMount, DiffOnMount, Monaco, MonacoDiffEditor as DiffEditorInstance } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -22,6 +22,26 @@ const MonacoDiffEditor = dynamic(
     },
     { ssr: false, loading: () => <DiffLoading /> }
 )
+
+/**
+ * Takes the two texts out of the diff editor, then disposes them. In that order: Monaco reports a text disposed
+ * while its diff editor still shows it as a bug ("TextModel got disposed before DiffEditorWidget model got
+ * reset"), thrown from a timer, which the app's error reporter would show as "Something went wrong". So
+ * @monaco-editor/react is told to keep its models (keepCurrent…Model) and they are let go here instead.
+ * `models` are the texts it was given, for when the editor was already disposed and can no longer say.
+ */
+export function releaseDiffModels(diffEditor: DiffEditorInstance, models: editor.IDiffEditorModel | null): void {
+    let current: editor.IDiffEditorModel | null = null
+    try {
+        current = diffEditor.getModel()
+        diffEditor.setModel(null)
+    } catch {
+        // Already disposed, which let go of the texts as well.
+    }
+    for (const model of new Set([current?.original, current?.modified, models?.original, models?.modified])) {
+        if (model && !model.isDisposed()) model.dispose()
+    }
+}
 
 type FileHistoryDiffProps = {
     /** The file's name, for the language its text is coloured as. */
@@ -60,6 +80,21 @@ export function FileHistoryDiff({ fileName, original, modified, originalLabel, m
         defineMonacoDiagramTheme(monaco, themeRef.current.tokens, themeRef.current.isLight)
     }, [])
 
+    const mounted = useRef<{ diffEditor: DiffEditorInstance; models: editor.IDiffEditorModel | null } | null>(null)
+    const onMount = useCallback<DiffOnMount>((diffEditor) => {
+        mounted.current = { diffEditor, models: diffEditor.getModel() }
+    }, [])
+    // On unmount React cleans up a parent's effects before its children's, so this normally runs before
+    // @monaco-editor/react disposes the editor. releaseDiffModels copes with the other order too.
+    useEffect(
+        () => () => {
+            const current = mounted.current
+            mounted.current = null
+            if (current) releaseDiffModels(current.diffEditor, current.models)
+        },
+        []
+    )
+
     const options = useMemo<editor.IDiffEditorConstructionOptions>(
         () => ({
             readOnly: true,
@@ -93,6 +128,9 @@ export function FileHistoryDiff({ fileName, original, modified, originalLabel, m
             theme={MONACO_DIAGRAM_THEME_ID}
             loading={<DiffLoading />}
             beforeMount={beforeMount}
+            onMount={onMount}
+            keepCurrentOriginalModel
+            keepCurrentModifiedModel
             options={options}
         />
     )

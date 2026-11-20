@@ -11,6 +11,8 @@ const state = vi.hoisted(() => ({
     /** What the app keeps, newest first, and each version's text. */
     versions: [] as FileVersion[],
     texts: new Map<string, string>(),
+    /** Versions whose text the app is still reading, until the test lets it finish. */
+    gates: new Map<string, Promise<void>>(),
     calls: [] as string[],
 }))
 
@@ -38,7 +40,10 @@ vi.mock('@/lib/tauri/file-history', async (importOriginal) => ({
         state.calls.push('list')
         return state.versions
     }),
-    readFileVersion: vi.fn(async (_path: string, id: string) => state.texts.get(id) ?? ''),
+    readFileVersion: vi.fn(async (_path: string, id: string) => {
+        await state.gates.get(id)
+        return state.texts.get(id) ?? ''
+    }),
     recordFileVersion: vi.fn(async () => {
         state.calls.push('record')
         return true
@@ -114,6 +119,7 @@ beforeEach(() => {
     vi.mocked(isTauri).mockReturnValue(true)
     state.historyEnabled = true
     state.texts.clear()
+    state.gates.clear()
     state.calls = []
     state.tabs = [tab(A, 'the text now'), tab(B, 'b now')]
     state.activeTabId = A
@@ -186,6 +192,29 @@ describe('File History', () => {
 
         fireEvent.click(options(dialog)[2]!)
         expect(selectedOption(dialog)).toBe(options(dialog)[2])
+    })
+
+    it('keeps the comparison open while the next version loads, instead of closing and reopening Monaco', async () => {
+        let finish!: () => void
+        state.gates.set(state.versions[1]!.id, new Promise<void>((resolve) => (finish = resolve)))
+        const dialog = await openHistory()
+        const listbox = within(dialog).getByRole('listbox')
+        await waitFor(() => expect(within(dialog).getByTestId('diff')).toHaveAttribute('data-original', 'autosaved text'))
+        const shown = within(dialog).getByTestId('diff')
+
+        fireEvent.keyDown(listbox, { key: 'ArrowDown' })
+        await settle()
+
+        // The same diff editor, still showing the last version, under a note that the chosen one is loading.
+        expect(within(dialog).getByTestId('diff')).toBe(shown)
+        expect(shown).toHaveAttribute('data-original', 'autosaved text')
+        expect(within(dialog).getByText('Loading this version…')).toBeInTheDocument()
+        expect(within(dialog).getByRole('button', { name: 'Restore' })).toBeDisabled()
+
+        await act(async () => finish())
+        await waitFor(() => expect(shown).toHaveAttribute('data-original', 'saved text'))
+        expect(within(dialog).getByTestId('diff')).toBe(shown)
+        expect(within(dialog).queryByText('Loading this version…')).not.toBeInTheDocument()
     })
 
     it.each([

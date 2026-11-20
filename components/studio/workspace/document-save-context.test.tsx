@@ -8,6 +8,7 @@ import { deleteUnsavedBackup, saveUnsavedBackup, settleUnsavedBackups } from '@/
 import { keepDiskVersion, recordFileVersion } from '@/lib/tauri/file-history'
 import { confirmCloseAfterSaveFailure, confirmUnsavedChanges } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
+import { applyTextEdits, wholeTextRange } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { BACKUP_DELAY_MS, DISK_VERSION_TIMEOUT_MS, DocumentSaveProvider, useDocumentSave } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
@@ -664,6 +665,32 @@ describe('file history', () => {
         expect(firstCopy).toBeLessThan(firstWrite!)
         expect(secondCopy).toBeGreaterThan(firstWrite!)
         expect(secondCopy).toBeLessThan(secondWrite!)
+    })
+
+    it('saves a version restored into a UTF-16 file as UTF-16 with its byte-order mark', async () => {
+        const written = new Map<string, Uint8Array>()
+        vi.mocked(writeFile).mockImplementation(async (to, data) => {
+            written.set(String(to), data as Uint8Array)
+        })
+        vi.mocked(rename).mockImplementation(async (from, to) => {
+            written.set(String(to), written.get(String(from))!)
+        })
+        const unicode = tab(path, { content: 'Alt', format: { encoding: 'utf-16le', bom: true }, disk: { stamp: { size: 8, mtimeMs: null } } })
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([unicode]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+
+        // What Restore does: one edit over the whole text (applyTabEdits, which passes the text on as typing does).
+        const restored = 'Grüße 日本'
+        act(() => result.current.tabs.updateTabContent(path, applyTextEdits('Alt', [{ range: wholeTextRange('Alt'), text: restored }])))
+        await act(async () => {
+            await result.current.save.flushSave(path)
+        })
+
+        expect(result.current.tabs.tabs[0]!.format).toEqual({ encoding: 'utf-16le', bom: true })
+        const expected = [0xff, 0xfe, ...Array.from(restored).flatMap((char) => [char.charCodeAt(0) & 0xff, char.charCodeAt(0) >> 8])]
+        expect(Array.from(written.get(path)!)).toEqual(expected)
+        // The history keeps the text, which is the same whatever the file's encoding.
+        expect(recordFileVersion).toHaveBeenCalledWith(path, restored, 'manual')
     })
 
     it('keeps nothing while file history is off', async () => {

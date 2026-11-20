@@ -147,6 +147,12 @@ function FileHistoryBody({ tab, onRestored }: FileHistoryBodyProps) {
     }
 
     const loadedText = typeof versionText === 'string' ? versionText : null
+    // The comparison stays on screen, showing the last version that loaded, while the next one loads: closing
+    // Monaco's diff editor and opening it again on each arrow key would make the list slow to go through.
+    const [shownId, setShownId] = useState<string | null>(null)
+    if (version && loadedText !== null && shownId !== version.id) setShownId(version.id)
+    const shownEntry = shownId === null ? undefined : texts.get(shownId)
+    const shownText = loadedText ?? (typeof shownEntry === 'string' ? shownEntry : null)
     const sameAsEditor = loadedText !== null && loadedText === tab.content
     const restoreOffReason = tab.readOnly
         ? 'This file is read-only, so a version can’t be put back into it.'
@@ -245,20 +251,27 @@ function FileHistoryBody({ tab, onRestored }: FileHistoryBodyProps) {
                                 <span>Version from {formatVersionTime(version.savedMs)}</span>
                                 <span>In the editor now</span>
                             </div>
-                            <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-border" data-slot="file-history-diff">
-                                {loadedText !== null ? (
-                                    <FileHistoryDiff
-                                        fileName={tab.name}
-                                        original={loadedText}
-                                        modified={tab.content}
-                                        originalLabel={`Version from ${formatVersionTime(version.savedMs)}, read-only`}
-                                        modifiedLabel="Text in the editor now, read-only"
-                                    />
-                                ) : (
-                                    <p className="p-4 text-sm text-muted-foreground" role="status">
+                            <div className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-border" data-slot="file-history-diff">
+                                {shownText !== null ? (
+                                    // While another version loads, the one on screen can't be reached: it isn't the one chosen.
+                                    <div className="h-full" inert={loadedText === null || undefined}>
+                                        <FileHistoryDiff
+                                            fileName={tab.name}
+                                            original={shownText}
+                                            modified={tab.content}
+                                            originalLabel={`Version from ${formatVersionTime(version.savedMs)}, read-only`}
+                                            modifiedLabel="Text in the editor now, read-only"
+                                        />
+                                    </div>
+                                ) : null}
+                                {loadedText === null ? (
+                                    <p
+                                        className={cn('p-4 text-sm text-muted-foreground', shownText !== null && 'absolute inset-0 bg-background/85')}
+                                        role="status"
+                                    >
                                         {typeof versionText === 'object' ? versionText.failed : 'Loading this version…'}
                                     </p>
-                                )}
+                                ) : null}
                             </div>
                             <p className="mt-2 text-xs text-muted-foreground">
                                 In the comparison, F7 and Shift+F7 go through the changes one by one.

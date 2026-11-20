@@ -99,6 +99,48 @@ describe('file history in the desktop app', () => {
         await expect(recordFileVersion('C:\\w\\a.md', 'x'.repeat(fiveMb + 1), 'manual')).resolves.toBe(false)
         expect(fake.invoke).not.toHaveBeenCalled()
     })
+
+    it('never encodes text that has more characters than 5 MB has bytes, to find it is too big', () => {
+        const encode = vi.spyOn(TextEncoder.prototype, 'encode')
+        try {
+            expect(isTooLargeForHistory('x'.repeat(60 * 1024 * 1024))).toBe(true)
+            expect(encode).not.toHaveBeenCalled()
+        } finally {
+            encode.mockRestore()
+        }
+    })
+
+    it('sends the versions of one file to the app one at a time, in the order they were saved', async () => {
+        const finishes: Array<() => void> = []
+        fake.invoke.mockImplementation(() => new Promise((resolve) => finishes.push(() => resolve(true))))
+        const sent = () => fake.invoke.mock.calls.map(([, args]) => (args as { text: string }).text)
+
+        const first = recordFileVersion('C:\\w\\a.md', 'v1', 'autosave')
+        // The same file, written another way.
+        const second = recordFileVersion('c:/w/A.md', 'v2', 'autosave')
+        const other = recordFileVersion('C:\\w\\b.md', 'b1', 'autosave')
+        await vi.waitFor(() => expect(sent()).toEqual(['v1', 'b1']))
+
+        // v2 waits for v1, however long the app takes; another file doesn't.
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        expect(sent()).toEqual(['v1', 'b1'])
+        finishes.shift()!()
+        await expect(first).resolves.toBe(true)
+        await vi.waitFor(() => expect(sent()).toEqual(['v1', 'b1', 'v2']))
+        finishes.forEach((finish) => finish())
+        await expect(second).resolves.toBe(true)
+        await expect(other).resolves.toBe(true)
+    })
+
+    it('goes on to the next version of a file when one fails', async () => {
+        fake.invoke.mockRejectedValueOnce('disk full')
+        const first = recordFileVersion('C:\\w\\a.md', 'v1', 'manual')
+        const second = recordFileVersion('C:\\w\\a.md', 'v2', 'manual')
+
+        await expect(first).rejects.toBe('disk full')
+        await expect(second).resolves.toBe(true)
+        expect(fake.invoke).toHaveBeenLastCalledWith('record_file_version', { path: 'C:\\w\\a.md', text: 'v2', kind: 'manual' })
+    })
 })
 
 describe('keepDiskVersion', () => {
@@ -122,8 +164,11 @@ describe('keepDiskVersion', () => {
     it('keeps nothing for a file that is not there, is over 5 MB or is binary', async () => {
         await expect(keepDiskVersion('C:\\w\\new.md', 'before-first-write')).resolves.toBe(false)
 
+        const fs = await import('@tauri-apps/plugin-fs')
         fake.disk.set('C:\\w\\big.md', new Uint8Array(5 * 1024 * 1024 + 1).fill(0x61))
         await expect(keepDiskVersion('C:\\w\\big.md', 'before-first-write')).resolves.toBe(false)
+        // Its size is enough: it is never read in full.
+        expect(fs.readFile).not.toHaveBeenCalledWith('C:\\w\\big.md')
 
         fake.disk.set('C:\\w\\image.md', new Uint8Array([0x61, 0x00, 0x62, 0x00, 0x00, 0x01]))
         await expect(keepDiskVersion('C:\\w\\image.md', 'before-first-write')).resolves.toBe(false)

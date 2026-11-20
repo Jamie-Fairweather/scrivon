@@ -62,6 +62,28 @@ pub enum VersionKind {
     BeforeRestore,
 }
 
+/// A version's kind as an index holds it: one this build knows, or one a newer
+/// build wrote (going back from the rc channel to stable, say). An unknown kind
+/// is kept as it was written, so the index still reads, and is written back
+/// unchanged, instead of the whole file's history being lost.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum StoredKind {
+    Known(VersionKind),
+    Other(String),
+}
+
+impl PartialEq<VersionKind> for StoredKind {
+    fn eq(&self, other: &VersionKind) -> bool {
+        matches!(self, Self::Known(kind) if kind == other)
+    }
+}
+
+/// For `skip_serializing_if`, which passes a reference.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// One kept version, as the index lists it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,9 +95,14 @@ struct Version {
     saved_ms: u64,
     /// Its text's size in bytes (UTF-8).
     size: u64,
-    kind: VersionKind,
+    kind: StoredKind,
     /// FNV-1a of its text, so a save of the same text is found without reading the file.
     hash: String,
+    /// Closed to merging: a save the user asked for, a copy before a restore or
+    /// a copy of the disk had the same text as this autosave, so it now stands
+    /// for that too, and the next autosave must not write over it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    sealed: bool,
 }
 
 /// A version as the page sees it.
@@ -86,7 +113,7 @@ pub struct VersionInfo {
     created_ms: u64,
     saved_ms: u64,
     size: u64,
-    kind: VersionKind,
+    kind: StoredKind,
 }
 
 impl From<&Version> for VersionInfo {
@@ -96,7 +123,7 @@ impl From<&Version> for VersionInfo {
             created_ms: version.created_ms,
             saved_ms: version.saved_ms,
             size: version.size,
-            kind: version.kind,
+            kind: version.kind.clone(),
         }
     }
 }
@@ -308,11 +335,46 @@ fn hash_text(text: &str) -> String {
 /// How many other folder names are tried when two paths' hashes are the same.
 const MAX_FOLDER_PROBES: u32 = 8;
 
+/// What a folder's `index.json` holds.
+enum IndexRead {
+    /// There is none: the folder is free, or a crash left it half made.
+    Missing,
+    /// It is there but couldn't be read just now (another program has it open, say).
+    Unreadable,
+    /// It is there but isn't an index this build can use. It is left alone,
+    /// never written over or removed.
+    Unusable,
+    Found(Index),
+}
+
+fn load_index(folder: &Path) -> IndexRead {
+    let text = match fs::read_to_string(folder.join(INDEX_FILE)) {
+        Ok(text) => text,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return IndexRead::Missing,
+        Err(_) => return IndexRead::Unreadable,
+    };
+    let Ok(index) = serde_json::from_str::<Index>(&text) else {
+        return IndexRead::Unusable;
+    };
+    // An index naming a version file that could be a path is someone else's.
+    if index
+        .versions
+        .iter()
+        .all(|version| is_version_id(&version.id))
+    {
+        IndexRead::Found(index)
+    } else {
+        IndexRead::Unusable
+    }
+}
+
 /// The folder that holds the history for `key`: the one named by its hash,
-/// unless that holds another path's history (two keys with the same hash),
-/// when the next name is tried.
-fn folder_for(history: &Path, key: &str) -> PathBuf {
+/// unless that holds another path's history (two keys with the same hash), or
+/// an index that can't be used, when the next name is tried. Err when an index
+/// on the way couldn't be read just now, as it may be this file's.
+fn find_folder(history: &Path, key: &str) -> io::Result<PathBuf> {
     let mut first_free = None;
+    let mut unsure = false;
     for probe in 0..MAX_FOLDER_PROBES {
         let seed = if probe == 0 {
             key.to_string()
@@ -320,15 +382,30 @@ fn folder_for(history: &Path, key: &str) -> PathBuf {
             format!("{key}\u{0}{probe}")
         };
         let folder = history.join(format!("{:016x}", fnv1a(seed.as_bytes())));
-        match read_index(&folder) {
-            Some(index) if index.key == key => return folder,
-            Some(_) => {}
-            None => {
+        match load_index(&folder) {
+            IndexRead::Found(index) if index.key == key => return Ok(folder),
+            IndexRead::Found(_) | IndexRead::Unusable => {}
+            IndexRead::Unreadable => unsure = true,
+            IndexRead::Missing => {
                 first_free.get_or_insert(folder);
             }
         }
     }
-    first_free.unwrap_or_else(|| history.join(format!("{:016x}", fnv1a(key.as_bytes()))))
+    if unsure {
+        return Err(history_unreadable());
+    }
+    Ok(first_free.unwrap_or_else(|| history.join(format!("{:016x}", fnv1a(key.as_bytes())))))
+}
+
+fn history_unreadable() -> io::Error {
+    io::Error::other("The file history for this file can't be read just now")
+}
+
+/// The folder for `key`, for reading: as `find_folder`, but a folder whose
+/// index can't be read just now is passed over.
+fn folder_for(history: &Path, key: &str) -> PathBuf {
+    find_folder(history, key)
+        .unwrap_or_else(|_| history.join(format!("{:016x}", fnv1a(key.as_bytes()))))
 }
 
 /// A version id: 32 lower-case hex digits, so it can never be a path.
@@ -345,14 +422,10 @@ fn version_file(folder: &Path, id: &str) -> PathBuf {
 }
 
 fn read_index(folder: &Path) -> Option<Index> {
-    let text = fs::read_to_string(folder.join(INDEX_FILE)).ok()?;
-    let index: Index = serde_json::from_str(&text).ok()?;
-    // An index naming a version file that could be a path is someone else's.
-    index
-        .versions
-        .iter()
-        .all(|version| is_version_id(&version.id))
-        .then_some(index)
+    match load_index(folder) {
+        IndexRead::Found(index) => Some(index),
+        _ => None,
+    }
 }
 
 fn write_index(folder: &Path, index: &Index) -> io::Result<()> {
@@ -407,26 +480,36 @@ fn record_in(
     }
     let _lock = lock_history();
     let key = history_key(path);
-    let folder = folder_for(history, &key);
+    // Never a fresh index over one that is there but couldn't be read.
+    let folder = find_folder(history, &key)?;
     fs::create_dir_all(&folder)?;
-    let mut index = read_index(&folder)
-        .filter(|index| index.key == key)
-        .unwrap_or_else(|| Index {
+    let mut index = match load_index(&folder) {
+        IndexRead::Found(index) if index.key == key => index,
+        IndexRead::Missing => Index {
             path: path.to_string(),
             key,
             versions: Vec::new(),
-        });
+        },
+        _ => return Err(history_unreadable()),
+    };
     let pruned = apply_file_limits(&folder, &mut index, now, limits);
 
     let hash = hash_text(text);
     let size = text.len() as u64;
-    if let Some(newest) = index.versions.last() {
+    if let Some(newest) = index.versions.last_mut() {
         // The same text as the newest version adds nothing.
         let same = newest.hash == hash
             && newest.size == size
             && fs::read_to_string(version_file(&folder, &newest.id)).is_ok_and(|kept| kept == text);
         if same {
-            if pruned {
+            // But it now stands for this save too: a Ctrl+S, the text before a
+            // restore, the file before a first write. The next autosave adds a
+            // version of its own instead of writing over it.
+            let seal = kind != VersionKind::Autosave && !newest.sealed;
+            if seal {
+                newest.sealed = true;
+            }
+            if pruned || seal {
                 write_index(&folder, &index)?;
             }
             return Ok(false);
@@ -436,6 +519,7 @@ fn record_in(
     let merge = kind == VersionKind::Autosave
         && index.versions.last().is_some_and(|newest| {
             newest.kind == VersionKind::Autosave
+                && !newest.sealed
                 && now.saturating_sub(newest.created_ms) < AUTOSAVE_MERGE_MS
         });
     if merge {
@@ -453,8 +537,9 @@ fn record_in(
             created_ms: now,
             saved_ms: now,
             size,
-            kind,
+            kind: StoredKind::Known(kind),
             hash,
+            sealed: false,
         });
         apply_file_limits(&folder, &mut index, now, limits);
     }
@@ -527,10 +612,21 @@ fn prune_in(history: &Path, now: u64, limits: Limits) -> io::Result<u64> {
         if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             continue;
         }
-        let Some(mut index) = read_index(&folder) else {
-            // Nothing can reach its versions any more.
-            let _ = fs::remove_dir_all(&folder);
-            continue;
+        let mut index = match load_index(&folder) {
+            IndexRead::Found(index) => index,
+            IndexRead::Missing => {
+                // A folder a crash left with no index: nothing can reach its versions.
+                let _ = fs::remove_dir_all(&folder);
+                continue;
+            }
+            // Left as it is: it may be readable later, or be a newer build's.
+            IndexRead::Unreadable | IndexRead::Unusable => {
+                log::warn!(
+                    "Left the file history in {} alone: its index can't be read",
+                    folder.display()
+                );
+                continue;
+            }
         };
         let changed = apply_file_limits(&folder, &mut index, now, limits);
         remove_unlisted_files(&folder, &index);
@@ -538,6 +634,9 @@ fn prune_in(history: &Path, now: u64, limits: Limits) -> io::Result<u64> {
     }
 
     let mut total: u64 = files.iter().map(|(_, index, _)| folder_bytes(index)).sum();
+    // Once over, down to a little under, so the next saves have room before
+    // the whole folder needs looking through again.
+    let target = prune_target(limits);
     if total > limits.max_total_bytes {
         let mut oldest: Vec<(u64, usize, String)> = files
             .iter()
@@ -551,7 +650,7 @@ fn prune_in(history: &Path, now: u64, limits: Limits) -> io::Result<u64> {
             .collect();
         oldest.sort();
         for (_, file, id) in oldest {
-            if total <= limits.max_total_bytes {
+            if total <= target {
                 break;
             }
             let (folder, index, changed) = &mut files[file];
@@ -571,6 +670,11 @@ fn prune_in(history: &Path, now: u64, limits: Limits) -> io::Result<u64> {
         }
     }
     Ok(total)
+}
+
+/// What a prune leaves once the folder is over its size: 90% of it.
+fn prune_target(limits: Limits) -> u64 {
+    limits.max_total_bytes / 10 * 9
 }
 
 /// The bytes a file's folder holds: its versions and its index. A folder with
@@ -746,8 +850,8 @@ mod tests {
         list_in(&dir.history(), DOC, now, LIMITS)
     }
 
-    fn kinds(dir: &TempDir, now: u64) -> Vec<VersionKind> {
-        listed(dir, now).iter().map(|v| v.kind).collect()
+    fn kinds(dir: &TempDir, now: u64) -> Vec<StoredKind> {
+        listed(dir, now).iter().map(|v| v.kind.clone()).collect()
     }
 
     fn texts(dir: &TempDir, now: u64) -> Vec<String> {
@@ -962,8 +1066,15 @@ mod tests {
 
         let total = prune_in(&dir.history(), NOW + 20, limits).unwrap();
 
-        assert!(total <= limits.max_total_bytes, "{total}");
+        // Down to 90%, so the saves that follow have room before the next look through.
+        assert!(total <= prune_target(limits), "{total}");
         assert_eq!(dir.bytes(), total);
+        let state = PruneState {
+            last: Some((total, NOW + 20)),
+            added: 900,
+            ..PruneState::default()
+        };
+        assert!(!state.is_due(NOW + 21, limits));
         let kept: Vec<String> = ["a", "b", "c"]
             .iter()
             .flat_map(|name| {
@@ -1215,6 +1326,119 @@ mod tests {
         assert!(listed(&dir, NOW).is_empty());
         // Nothing to delete is fine too.
         delete_all_in(&dir.history()).unwrap();
+    }
+
+    #[test]
+    fn a_copy_with_the_same_text_as_an_autosave_keeps_the_next_autosave_from_writing_over_it() {
+        // Autosave keeps X; the copy before a restore (or a first write, or a
+        // Ctrl+S) is X too, so adds nothing; the restored Y then autosaves.
+        for kind in [
+            VersionKind::BeforeRestore,
+            VersionKind::BeforeFirstWrite,
+            VersionKind::BeforeOverwrite,
+            VersionKind::Manual,
+        ] {
+            let dir = TempDir::new();
+            assert!(record(&dir, "X", VersionKind::Autosave, NOW));
+            assert!(!record(&dir, "X", kind, NOW + 1000), "{kind:?}");
+            assert!(record(&dir, "Y", VersionKind::Autosave, NOW + 2000));
+            assert_eq!(texts(&dir, NOW + 2000), ["Y", "X"], "{kind:?}");
+            assert_eq!(
+                kinds(&dir, NOW + 2000),
+                [VersionKind::Autosave, VersionKind::Autosave]
+            );
+        }
+
+        // An autosave of the same text leaves it open, so autosaves still merge.
+        let dir = TempDir::new();
+        record(&dir, "X", VersionKind::Autosave, NOW);
+        assert!(!record(&dir, "X", VersionKind::Autosave, NOW + 1000));
+        record(&dir, "Y", VersionKind::Autosave, NOW + 2000);
+        assert_eq!(texts(&dir, NOW + 2000), ["Y"]);
+    }
+
+    #[test]
+    fn an_index_from_a_newer_build_with_a_kind_this_one_does_not_know_still_reads() {
+        let dir = TempDir::new();
+        record(&dir, "one", VersionKind::Manual, NOW);
+        let folder = folder_for(&dir.history(), &history_key(DOC));
+        let text = fs::read_to_string(folder.join(INDEX_FILE)).unwrap();
+        let newer = text.replace("\"kind\":\"manual\"", "\"kind\":\"before-rename\"");
+        assert_ne!(newer, text);
+        fs::write(folder.join(INDEX_FILE), &newer).unwrap();
+
+        assert_eq!(
+            kinds(&dir, NOW),
+            [StoredKind::Other("before-rename".into())]
+        );
+        // Neither a prune nor a save loses it, and the save writes its kind back as it was.
+        prune_in(&dir.history(), NOW + PRUNE_EVERY_MS, LIMITS).unwrap();
+        assert!(record(&dir, "two", VersionKind::Manual, NOW + MINUTE));
+        assert_eq!(texts(&dir, NOW + MINUTE), ["two", "one"]);
+        let written = fs::read_to_string(folder.join(INDEX_FILE)).unwrap();
+        assert!(written.contains("\"kind\":\"before-rename\""), "{written}");
+        assert_eq!(
+            serde_json::to_string(&listed(&dir, NOW + MINUTE)[1].kind).unwrap(),
+            "\"before-rename\""
+        );
+    }
+
+    #[test]
+    fn an_index_that_cannot_be_used_is_never_deleted_or_written_over() {
+        let dir = TempDir::new();
+        record(&dir, "kept", VersionKind::Manual, NOW);
+        let folder = folder_for(&dir.history(), &history_key(DOC));
+        let id = listed(&dir, NOW)[0].id.clone();
+        fs::write(folder.join(INDEX_FILE), "{ not an index").unwrap();
+
+        prune_in(&dir.history(), NOW + PRUNE_EVERY_MS, LIMITS).unwrap();
+        assert!(record(&dir, "new", VersionKind::Manual, NOW + MINUTE));
+        prune_in(&dir.history(), NOW + 2 * PRUNE_EVERY_MS, LIMITS).unwrap();
+
+        // The new version went into a folder of its own; the old one is as it was.
+        assert_eq!(
+            fs::read_to_string(folder.join(INDEX_FILE)).unwrap(),
+            "{ not an index"
+        );
+        assert_eq!(
+            fs::read_to_string(version_file(&folder, &id)).unwrap(),
+            "kept"
+        );
+        assert_eq!(texts(&dir, NOW + MINUTE), ["new"]);
+        assert_eq!(dir.folders().len(), 2);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_index_another_program_has_open_is_left_alone_and_the_save_is_refused() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let dir = TempDir::new();
+        record(&dir, "kept", VersionKind::Manual, NOW);
+        let folder = folder_for(&dir.history(), &history_key(DOC));
+        let before = fs::read_to_string(folder.join(INDEX_FILE)).unwrap();
+        // No sharing: nothing else can read it while this is open (a sharing violation).
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(folder.join(INDEX_FILE))
+            .unwrap();
+
+        assert!(record_in(
+            &dir.history(),
+            DOC,
+            "new",
+            VersionKind::Manual,
+            NOW + MINUTE,
+            LIMITS
+        )
+        .is_err());
+        prune_in(&dir.history(), NOW + PRUNE_EVERY_MS, LIMITS).unwrap();
+        drop(held);
+
+        assert_eq!(fs::read_to_string(folder.join(INDEX_FILE)).unwrap(), before);
+        assert_eq!(dir.folders(), [folder]);
+        assert_eq!(texts(&dir, NOW + MINUTE), ["kept"]);
     }
 
     #[test]
