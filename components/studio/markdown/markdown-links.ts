@@ -69,6 +69,46 @@ export function anchorKey(text: string): string {
         .replace(/^-|-$/g, '')
 }
 
+/** The prefix the preview's sanitizer gives every id in the document, as GitHub does (see previewSanitizeSchema). */
+export const DOCUMENT_ID_PREFIX = 'user-content-'
+
+/**
+ * The id a `#fragment` reaches among a document's `ids` (as the document writes them, without the preview's
+ * `user-content-` prefix), as the preview follows it: a fragment written with the prefix first, then an exact match,
+ * then one that differs only in case, then one that matches once both are reduced to export's id rules
+ * ({@link anchorKey}, so GitHub-style links such as `#foo--bar` work). Null when none matches; the top of the document
+ * ({@link isTopOfDocument}) isn't an id, so check it apart.
+ */
+export function findAnchorId(ids: Iterable<string>, fragment: string): string | null {
+    const unprefixed = fragment.startsWith(DOCUMENT_ID_PREFIX) ? fragment.slice(DOCUMENT_ID_PREFIX.length) : null
+    const lower = fragment.toLowerCase()
+    const key = anchorKey(fragment)
+    let exactMatch: string | null = null
+    let caseMatch: string | null = null
+    let keyMatch: string | null = null
+    for (const id of ids) {
+        if (!id) continue
+        if (unprefixed !== null && id === unprefixed) return id
+        if (exactMatch === null && id === fragment) exactMatch = id
+        if (caseMatch === null && id.toLowerCase() === lower) caseMatch = id
+        if (keyMatch === null && key && anchorKey(id) === key) keyMatch = id
+    }
+    return exactMatch ?? caseMatch ?? keyMatch
+}
+
+/**
+ * Whether a `#fragment` that nothing in the document has means its top, as in a browser: a bare `#`, or `#top` in
+ * any letter case, as in a README's `[Back to top](#top)`.
+ */
+export function isTopOfDocument(fragment: string): boolean {
+    return fragment === '' || fragment.toLowerCase() === 'top'
+}
+
+/** Whether a `#fragment` leads somewhere in a document with these `ids`: one of them, or its top. */
+export function anchorLeadsSomewhere(ids: Iterable<string>, fragment: string): boolean {
+    return findAnchorId(ids, fragment) !== null || isTopOfDocument(fragment)
+}
+
 /**
  * Keeps Windows paths such as `C:\docs\a.md` (react-markdown's default would blank them, reading `C:` as an
  * unsafe URL scheme), phone links (`tel:`, which the app hands to the system like web and email links) and an

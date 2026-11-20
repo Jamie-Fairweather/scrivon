@@ -7,6 +7,7 @@ import { isTauri } from '@/lib/tauri/platform'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import { MarkdownExpandProvider } from './markdown-expand-context'
 import { MarkdownDocumentViewer } from './markdown-document-viewer'
+import { findAnchorId } from './markdown-links'
 import { extractMermaidBlockSources } from './mermaid-block-sources'
 import { revealHeadingInPreview } from './preview-heading'
 
@@ -72,6 +73,12 @@ vi.mock('react-markdown', async (importOriginal) => {
 vi.mock('./mermaid-block-sources', async (importOriginal) => {
     const actual = await importOriginal<typeof import('./mermaid-block-sources')>()
     return { ...actual, extractMermaidBlockSources: vi.fn(actual.extractMermaidBlockSources) }
+})
+
+// The real matching, watched: the preview and the link check must both go through it.
+vi.mock('./markdown-links', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./markdown-links')>()
+    return { ...actual, findAnchorId: vi.fn(actual.findAnchorId) }
 })
 
 const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
@@ -637,9 +644,12 @@ describe('MarkdownDocumentViewer', () => {
             ].join('\n')
             const { container } = render(viewer(DOC_A, readme))
             const headings = Array.from(container.querySelectorAll('h2'))
+            vi.mocked(findAnchorId).mockClear()
             for (const name of ['a', 'b', 'c', 'd']) fireEvent.click(screen.getByRole('link', { name }))
             expect(notifyInfo).not.toHaveBeenCalled()
             expect(scrollIntoView.mock.contexts).toEqual(headings)
+            // The shared matching (findAnchorId) does it, with the ids as the document wrote them.
+            expect(findAnchorId).toHaveBeenCalledWith(expect.arrayContaining(['foo--bar', '-quick-start']), 'foo--bar')
         })
 
         it('keeps a heading from taking an id the app uses, and #links still reach it (B05 review)', () => {
