@@ -63,6 +63,7 @@ import {
     DiskChangedError,
     duplicateWorkspaceFile,
     findHiddenFolders,
+    isGitChangeEvent,
     getWorkspaceFileSize,
     isFileMissingError,
     joinPath,
@@ -951,6 +952,62 @@ describe('watching the opened folder', () => {
             report(event({ modify: { kind: 'rename', mode: 'to' } }, 'C:\\ws\\b.md'))
             vi.advanceTimersByTime(300)
             expect(onChange).toHaveBeenLastCalledWith({ added: ['C:\\ws\\b.md'], removed: ['C:\\ws\\b.md'], changed: [] })
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('tells which events are git’s own files changing: the index, HEAD, MERGE_HEAD and branches', () => {
+        const root = 'C:\\ws'
+        const changes = (...paths: string[]) => isGitChangeEvent(root, event({ modify: { kind: 'any' } }, ...paths))
+        expect(changes('C:\\ws\\.git\\index')).toBe(true)
+        expect(changes('C:\\ws\\.git\\HEAD')).toBe(true)
+        expect(changes('C:\\ws\\.git\\MERGE_HEAD')).toBe(true)
+        expect(changes('C:\\ws\\.git\\refs\\heads\\main')).toBe(true)
+        expect(changes('C:\\ws\\.git\\refs\\heads\\feature\\x')).toBe(true)
+        expect(changes('c:\\WS\\.GIT\\index')).toBe(true)
+        // git add writes index.lock and renames it over index.
+        expect(isGitChangeEvent(root, event({ modify: { kind: 'rename', mode: 'both' } }, 'C:\\ws\\.git\\index.lock', 'C:\\ws\\.git\\index'))).toBe(
+            true
+        )
+
+        expect(changes('C:\\ws\\.git\\index.lock')).toBe(false)
+        expect(changes('C:\\ws\\.git\\objects\\ab\\cdef')).toBe(false)
+        expect(changes('C:\\ws\\.git\\refs\\heads')).toBe(false)
+        expect(changes('C:\\ws\\.git\\refs\\remotes\\origin\\main')).toBe(false)
+        expect(changes('C:\\ws\\.git')).toBe(false)
+        expect(changes('C:\\ws\\index')).toBe(false)
+        // A repository inside the open folder isn't the open folder's.
+        expect(changes('C:\\ws\\vendor\\.git\\index')).toBe(false)
+        expect(changes('C:\\other\\.git\\index')).toBe(false)
+        // Git status reads them; reads aren't changes.
+        expect(isGitChangeEvent(root, event({ access: { kind: 'open', mode: 'read' } }, 'C:\\ws\\.git\\index'))).toBe(false)
+        expect(isGitChangeEvent(root, event({ modify: { kind: 'metadata', mode: 'access-time' } }, 'C:\\ws\\.git\\index'))).toBe(false)
+    })
+
+    it('passes git’s own changes on straight away, apart from the changes that reload the tree and the tabs', async () => {
+        vi.useFakeTimers()
+        try {
+            watchMock.mockResolvedValue(vi.fn())
+            const onChange = vi.fn()
+            const onGitChange = vi.fn()
+            const stop = await watchWorkspace('C:\\ws', onChange, onGitChange)
+            const report = watchMock.mock.calls[0]![1] as (e: Event) => void
+
+            report(event({ modify: { kind: 'any' } }, 'C:\\ws\\.git\\index'))
+            report(event({ create: { kind: 'file' } }, 'C:\\ws\\.git\\refs\\heads\\main'))
+            expect(onGitChange).toHaveBeenCalledTimes(2)
+            vi.advanceTimersByTime(300)
+            expect(onChange).not.toHaveBeenCalled()
+
+            report(event({ modify: { kind: 'any' } }, 'C:\\ws\\a.md'))
+            vi.advanceTimersByTime(300)
+            expect(onChange).toHaveBeenCalledExactlyOnceWith({ added: [], removed: [], changed: ['C:\\ws\\a.md'] })
+            expect(onGitChange).toHaveBeenCalledTimes(2)
+
+            stop()
+            report(event({ modify: { kind: 'any' } }, 'C:\\ws\\.git\\HEAD'))
+            expect(onGitChange).toHaveBeenCalledTimes(2)
         } finally {
             vi.useRealTimers()
         }

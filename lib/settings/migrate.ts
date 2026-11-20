@@ -248,6 +248,8 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             maxRecentFolders: readWholeNumber(source.workspace?.maxRecentFolders, defaults.workspace.maxRecentFolders, 1, 50),
             reopenLastFolder:
                 typeof source.workspace?.reopenLastFolder === 'boolean' ? source.workspace.reopenLastFolder : defaults.workspace.reopenLastFolder,
+            showGitChanges:
+                typeof source.workspace?.showGitChanges === 'boolean' ? source.workspace.showGitChanges : defaults.workspace.showGitChanges,
         },
         updates: {
             checkOnLaunch: typeof source.updates?.checkOnLaunch === 'boolean' ? source.updates.checkOnLaunch : defaults.updates.checkOnLaunch,

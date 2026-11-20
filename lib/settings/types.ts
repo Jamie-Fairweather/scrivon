@@ -118,6 +118,8 @@ export type AppSettings = {
         maxRecentFolders: number
         /** Reopen the folder (and its tabs) that was open when Scrivon last closed. */
         reopenLastFolder: boolean
+        /** Marks the files git sees as changed, and the folders holding them, in the explorer. */
+        showGitChanges: boolean
     }
     updates: {
         checkOnLaunch: boolean
