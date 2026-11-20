@@ -1,3 +1,4 @@
+import type { TextReplacement } from '@/components/studio/command-palette/replace-text'
 import type { TextMatch, WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
 
 /**
@@ -23,11 +24,14 @@ export type RegexMatchRequest = {
     options: WorkspaceSearchOptions
     /** Null for no limit. */
     maxHits: number | null
+    /** Set to have each match's replacement worked out too (findReplacements): the answer is then 'regex-replaced'. */
+    replacement?: string | null
 }
 
 export type RegexMatchResponse =
     | { type: 'ready' }
     | { type: 'regex-matched'; id: number; matches: TextMatch[]; longLinesSkipped: number }
+    | { type: 'regex-replaced'; id: number; replacements: TextReplacement[]; longLinesSkipped: number }
     | { type: 'regex-invalid'; id: number; error: string }
 
 export type MatchFileOptions = {
@@ -50,17 +54,33 @@ export type MatchFileResult =
 /** Finds the matches of `query` in `text`, line by line, as matchText does, but in the worker. */
 export type MatchFile = (text: string, query: string, options: WorkspaceSearchOptions, matchOptions: MatchFileOptions) => Promise<MatchFileResult>
 
+/** As MatchFileResult, with each match's replacement worked out (findReplacements) in place of the matches alone. */
+export type ReplaceFileResult =
+    Exclude<MatchFileResult, { type: 'matches' }> | { type: 'replacements'; replacements: TextReplacement[]; longLinesSkipped: number }
+
+/** Finds the matches of `query` in `text` and what `replacement` makes of each, as findReplacements does, but in the worker. */
+export type ReplaceFile = (
+    text: string,
+    query: string,
+    options: WorkspaceSearchOptions,
+    replacement: string,
+    matchOptions: MatchFileOptions
+) => Promise<ReplaceFileResult>
+
 export type RegexMatchClient = {
     matchFile: MatchFile
+    replaceFile: ReplaceFile
     /** Stops the worker. Waiting files end as unavailable. */
     dispose: () => void
 }
+
+type JobResult = MatchFileResult | ReplaceFileResult
 
 type Job = {
     request: RegexMatchRequest
     timeLimitMs: number
     signal?: AbortSignal
-    finish: (result: MatchFileResult) => void
+    finish: (result: JobResult) => void
 }
 
 /**
@@ -93,7 +113,7 @@ export function createRegexMatchClient(createWorker: () => Worker): RegexMatchCl
     }
 
     /** Ends the job in the worker. The worker is only stopped when told to. */
-    const finishActive = (result: MatchFileResult, terminate: boolean) => {
+    const finishActive = (result: JobResult, terminate: boolean) => {
         const job = active
         active = null
         if (terminate) stopWorker()
@@ -128,6 +148,8 @@ export function createRegexMatchClient(createWorker: () => Worker): RegexMatchCl
             if (!active || message.id !== active.request.id) return
             if (message.type === 'regex-matched') {
                 finishActive({ type: 'matches', matches: message.matches, longLinesSkipped: message.longLinesSkipped }, false)
+            } else if (message.type === 'regex-replaced') {
+                finishActive({ type: 'replacements', replacements: message.replacements, longLinesSkipped: message.longLinesSkipped }, false)
             } else {
                 finishActive({ type: 'invalid', error: message.error }, false)
             }
@@ -170,9 +192,9 @@ export function createRegexMatchClient(createWorker: () => Worker): RegexMatchCl
         }, job.timeLimitMs)
     }
 
-    const matchFile: MatchFile = (text, query, options, { maxHits, timeLimitMs, signal }) => {
+    const run = (request: Omit<RegexMatchRequest, 'id'>, { timeLimitMs, signal }: MatchFileOptions): Promise<JobResult> => {
         if (signal?.aborted) return Promise.resolve({ type: 'aborted' })
-        return new Promise<MatchFileResult>((resolve) => {
+        return new Promise<JobResult>((resolve) => {
             const onAbort = () => {
                 if (active === job) {
                     // The only way to stop a regex that is running.
@@ -186,7 +208,7 @@ export function createRegexMatchClient(createWorker: () => Worker): RegexMatchCl
             }
             let done = false
             const job: Job = {
-                request: { id: nextId++, text, query, options: { ...options }, maxHits: maxHits ?? null },
+                request: { ...request, id: nextId++, options: { ...request.options } },
                 timeLimitMs,
                 signal,
                 finish: (result) => {
@@ -202,8 +224,20 @@ export function createRegexMatchClient(createWorker: () => Worker): RegexMatchCl
         })
     }
 
+    const matchFile: MatchFile = async (text, query, options, matchOptions) => {
+        const result = await run({ text, query, options, maxHits: matchOptions.maxHits ?? null }, matchOptions)
+        // Only a request with a replacement is answered with replacements.
+        return result.type === 'replacements' ? { type: 'unavailable' } : result
+    }
+
+    const replaceFile: ReplaceFile = async (text, query, options, replacement, matchOptions) => {
+        const result = await run({ text, query, options, maxHits: matchOptions.maxHits ?? null, replacement }, matchOptions)
+        return result.type === 'matches' ? { type: 'unavailable' } : result
+    }
+
     return {
         matchFile,
+        replaceFile,
         dispose: () => fail(),
     }
 }
@@ -221,3 +255,7 @@ export function getRegexMatchClient(): RegexMatchClient {
 
 /** Matches one file's text in the app's regex worker. No hit cap unless `maxHits` is given. */
 export const matchFile: MatchFile = (text, query, options, matchOptions) => getRegexMatchClient().matchFile(text, query, options, matchOptions)
+
+/** Works out one file's replacements in the app's regex worker. No cap unless `maxHits` is given. */
+export const replaceFile: ReplaceFile = (text, query, options, replacement, matchOptions) =>
+    getRegexMatchClient().replaceFile(text, query, options, replacement, matchOptions)

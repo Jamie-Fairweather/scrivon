@@ -1,6 +1,13 @@
-import { documentKind, getBaseName, stampChanged } from '@/lib/tauri/fs'
+import { comparablePath, documentKind, getBaseName, stampChanged } from '@/lib/tauri/fs'
 import type { FileStamp } from '@/lib/workspace/types'
-import { matchFile as defaultMatchFile, REGEX_FILE_TIME_LIMIT_MS, type MatchFile } from '@/components/studio/command-palette/regex-match-client'
+import {
+    matchFile as defaultMatchFile,
+    replaceFile as defaultReplaceFile,
+    REGEX_FILE_TIME_LIMIT_MS,
+    type MatchFile,
+    type ReplaceFile,
+} from '@/components/studio/command-palette/regex-match-client'
+import { findReplacements, type TextReplacement } from '@/components/studio/command-palette/replace-text'
 import { relativePath } from '@/components/studio/command-palette/search-files'
 import { matchText, type TextMatch, type TextMatcher } from '@/components/studio/command-palette/text-matcher'
 import type { PaletteMode, TextSearchHit } from '@/components/studio/command-palette/types'
@@ -130,12 +137,13 @@ export function buildPreview(line: string, matchIndex: number, matchLength: numb
 }
 
 /** Turns matches (in original-line positions) into hits with their previews. */
-function matchesToHits(content: string, matches: TextMatch[], path: string, source: 'buffer' | 'disk'): TextSearchHit[] {
+function matchesToHits(content: string, matches: Array<TextMatch | TextReplacement>, path: string, source: 'buffer' | 'disk'): TextSearchHit[] {
     if (matches.length === 0) return []
     const lines = content.split('\n')
-    return matches.map(({ lineIndex, start, length }) => {
+    return matches.map((match) => {
+        const { lineIndex, start, length } = match
         const { preview, matchStart, matchLength } = buildPreview(lines[lineIndex]!, start, length)
-        return {
+        const hit: TextSearchHit = {
             path,
             line: lineIndex + 1,
             column: start + 1,
@@ -145,6 +153,8 @@ function matchesToHits(content: string, matches: TextMatch[], path: string, sour
             previewMatchLength: matchLength,
             source,
         }
+        if ('newText' in match) hit.newText = match.newText
+        return hit
     })
 }
 
@@ -197,6 +207,13 @@ export type SearchWorkspaceContentOptions = {
     signal: AbortSignal
     /** Runs a regex search in the worker. Only used in regex mode; the app's own worker by default. */
     matchFile?: MatchFile
+    /**
+     * Set for Replace in Workspace's preview: each hit then says what its match becomes (`newText`), and only
+     * matches Replace would change are found (findReplacements). Null or left out for a plain search.
+     */
+    replacement?: string | null
+    /** Works out a regex search's replacements in the worker. Only used in regex mode with a replacement. */
+    replaceFile?: ReplaceFile
     /** How long the worker gets for each file in regex mode. */
     regexTimeLimitMs?: number
     maxHits?: number
@@ -213,13 +230,23 @@ export type SearchWorkspaceContentResult = {
     unreadableFiles: number
     /** Files with more matches than the per-file limit shows. */
     truncatedFiles: number
+    /** Which files those are, so the results can say '10+' for them. */
+    truncatedPaths: string[]
     /** Lines skipped in regex mode for being longer than REGEX_MAX_LINE_LENGTH. */
     longLinesSkipped: number
     /** Set when a regex search stopped early. The hits found before it stopped are kept. */
     stopped: SearchStop | null
 }
 
-const NO_RESULT: SearchWorkspaceContentResult = { hits: [], capped: false, unreadableFiles: 0, truncatedFiles: 0, longLinesSkipped: 0, stopped: null }
+const NO_RESULT: SearchWorkspaceContentResult = {
+    hits: [],
+    capped: false,
+    unreadableFiles: 0,
+    truncatedFiles: 0,
+    truncatedPaths: [],
+    longLinesSkipped: 0,
+    stopped: null,
+}
 
 export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions): Promise<SearchWorkspaceContentResult> {
     const {
@@ -231,6 +258,8 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         cache,
         signal,
         matchFile = defaultMatchFile,
+        replacement = null,
+        replaceFile = defaultReplaceFile,
         regexTimeLimitMs = REGEX_FILE_TIME_LIMIT_MS,
         maxHits = MAX_HITS,
         maxHitsPerFile = MAX_HITS_PER_FILE,
@@ -239,8 +268,12 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
     } = opts
 
     const hits: TextSearchHit[] = []
-    const bufferPaths = new Set(openBuffers.keys())
+    // An open file is searched in its tab, never on disk too, however the folder listing spells its path
+    // (C:\Notes\A.md in the tab, c:/notes/a.md in the listing).
+    const bufferPaths = new Set([...openBuffers.keys()].map(comparablePath))
     let truncatedFiles = 0
+    // How many matches each file had (one past the per-file limit at most), to tell which ones the results cut short.
+    const foundCounts = new Map<string, number>()
     let longLinesSkipped = 0
     let stopped: SearchStop | null = null
     // Aborted with the caller's signal, or when a regex search stops (a file took too long), so the files
@@ -251,19 +284,23 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
     signal.addEventListener('abort', stopScan, { once: true })
 
     /** The matches in one file: on this thread for a plain search, in the worker for a regex. Null once the search stopped. */
-    const findMatches = async (content: string, path: string): Promise<TextMatch[] | null> => {
+    const findMatches = async (content: string, path: string): Promise<Array<TextMatch | TextReplacement> | null> => {
         // Looks one hit past the per-file limit to tell whether the file had more.
         const limit = maxHitsPerFile + 1
-        if (!matcher.options.useRegex) return matchText(content, matcher, limit).matches
+        if (!matcher.options.useRegex) {
+            return replacement === null
+                ? matchText(content, matcher, limit).matches
+                : findReplacements(content, matcher, replacement, limit).replacements
+        }
 
-        const result = await matchFile(content, matcher.query, matcher.options, {
-            maxHits: limit,
-            timeLimitMs: regexTimeLimitMs,
-            signal: scan.signal,
-        })
-        if (result.type === 'matches') {
+        const matchOptions = { maxHits: limit, timeLimitMs: regexTimeLimitMs, signal: scan.signal }
+        const result =
+            replacement === null
+                ? await matchFile(content, matcher.query, matcher.options, matchOptions)
+                : await replaceFile(content, matcher.query, matcher.options, replacement, matchOptions)
+        if (result.type === 'matches' || result.type === 'replacements') {
             longLinesSkipped += result.longLinesSkipped
-            return result.matches
+            return result.type === 'matches' ? result.matches : result.replacements
         }
         if (result.type !== 'aborted' && !stopped) {
             stopped = result.type === 'timedOut' ? { reason: 'timedOut', path } : { reason: 'unavailable' }
@@ -276,6 +313,7 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         const matches = await findMatches(content, path)
         if (!matches) return []
         const fileHits = matchesToHits(content, matches, path, source)
+        foundCounts.set(path, fileHits.length)
         if (fileHits.length <= maxHitsPerFile) return fileHits
         truncatedFiles++
         return fileHits.slice(0, maxHitsPerFile)
@@ -283,7 +321,12 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
 
     const finish = (capped: boolean, unreadableFiles: number): SearchWorkspaceContentResult => {
         signal.removeEventListener('abort', stopScan)
-        return { hits: hits.slice(0, maxHits), capped, unreadableFiles, truncatedFiles, longLinesSkipped, stopped }
+        const shown = hits.slice(0, maxHits)
+        const shownCounts = new Map<string, number>()
+        for (const hit of shown) shownCounts.set(hit.path, (shownCounts.get(hit.path) ?? 0) + 1)
+        // Cut short by the per-file limit, or by the overall one part way through the file.
+        const truncatedPaths = [...shownCounts].filter(([path, count]) => (foundCounts.get(path) ?? 0) > count).map(([path]) => path)
+        return { hits: shown, capped, unreadableFiles, truncatedFiles, truncatedPaths, longLinesSkipped, stopped }
     }
 
     for (const [path, content] of openBuffers) {
@@ -293,7 +336,7 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         if (scan.signal.aborted) return signal.aborted ? NO_RESULT : finish(false, 0)
     }
 
-    const diskPaths = paths.filter((path) => !bufferPaths.has(path))
+    const diskPaths = paths.filter((path) => !bufferPaths.has(comparablePath(path)))
 
     let unreadableFiles = 0
 
@@ -343,5 +386,6 @@ export function textHitToPaletteItem(hit: TextSearchHit, workspaceRoot: string):
         previewMatchStart: hit.previewMatchStart,
         previewMatchLength: hit.previewMatchLength,
         source: hit.source,
+        ...(hit.newText !== undefined ? { newText: hit.newText } : {}),
     }
 }

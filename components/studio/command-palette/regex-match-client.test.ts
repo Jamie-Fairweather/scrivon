@@ -6,6 +6,7 @@ import {
     type RegexMatchRequest,
     type RegexMatchResponse,
 } from '@/components/studio/command-palette/regex-match-client'
+import { findReplacements } from '@/components/studio/command-palette/replace-text'
 import { compileTextQuery, matchText, PLAIN_SEARCH_OPTIONS } from '@/components/studio/command-palette/text-matcher'
 
 const REGEX = { ...PLAIN_SEARCH_OPTIONS, useRegex: true }
@@ -16,6 +17,10 @@ type Answer = (request: RegexMatchRequest) => RegexMatchResponse | null
 const realAnswer: Answer = (request) => {
     const compiled = compileTextQuery(request.query, request.options)
     if (!compiled.ok) return { type: 'regex-invalid', id: request.id, error: compiled.error }
+    if (typeof request.replacement === 'string') {
+        const { replacements, longLinesSkipped } = findReplacements(request.text, compiled.matcher, request.replacement, request.maxHits ?? undefined)
+        return { type: 'regex-replaced', id: request.id, replacements, longLinesSkipped }
+    }
     const { matches, longLinesSkipped } = matchText(request.text, compiled.matcher, request.maxHits ?? undefined)
     return { type: 'regex-matched', id: request.id, matches, longLinesSkipped }
 }
@@ -89,6 +94,19 @@ describe('regex match client', () => {
         const capped = await client.matchFile(text, 'a\\d', REGEX, { ...limit, maxHits: 2 })
         expect(capped.type === 'matches' && capped.matches).toHaveLength(2)
         expect(createWorker).toHaveBeenCalledTimes(1)
+    })
+
+    it("works out a file's replacements in the worker, through the same queue and time limit", async () => {
+        const { client, workers } = setup()
+        const result = await client.replaceFile('ab ab', '(a)(b)', REGEX, '$2$1', { ...limit, maxHits: 1 })
+        expect(result).toEqual({
+            type: 'replacements',
+            replacements: [{ lineIndex: 0, start: 0, length: 2, oldText: 'ab', newText: 'ba' }],
+            longLinesSkipped: 0,
+        })
+        expect(workers[0]!.received[0]).toMatchObject({ replacement: '$2$1', maxHits: 1 })
+        // A plain match after it is answered with matches, not replacements.
+        await expect(client.matchFile('ab', 'a', REGEX, limit)).resolves.toMatchObject({ type: 'matches' })
     })
 
     it('sends one file at a time, the next only after the last reply', async () => {

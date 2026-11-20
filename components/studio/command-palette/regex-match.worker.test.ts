@@ -39,4 +39,13 @@ it('says it is ready, then answers each file with its matches, or the error of a
 
     listener!({ data: { id: 3, text: 'x', query: '[', options, maxHits: null } })
     expect(postMessage).toHaveBeenLastCalledWith({ type: 'regex-invalid', id: 3, error: expect.stringMatching(/^Invalid regular expression: /) })
+
+    // With a replacement, each match comes with what it becomes.
+    listener!({ data: { id: 4, text: 'ab ab\r\n', query: '(a)(b)$', options, maxHits: null, replacement: '$2$1' } })
+    expect(postMessage).toHaveBeenLastCalledWith({
+        type: 'regex-replaced',
+        id: 4,
+        replacements: [{ lineIndex: 0, start: 3, length: 2, oldText: 'ab', newText: 'ba' }],
+        longLinesSkipped: 0,
+    })
 })

@@ -1199,6 +1199,7 @@ describe('usePaletteSearch Find in Workspace options', () => {
             capped: false,
             unreadableFiles: 0,
             truncatedFiles: 0,
+            truncatedPaths: [],
             longLinesSkipped: 0,
             stopped: null,
         })
@@ -1241,6 +1242,7 @@ describe('usePaletteSearch Find in Workspace options', () => {
             capped: true,
             unreadableFiles: 1,
             truncatedFiles: 1,
+            truncatedPaths: ['/ws/a.md'],
             longLinesSkipped: 2,
             stopped: { reason: 'unavailable' },
         })
@@ -1343,6 +1345,7 @@ describe('usePaletteSearch Find in Workspace options', () => {
             capped: false,
             unreadableFiles: 0,
             truncatedFiles: 0,
+            truncatedPaths: [],
             longLinesSkipped: 3,
             stopped: { reason: 'timedOut', path: '/ws/docs/notes.md' },
         })
@@ -1362,6 +1365,7 @@ describe('usePaletteSearch Find in Workspace options', () => {
             capped: false,
             unreadableFiles: 0,
             truncatedFiles: 0,
+            truncatedPaths: [],
             longLinesSkipped: 0,
             stopped: { reason: 'unavailable' },
         })
