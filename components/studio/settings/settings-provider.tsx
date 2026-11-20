@@ -104,11 +104,14 @@ function clampAutosaveDelay(delayMs: number): number {
     return Math.min(5000, Math.max(200, Math.round(delayMs)))
 }
 
-/** With Restore panel layout off, every start shows the panels as on a first launch: explorer, editor and preview, no outline. */
+/**
+ * With Restore panel layout off, every start shows the panels as on a first launch: explorer, editor and preview,
+ * no outline, and not in focus mode.
+ */
 function withStartupLayout(settings: AppSettings): AppSettings {
     if (settings.layout.restorePanelsOnOpen) return settings
-    const { explorerOpen, editorOpen, previewOpen, outlineOpen } = createDefaultSettings(isMacPlatform()).layout
-    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen, previewOpen, outlineOpen } }
+    const { explorerOpen, editorOpen, previewOpen, outlineOpen, focusMode } = createDefaultSettings(isMacPlatform()).layout
+    return { ...settings, layout: { ...settings.layout, explorerOpen, editorOpen, previewOpen, outlineOpen, focusMode } }
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {

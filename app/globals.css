@@ -68,6 +68,10 @@
     --code: var(--color-white);
     --code-foreground: var(--foreground);
     --code-highlight: --alpha(var(--color-black) / 4%);
+    /* How strong the text of the paragraphs Dim Other Paragraphs fades is. Every editor syntax colour stays at
+       3:1 or more on the editor background, in every theme (lib/theme/monaco-theme.test.ts). Solarized Light's
+       body text sets the limit: 0.82 is the least that passes, and this leaves room for rounding. */
+    --editor-dim-opacity: 0.84;
 }
 
 @theme inline {
@@ -366,6 +370,15 @@
     [data-drop-target] {
         outline: 2px dashed Highlight;
         outline-offset: -2px;
+    }
+}
+
+/* Dim Other Paragraphs (components/studio/editor/editor-paragraph-dimming.ts): only the letters fade, so the
+   selection, find highlights and spelling squiggles stay as they are. Not in Windows Contrast themes, where
+   text keeps its system colour. */
+@media (forced-colors: none) {
+    .monaco-editor .editor-dimmed-text {
+        opacity: var(--editor-dim-opacity);
     }
 }
 

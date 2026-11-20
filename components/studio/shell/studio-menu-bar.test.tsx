@@ -24,8 +24,8 @@ import {
     useWorkspaceSession,
 } from '@/components/studio/workspace/workspace-provider'
 import { formatMarkdown } from '@/lib/monaco/markdown-editing'
-import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import type { KeybindBindings } from '@/lib/settings/types'
+import { createDefaultKeybinds, createDefaultSettings } from '@/lib/settings/defaults'
+import type { AppSettings, KeybindBindings } from '@/lib/settings/types'
 import { isTauri } from '@/lib/tauri/platform'
 import { StudioMenuBar } from './studio-menu-bar'
 
@@ -86,6 +86,8 @@ function mockContexts({
     zoom = 1,
     statusBarVisible = true,
     spellcheckEnabled = true,
+    focusMode = false,
+    dimOtherParagraphs = false,
 } = {}) {
     vi.mocked(useCanvasControls).mockReturnValue({ canFitToView, zoomDiagram: vi.fn() } as unknown as ReturnType<typeof useCanvasControls>)
     vi.mocked(useWorkspaceSession).mockReturnValue({
@@ -126,7 +128,11 @@ function mockContexts({
         revertTab: vi.fn(async () => {}),
     } as unknown as ReturnType<typeof useDocumentTabs>)
     vi.mocked(useStudioLayout).mockReturnValue({
-        layout: { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen },
+        layout: focusMode
+            ? { explorerOpen: false, editorOpen: true, previewOpen: false, outlineOpen: false }
+            : { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen },
+        focusMode,
+        setFocusMode: vi.fn(),
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
         setPreviewOpen: vi.fn(),
@@ -146,7 +152,8 @@ function mockContexts({
             theme: { id: 'scrivon-dark', light: 'scrivon-light', dark: 'scrivon-dark' },
             statusBar: { visible: statusBarVisible },
             spellcheck: { enabled: spellcheckEnabled, language: 'en-GB', words: [] },
-            editor: { scrollSync: true, jumpFromPreview: true },
+            editor: { scrollSync: true, jumpFromPreview: true, dimOtherParagraphs },
+            layout: { focusMode },
         },
         updateSettings: vi.fn(),
         openSettings: vi.fn(),
@@ -818,7 +825,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(59)
+        expect(compared).toBe(61)
     })
 })
 
@@ -873,11 +880,51 @@ describe('StudioMenuBar View menu', () => {
         const groups = Array.from(view.querySelectorAll('[role="group"]')).map((group) =>
             Array.from(group.querySelectorAll('[role^="menuitem"]')).map((item) => item.textContent)
         )
-        expect(groups.slice(0, 3)).toEqual([
+        expect(groups.slice(0, 4)).toEqual([
             ['ExplorerCtrl+Shift+B', 'EditorCtrl+E', 'PreviewCtrl+Alt+P', 'Outline', 'Status Bar'],
             ['Show All Panels', 'Editor and Preview', 'Preview OnlyCtrl+Shift+O'],
+            ['Focus ModeF11', 'Dim Other Paragraphs', 'PresentF5'],
             ['Reveal Active File in Sidebar', 'Collapse All Folders'],
         ])
+    })
+
+    it('turns focus mode on from its tick box, with F11', async () => {
+        mockContexts({ workspaceRoot: 'C:/work' })
+        render(<Studio />)
+
+        const focus = within(await openMenu('View')).getByRole('menuitemcheckbox', { name: 'Focus Mode F11' })
+        expect(focus).toHaveAttribute('aria-checked', 'false')
+        await userEvent.setup().click(focus)
+
+        expect(vi.mocked(useStudioLayout)().setFocusMode).toHaveBeenCalledWith(true)
+    })
+
+    it('turns focus mode off from the menu, which stays in focus mode, and shows the hidden panes as off', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', focusMode: true, statusBarVisible: true })
+        render(<Studio />)
+
+        const view = await openMenu('View')
+        for (const name of ['Explorer Ctrl+Shift+B', 'Preview Ctrl+Alt+P', 'Outline', 'Status Bar']) {
+            expect(within(view).getByRole('menuitemcheckbox', { name })).toHaveAttribute('aria-checked', 'false')
+        }
+        const focus = within(view).getByRole('menuitemcheckbox', { name: 'Focus Mode F11' })
+        expect(focus).toHaveAttribute('aria-checked', 'true')
+        await userEvent.setup().click(focus)
+
+        expect(vi.mocked(useStudioLayout)().setFocusMode).toHaveBeenCalledWith(false)
+    })
+
+    it('switches Dim other paragraphs from its tick box', async () => {
+        mockContexts({ workspaceRoot: 'C:/work', dimOtherParagraphs: true })
+        render(<Studio />)
+
+        const dim = within(await openMenu('View')).getByRole('menuitemcheckbox', { name: 'Dim Other Paragraphs' })
+        expect(dim).toHaveAttribute('aria-checked', 'true')
+        await userEvent.setup().click(dim)
+
+        const update = vi.mocked(useAppSettings)().updateSettings as unknown as ReturnType<typeof vi.fn>
+        const change = update.mock.calls[0]?.[0] as (current: AppSettings) => AppSettings
+        expect(change(createDefaultSettings(false)).editor.dimOtherParagraphs).toBe(true)
     })
 
     it('shows and hides the status bar from its tick box', async () => {
@@ -889,8 +936,8 @@ describe('StudioMenuBar View menu', () => {
         await userEvent.setup().click(statusBar)
 
         const update = vi.mocked(useAppSettings)().updateSettings as unknown as ReturnType<typeof vi.fn>
-        const change = update.mock.calls[0]?.[0] as (current: { statusBar: { visible: boolean } }) => { statusBar: { visible: boolean } }
-        expect(change({ statusBar: { visible: true } }).statusBar.visible).toBe(false)
+        const change = update.mock.calls[0]?.[0] as (current: AppSettings) => AppSettings
+        expect(change(createDefaultSettings(false)).statusBar.visible).toBe(false)
     })
 
     it('closes every folder in the explorer', async () => {

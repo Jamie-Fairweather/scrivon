@@ -133,6 +133,12 @@ class FakeModel {
     getLineContent(lineNumber: number) {
         return this.lines[lineNumber - 1] ?? ''
     }
+    getLineCount() {
+        return this.lines.length
+    }
+    getLineMaxColumn(lineNumber: number) {
+        return this.getLineContent(lineNumber).length + 1
+    }
     /** Single-line ranges are enough here. */
     getValueInRange(range: FakeRange) {
         const line = this.lines[range.startLineNumber - 1] ?? ''
@@ -221,6 +227,18 @@ class FakeEditor {
     }
     restoreViewState() {}
     addCommand() {}
+    /** The lines Dim Other Paragraphs fades, as [first, last] with the class on them. */
+    dimmed: Array<[number, number, string | undefined]> = []
+    createDecorationsCollection() {
+        return {
+            set: (decorations: Array<{ range: FakeRange; options: { inlineClassName?: string } }>) => {
+                this.dimmed = decorations.map(({ range, options }) => [range.startLineNumber, range.endLineNumber, options.inlineClassName])
+            },
+            clear: () => {
+                this.dimmed = []
+            },
+        }
+    }
     /** Monaco actions run by id, as the Edit menu and the palette do. */
     readonly triggered: string[] = []
     trigger(_source: string, id: string) {
@@ -437,6 +455,7 @@ const DEFAULT_EDITOR_SETTINGS = {
     tabMovesFocus: false,
     scrollSync: true,
     jumpFromPreview: true,
+    dimOtherParagraphs: false,
 }
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
@@ -480,8 +499,8 @@ function tab(path: string, content: string): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content, isDirty: false, isSaving: false }
 }
 
-function Panel({ open = true }: { open?: boolean }) {
-    return <CodeEditorPanel open={open} width={400} onWidthChange={() => {}} />
+function Panel({ open = true, focusMode = false }: { open?: boolean; focusMode?: boolean }) {
+    return <CodeEditorPanel open={open} fill={focusMode} focusMode={focusMode} width={400} onWidthChange={() => {}} />
 }
 
 async function mountEditor() {
@@ -1333,6 +1352,66 @@ describe('CodeEditorPanel with the preview hidden', () => {
         expect(panel).not.toHaveClass('flex-1')
         expect(panel.style.width).toBe('400px')
         expect(view.getByRole('separator', { name: 'Resize editor' })).toBeInTheDocument()
+    })
+})
+
+describe('CodeEditorPanel in focus mode', () => {
+    it('says how to leave focus mode with no file open, and can take focus itself', () => {
+        const view = render(<Panel focusMode />)
+        const panel = view.getByRole('region', { name: 'Editor' })
+        expect(panel).toHaveAttribute('data-pane', 'editor')
+        expect(panel).toHaveAttribute('tabindex', '-1')
+        expect(panel).toHaveTextContent('Focus mode is on. Press Esc to leave it, or Ctrl+Shift+N to open a file.')
+
+        act(() => panel.focus())
+        expect(panel).toHaveFocus()
+    })
+
+    it('points to the explorer, and takes no focus itself, outside focus mode', () => {
+        const view = render(<Panel />)
+        const panel = view.container.firstElementChild as HTMLElement
+        expect(panel).toHaveTextContent('Select a file from the explorer or create a new file.')
+        expect(panel).not.toHaveAttribute('tabindex')
+        expect(view.queryByRole('region', { name: 'Editor' })).toBeNull()
+    })
+
+    it('keeps the editor and its buffer when focus mode starts and ends', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        act(() => editor.setPosition({ lineNumber: 1, column: 2 }))
+        view.rerender(<Panel focusMode />)
+        view.rerender(<Panel />)
+
+        expect(editors).toEqual([editor])
+        expect(editor.getModel()?.getValue()).toBe('A')
+        expect(editor.getPosition()).toEqual({ lineNumber: 1, column: 2 })
+    })
+})
+
+describe('CodeEditorPanel Dim other paragraphs', () => {
+    const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+
+    it('fades the paragraphs the cursor is not in while the setting is on, and follows the setting', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'One\n\nTwo\nlines\n\nThree')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        expect(editor.dimmed).toEqual([])
+
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, dimOtherParagraphs: true }
+        view.rerender(<Panel />)
+        await nextFrame()
+        expect(editor.dimmed).toEqual([[2, 6, 'editor-dimmed-text']])
+
+        act(() => editor.setPosition({ lineNumber: 4, column: 2 }))
+        await nextFrame()
+        expect(editor.dimmed).toEqual([
+            [1, 2, 'editor-dimmed-text'],
+            [5, 6, 'editor-dimmed-text'],
+        ])
+
+        editorSettings = DEFAULT_EDITOR_SETTINGS
+        view.rerender(<Panel />)
+        await nextFrame()
+        expect(editor.dimmed).toEqual([])
     })
 })
 

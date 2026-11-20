@@ -7,7 +7,7 @@ import { copyPng, copySvg, exportPng, exportSvg, type DiagramLook } from '@/lib/
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import type { AppSettings } from '@/lib/settings/types'
 import type { DocumentTab } from '@/lib/workspace/types'
-import { DocumentExportMenu } from './document-export-menu'
+import { DocumentExportMenu, FocusModeExportMenu } from './document-export-menu'
 import { DocumentExportProvider, useDocumentExport } from './document-export-provider'
 import { BatchExportProvider, useExportRunning } from '@/components/studio/batch-export/batch-export-provider'
 
@@ -576,6 +576,74 @@ describe('diagram options and copying (F45)', () => {
         await openMenu()
         expect(screen.queryByRole('menuitem', { name: 'Copy Diagram as PNG' })).toBeNull()
         expect(screen.queryByRole('menuitemcheckbox', { name: 'Transparent Background' })).toBeNull()
+    })
+})
+
+/** The studio's export, in focus mode (studio-layout.tsx) or with the tab bar shown, keeping its state across the switch. */
+function StudioExport({ focusMode }: { focusMode: boolean }) {
+    return (
+        <CommandRegistryProvider>
+            <DocumentExportProvider>
+                {focusMode ? <FocusModeExportMenu /> : <DocumentExportMenu />}
+                <CommandsProbe />
+            </DocumentExportProvider>
+        </CommandRegistryProvider>
+    )
+}
+
+describe('FocusModeExportMenu', () => {
+    beforeEach(() => {
+        registered.current = []
+    })
+
+    it('opens the diagram export menu with Export… in focus mode, where the tab bar and its Export button are hidden', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->B')
+        render(<StudioExport focusMode />)
+        expect(screen.queryByRole('button', { name: 'Export document' })).toBeNull()
+        await waitFor(() => expect(command('export').disabled).toBe(false))
+
+        // Ctrl+Shift+X, the palette's Export… and File > Export… all run this command.
+        act(() => void command('export').run())
+        expect(await screen.findByRole('menuitem', { name: 'Export Diagram as SVG…' })).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Export Diagram as SVG…' }))
+        await waitFor(() => expect(exportSvg).toHaveBeenCalledWith('graph TD; A-->B', APP_LOOK, expect.objectContaining({ tabName: 'flow.mmd' })))
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    })
+
+    it('puts focus back in the editor when the menu closes', async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->B')
+        render(
+            <>
+                <textarea aria-label="Editor" />
+                <StudioExport focusMode />
+            </>
+        )
+        const editor = screen.getByRole('textbox', { name: 'Editor' })
+        act(() => editor.focus())
+        await waitFor(() => expect(command('export').disabled).toBe(false))
+
+        act(() => void command('export').run())
+        const menu = await screen.findByRole('menu')
+        await waitFor(() => expect(menu).toContainElement(document.activeElement as HTMLElement))
+
+        fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+        await waitFor(() => expect(editor).toHaveFocus())
+    })
+
+    it("doesn't pop the tab bar's menu open by itself when focus mode ends", async () => {
+        tabs.activeTab = tab('flow.mmd', 'graph TD; A-->B')
+        const view = render(<StudioExport focusMode />)
+        await waitFor(() => expect(command('export').disabled).toBe(false))
+        act(() => void command('export').run())
+        await screen.findByRole('menu')
+        fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+        await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+
+        view.rerender(<StudioExport focusMode={false} />)
+        expect(screen.getByRole('button', { name: 'Export document' })).toBeInTheDocument()
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(screen.queryByRole('menu')).toBeNull()
     })
 })
 

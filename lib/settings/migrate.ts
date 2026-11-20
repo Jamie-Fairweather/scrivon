@@ -191,6 +191,7 @@ export function migrateLegacySettings(read: LegacyStorageReader, isMac = isMacPl
             editorWidth: readNumber(read(STORAGE_KEY_WIDTH), defaults.layout.editorWidth, 280, 2000),
             restorePanelsOnOpen: defaults.layout.restorePanelsOnOpen,
             outlineOpen: defaults.layout.outlineOpen,
+            focusMode: defaults.layout.focusMode,
         },
         keybinds: defaults.keybinds,
     }
@@ -236,6 +237,8 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             restorePanelsOnOpen:
                 typeof source.layout?.restorePanelsOnOpen === 'boolean' ? source.layout.restorePanelsOnOpen : defaults.layout.restorePanelsOnOpen,
             outlineOpen: typeof source.layout?.outlineOpen === 'boolean' ? source.layout.outlineOpen : defaults.layout.outlineOpen,
+            // Settings saved before focus mode have none, so it starts off.
+            focusMode: typeof source.layout?.focusMode === 'boolean' ? source.layout.focusMode : defaults.layout.focusMode,
         },
         editor: {
             fontSize: readWholeNumber(source.editor?.fontSize, defaults.editor.fontSize, 8, 32),
@@ -247,6 +250,8 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             tabMovesFocus: typeof source.editor?.tabMovesFocus === 'boolean' ? source.editor.tabMovesFocus : defaults.editor.tabMovesFocus,
             scrollSync: typeof source.editor?.scrollSync === 'boolean' ? source.editor.scrollSync : defaults.editor.scrollSync,
             jumpFromPreview: typeof source.editor?.jumpFromPreview === 'boolean' ? source.editor.jumpFromPreview : defaults.editor.jumpFromPreview,
+            dimOtherParagraphs:
+                typeof source.editor?.dimOtherParagraphs === 'boolean' ? source.editor.dimOtherParagraphs : defaults.editor.dimOtherParagraphs,
         },
         workspace: {
             maxRecentFolders: readWholeNumber(source.workspace?.maxRecentFolders, defaults.workspace.maxRecentFolders, 1, 50),

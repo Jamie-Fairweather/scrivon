@@ -269,7 +269,11 @@ export function StudioMenuBar() {
                                 {item('preview-only')}
                             </MenuGroup>
                             <MenuSeparator />
-                            {item('present')}
+                            <MenuGroup>
+                                {item('toggle-focus-mode')}
+                                {item('toggle-dim-other-paragraphs')}
+                                {item('present')}
+                            </MenuGroup>
                             <MenuSeparator />
                             <MenuGroup>
                                 {item('reveal-active-file')}
