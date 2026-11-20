@@ -98,8 +98,10 @@ export function useDiagramPicking({ containerRef, getView, shownSvg, source, loc
     const onPointerMove = useCallback(
         (e: React.PointerEvent) => {
             panHandlers.onPointerMove(e)
-            if (!latestRef.current.canJump || e.buttons !== 0) {
-                // Dragging pans the diagram: no outline while it moves.
+            // Dragging pans the diagram: no outline while it moves. Nor over the canvas's own controls and messages
+            // (the zoom toolbar, an error), which take the double-click themselves: the picture itself lets the
+            // pointer through to the canvas.
+            if (!latestRef.current.canJump || e.buttons !== 0 || e.target !== e.currentTarget) {
                 if (hoveredRef.current || pointRef.current) stopHover()
                 return
             }
@@ -108,7 +110,11 @@ export function useDiagramPicking({ containerRef, getView, shownSvg, source, loc
             frameRef.current = requestAnimationFrame(() => {
                 frameRef.current = 0
                 const point = pointRef.current
-                showHover(point ? pick(point) : null)
+                const target = point ? pick(point) : null
+                // Only a part the text still has: double-clicking one it no longer has (the picture is from before
+                // an error, say) does nothing, so it isn't shown as one to pick.
+                const { source: text } = latestRef.current
+                showHover(target && locateDiagramTarget(text, target) ? target : null)
             })
         },
         [panHandlers, pick, showHover, stopHover]
@@ -137,5 +143,5 @@ export function useDiagramPicking({ containerRef, getView, shownSvg, source, loc
         [pick, reset, coordinator]
     )
 
-    return { outlineRef, handlers: { onPointerMove, onPointerDown, onPointerLeave: stopHover, onDoubleClick } }
+    return { canJump, outlineRef, handlers: { onPointerMove, onPointerDown, onPointerLeave: stopHover, onDoubleClick } }
 }

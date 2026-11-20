@@ -11,6 +11,7 @@ import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/wor
 import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { diagramName } from '@/lib/mermaid/diagram-alt-text'
 import { supportedDiagramsSentence } from '@/lib/mermaid/prepare-source'
+import { diagramPartsKind } from '@/lib/mermaid/source-locations'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
@@ -136,11 +137,15 @@ function DiagramLoading() {
     )
 }
 
-/** What the canvas's description tells screen readers: its keys, and how to get from a part to its text. */
-function keysHint(canJump: boolean, partsInPalette: boolean): string {
+/**
+ * What the canvas's description tells screen readers: its keys, and how to get from a part to its text. It only
+ * mentions what works now: double-clicking only while it would jump (useDiagramPicking's canJump), and parts at all
+ * only in a diagram whose parts can be picked (a flowchart, state or sequence diagram).
+ */
+function keysHint({ canJump, partsInPalette, pickable }: { canJump: boolean; partsInPalette: boolean; pickable: boolean }): string {
     let hint = '+ and - zoom, 0 goes back to 100%, and the arrow keys move the diagram.'
-    if (canJump) hint += ' Double-click a node, link or message to select its text in the editor.'
-    if (partsInPalette) hint += " In the command palette, type @ to list the diagram's parts and pick one with the keyboard."
+    if (pickable && canJump) hint += ' Double-click a node, link or message to select its text in the editor.'
+    if (pickable && partsInPalette) hint += " In the command palette, type @ to list the diagram's parts and pick one with the keyboard."
     return hint
 }
 
@@ -219,6 +224,7 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory, locate
         panHandlers: handlers,
         reset,
     })
+    const pickable = useMemo(() => diagramPartsKind(source) !== 'other', [source])
 
     return (
         <div
@@ -273,7 +279,7 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory, locate
                 <>
                     <DiagramZoomToolbar zoomLevel={zoomLevel} onZoom={zoom} onFit={fitDiagram} />
                     <span id={keysHintId} hidden>
-                        {keysHint(Boolean(locateInFile), partsInPalette)}
+                        {keysHint({ canJump: picking.canJump, partsInPalette, pickable })}
                     </span>
                 </>
             ) : null}

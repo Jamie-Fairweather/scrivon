@@ -539,6 +539,7 @@ describe('MarkdownDocumentViewer', () => {
             it.each([
                 ['a list item', '- Steps\n\n  ```mermaid\n  flowchart TD\n    A --> B\n  ```', { line: 5, column: 5 }],
                 ['a > quote', '> ```mermaid\n> flowchart TD\n>   A --> B\n> ```', { line: 3, column: 5 }],
+                ['raw HTML', '# T\n\n<pre><code class="language-mermaid">flowchart TD\n  A --> B</code></pre>\n', { line: 4, column: 3 }],
             ])('finds the column of a diagram inside %s', (_name, source, place) => {
                 expandFirst(source)
                 expect(screen.getByTestId('expanded-canvas').textContent).toBe('flowchart TD\n  A --> B')

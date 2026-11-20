@@ -403,23 +403,55 @@ export function locateDiagramTarget(source: string, target: TargetKey): SourceLo
 
 /** The opening of a fenced block: up to three spaces, then three or more backticks or tildes. */
 const FENCE_MARK = /(`{3,}|~{3,})/
+/** The opening tag of a block's code element, in a diagram written as raw HTML (`<pre><code class="language-mermaid">`). */
+const CODE_TAG = /<code\b[^>]*>/i
+/** How many lines, from a raw HTML block's `<pre>` line, its `<code>` tag is looked for on. */
+const CODE_TAG_LOOKAHEAD = 3
+
+type BlockTextStart = {
+    /** The line (from 1) the block's first line is on. */
+    line: number
+    /** The column (from 0) the block's first line starts at. */
+    firstColumn: number
+    /** The column (from 0) its later lines start at. */
+    indent: number
+}
 
 /**
- * A place in a Markdown diagram block's text, moved to the Markdown file. `fenceLine` is the line of the block's
- * opening fence (from 1); its text starts on the next line. The block's text has any list indent or `> ` taken off
- * (as the preview shows it), so the part is looked for on the Markdown line from where the block's text starts:
- * first at the column it should be at, then anywhere after. Not found (the file changed under the preview), the
- * whole line is selected from column 1.
+ * Where a diagram block's text starts in the Markdown file. A fenced block's text starts on the line after the
+ * fence, at the fence's column (past any list indent or `> `). A block written as raw HTML starts right after its
+ * `<code ...>` tag, on the `<pre>` line or just below it.
+ */
+function blockTextStart(lines: string[], fenceLine: number): BlockTextStart | null {
+    const fence = lines[fenceLine - 1]
+    if (fence === undefined) return null
+    const mark = fence.search(FENCE_MARK)
+    if (mark !== -1) return { line: fenceLine + 1, firstColumn: mark, indent: mark }
+    const indent = Math.max(0, fence.search(/<(?:pre|code)\b/i))
+    for (let line = fenceLine; line < fenceLine + CODE_TAG_LOOKAHEAD && line <= lines.length; line++) {
+        const tag = CODE_TAG.exec(lines[line - 1]!)
+        if (tag) return { line, firstColumn: tag.index + tag[0].length, indent }
+    }
+    return { line: fenceLine + 1, firstColumn: 0, indent: 0 }
+}
+
+/**
+ * A place in a Markdown diagram block's text, moved to the Markdown file. `fenceLine` is the line (from 1) the block
+ * opens on: its fence, or for a block written as raw HTML its `<pre>` line. The block's text has any list indent or
+ * `> ` taken off (as the preview shows it), so the part is looked for on the Markdown line from where the block's
+ * text starts: first at the column it should be at, then anywhere after. Not found (the file changed under the
+ * preview), the whole line is selected from column 1.
  */
 export function locateInMarkdown(markdown: string, fenceLine: number, blockSource: string, location: SourceLocation): SourceLocation | null {
     const lines = markdown.split('\n').map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line))
-    const fence = lines[fenceLine - 1]
-    const lineNumber = fenceLine + location.line
+    const start = blockTextStart(lines, fenceLine)
+    if (!start) return null
+    const lineNumber = start.line + location.line - 1
     const text = lines[lineNumber - 1]
-    if (fence === undefined || text === undefined) return null
+    if (text === undefined) return null
     const blockLine = blockSource.split('\n')[location.line - 1]?.replace(/\r$/, '') ?? ''
     const part = blockLine.slice(location.column - 1, location.column - 1 + location.length)
-    const contentStart = Math.max(0, fence.search(FENCE_MARK))
+    const contentStart = location.line === 1 ? start.firstColumn : start.indent
     const expected = contentStart + location.column - 1
     if (part && text.startsWith(part, expected)) return { line: lineNumber, column: expected + 1, length: part.length }
     const found = part ? text.indexOf(part, contentStart) : -1

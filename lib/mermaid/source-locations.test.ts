@@ -215,6 +215,15 @@ describe('locateInMarkdown', () => {
         expect(locateInMarkdown(both, 2, 'graph TD\n  A --> B', at(2, 3, 1))).toEqual(at(4, 8, 1))
     })
 
+    it('starts a block written as raw HTML right after its <code> tag, on the <pre> line', () => {
+        const markdown = '# T\n\n<pre><code class="language-mermaid">graph TD\n  A --> B</code></pre>\n'
+        expect(locateInMarkdown(markdown, 3, 'graph TD\n  A --> B', at(2, 3, 1))).toEqual(at(4, 3, 1))
+        expect(locateInMarkdown(markdown, 3, 'graph TD\n  A --> B', at(1, 1, 5))).toEqual(at(3, 37, 5))
+        // The <code> tag on the line below the <pre>.
+        const split = '<pre>\n<code class="language-mermaid">graph TD\n  A --> B</code>\n</pre>'
+        expect(locateInMarkdown(split, 1, 'graph TD\n  A --> B', at(2, 3, 7))).toEqual(at(3, 3, 7))
+    })
+
     it('reads Windows line endings', () => {
         expect(locateInMarkdown('```mermaid\r\ngraph TD\r\n  A --> B\r\n```', 1, 'graph TD\n  A --> B', at(2, 3, 7))).toEqual(at(3, 3, 7))
     })

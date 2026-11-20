@@ -1126,6 +1126,18 @@ describe('usePaletteSearch diagram parts after @', () => {
         expect(result.current.emptyHint).toBeNull()
     })
 
+    it("lists the parts once the canvas's render lands, without the query changing", () => {
+        const tab = openDiagram(FLOW)
+        const { result } = renderHook(() => usePaletteSearch('all', true))
+
+        act(() => result.current.setQuery('@'))
+        expect(result.current.emptyHint).toBe("Show the preview to list the diagram's parts.")
+
+        act(() => drawn(tab))
+        expect(rows(result)).toEqual(['Link: A → B · line 2', 'Node: B · line 2', 'Node: A · line 3'])
+        expect(result.current.emptyHint).toBeNull()
+    })
+
     it('names states, transitions, participants and messages', () => {
         drawn(openDiagram('stateDiagram-v2\n  state "Waiting" as W\n  W --> Done : finish'))
         const { result, rerender } = renderHook(() => usePaletteSearch('all', true))

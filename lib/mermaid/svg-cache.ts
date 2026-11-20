@@ -28,6 +28,31 @@ const clearedAt = new Map<string, number>()
 /** When the whole cache was last cleared, or when a forgotten clear (see markCleared) happened. */
 let allClearedAt = 0
 
+/** Counts up whenever what the cache would give back changes, so a view that reads it outside a render can follow. */
+let version = 0
+const listeners = new Set<() => void>()
+
+function changed(): void {
+    version++
+    for (const listener of listeners) listener()
+}
+
+/**
+ * Calls `listener` whenever a render or failure is kept, a render is looked at again or renders are dropped. For
+ * useSyncExternalStore, with svgCacheVersion: the command palette lists a diagram's parts from the canvas's render,
+ * which may land after the palette opened. Returns the unsubscribe.
+ */
+export function subscribeSvgCache(listener: () => void): () => void {
+    listeners.add(listener)
+    return () => {
+        listeners.delete(listener)
+    }
+}
+
+export function svgCacheVersion(): number {
+    return version
+}
+
 function setRecent<T>(map: Map<string, T>, key: string, value: T): void {
     map.delete(key)
     map.set(key, value)
@@ -113,6 +138,7 @@ export function storeSvg(themeId: string, documentKey: string, trimmedSource: st
     const render = { themeId, source: trimmedSource, svg, drawable: getSvgDimensions(svg) !== null, usedAt: Math.max(startedAt, same?.usedAt ?? 0) }
     const kept = [render, ...list.filter((other) => other !== same)].sort((a, b) => b.usedAt - a.usedAt).slice(0, RENDERS_PER_DOCUMENT)
     setRecent(renders, documentKey, kept)
+    changed()
     return true
 }
 
@@ -122,6 +148,7 @@ export function touchSvg(themeId: string, documentKey: string, trimmedSource: st
     const render = list?.find((entry) => entry.themeId === themeId && entry.source === trimmedSource)
     if (!list || !render) return
     setRecent(renders, documentKey, [{ ...render, usedAt: ++clock }, ...list.filter((entry) => entry !== render)])
+    changed()
 }
 
 export function readRenderError(themeId: string, documentKey: string, trimmedSource: string): string | null {
@@ -133,22 +160,26 @@ export function readRenderError(themeId: string, documentKey: string, trimmedSou
 export function storeRenderError(themeId: string, documentKey: string, trimmedSource: string, message: string, startedAt = startRender()): boolean {
     if (startedAt <= lastClearedAt(documentKey)) return false
     setRecent(failures, documentKey, { themeId, source: trimmedSource, message })
+    changed()
     return true
 }
 
 /** A cleared document starts over: its renders go, and renders still running for it aren't kept. */
 export function forgetDocumentSvgs(documentKey: string): void {
-    renders.delete(documentKey)
-    failures.delete(documentKey)
+    const had = renders.delete(documentKey)
+    const hadFailure = failures.delete(documentKey)
     markCleared(documentKey)
+    if (had || hadFailure) changed()
 }
 
 /** Drops renders for tabs that are no longer open. Block keys start with their tab id and a colon. */
 export function pruneSvgCache(openTabIds: readonly string[]): void {
     const open = new Set(openTabIds)
     const isOpen = (key: string) => open.has(key) || openTabIds.some((tabId) => key.startsWith(`${tabId}:`))
-    for (const key of renders.keys()) if (!isOpen(key)) renders.delete(key)
-    for (const key of failures.keys()) if (!isOpen(key)) failures.delete(key)
+    let dropped = false
+    for (const key of renders.keys()) if (!isOpen(key)) dropped = renders.delete(key) || dropped
+    for (const key of failures.keys()) if (!isOpen(key)) dropped = failures.delete(key) || dropped
+    if (dropped) changed()
 }
 
 export function clearSvgCache(): void {
@@ -156,4 +187,5 @@ export function clearSvgCache(): void {
     failures.clear()
     clearedAt.clear()
     allClearedAt = ++clock
+    changed()
 }

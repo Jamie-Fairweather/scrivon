@@ -253,6 +253,38 @@ describe('MermaidCanvas hover over a part', () => {
         expect(outline()).toHaveAttribute('d', '')
     })
 
+    it('shows no outline over a part the text no longer has', async () => {
+        // The picture is from before an error: B is gone from the text.
+        const { canvas, outline } = renderCanvas('graph TD\n  A -->')
+
+        fireEvent.pointerMove(canvas, { clientX: 30, clientY: -5, buttons: 0 })
+        await nextFrame()
+        expect(outline()).toHaveAttribute('d', '')
+        expect(canvas.style.cursor).toBe('')
+
+        fireEvent.pointerMove(canvas, { ...NODE_A, buttons: 0 })
+        await nextFrame()
+        expect(outline()!.getAttribute('d')).toBe('M7 7H33V33H7Z')
+    })
+
+    it('shows no outline over the zoom toolbar or an error banner, which take the double-click themselves', async () => {
+        // The older picture shows under the error's banner.
+        vi.mocked(useMermaidSvg).mockReturnValue({ ...vi.mocked(useMermaidSvg)(SOURCE, null), currentError: 'Parse error', isStale: true })
+        const { canvas, outline } = renderCanvas()
+
+        // Over each, at a point of the picture that has node A.
+        for (const overlay of [screen.getByRole('group', { name: 'Zoom' }), screen.getByText('Diagram has an error')]) {
+            fireEvent.pointerMove(canvas, { ...NODE_A, buttons: 0 })
+            await nextFrame()
+            expect(outline()!.getAttribute('d')).not.toBe('')
+
+            fireEvent.pointerMove(overlay, { ...NODE_A, buttons: 0 })
+            await nextFrame()
+            expect(outline()).toHaveAttribute('d', '')
+            expect(canvas.style.cursor).toBe('')
+        }
+    })
+
     it('shows no outline while a double-click would not jump', async () => {
         state.editorOpen = false
         const { canvas, outline } = renderCanvas()
@@ -278,5 +310,30 @@ describe('MermaidCanvas hover over a part', () => {
         expect(document.querySelector('g.node')).toBeNull()
         expect(canvas).toHaveAccessibleDescription(/Double-click a node, link or message to select its text in the editor/)
         expect(canvas).toHaveAccessibleDescription(/type @ to list the diagram's parts/)
+    })
+})
+
+describe('MermaidCanvas screen reader hint', () => {
+    const DOUBLE_CLICK = /Double-click/
+    const PALETTE = /type @ to list/
+
+    it.each([
+        ['"Double-click the preview to jump to the editor" is off', () => (state.jumpFromPreview = false)],
+        ['the editor is hidden', () => (state.editorOpen = false)],
+    ])('leaves out the double-click while %s', (_name, arrange) => {
+        arrange()
+        const { canvas } = renderCanvas()
+
+        expect(canvas).not.toHaveAccessibleDescription(DOUBLE_CLICK)
+        expect(canvas).toHaveAccessibleDescription(PALETTE)
+        expect(canvas).toHaveAccessibleDescription(/arrow keys move the diagram/)
+    })
+
+    it('mentions no parts for a diagram whose parts cannot be picked', () => {
+        const { canvas } = renderCanvas('classDiagram\n  class A')
+
+        expect(canvas).not.toHaveAccessibleDescription(DOUBLE_CLICK)
+        expect(canvas).not.toHaveAccessibleDescription(PALETTE)
+        expect(canvas).toHaveAccessibleDescription(/arrow keys move the diagram/)
     })
 })

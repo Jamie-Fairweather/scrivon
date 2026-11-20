@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { notifyError } from '@/lib/notify'
 import { getBaseName, readStamp, readWorkspaceFile } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import type { OutlineHeading } from '@/lib/markdown/document-outline'
+import { subscribeSvgCache, svgCacheVersion } from '@/lib/mermaid/svg-cache'
 import { documentKind } from '@/lib/workspace/file-types'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
 import { commandToPaletteItem } from '@/components/studio/command-palette/command-items'
@@ -234,12 +235,20 @@ export function usePaletteSearch(
     const { themeId } = useAppTheme()
     const previewOpen = layout.previewOpen
     const wantsDiagramParts = enabled && parsedQueryState.kind === 'heading' && activeTab !== null && documentKind(activeTab.name) === 'mermaid'
+    // The canvas may store its render after '@' was typed (a big diagram, or just after a theme change): list it then.
+    const subscribeToRenders = useCallback(
+        (listener: () => void) => (wantsDiagramParts ? subscribeSvgCache(listener) : () => {}),
+        [wantsDiagramParts]
+    )
+    const renderVersion = useSyncExternalStore(subscribeToRenders, svgCacheVersion, svgCacheVersion)
     const diagramParts = useMemo(
         () =>
             wantsDiagramParts && activeTab
                 ? diagramPartRows({ file: activeTab, tabId: activeTab.id, themeId, previewOpen, query: parsedQueryState.query })
                 : null,
-        [wantsDiagramParts, activeTab, themeId, previewOpen, parsedQueryState.query]
+        // renderVersion: diagramPartRows reads the render cache.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [wantsDiagramParts, activeTab, themeId, previewOpen, parsedQueryState.query, renderVersion]
     )
 
     // While a new search runs, the last hits stay in place (so the list doesn't jump on every key)
