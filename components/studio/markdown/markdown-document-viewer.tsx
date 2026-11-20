@@ -23,6 +23,7 @@ import { locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-s
 import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
 import { scrollViewport, usePreviewScrollSync } from '@/components/studio/markdown/use-preview-scroll-sync'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
+import { WIKI_LINK_PROBLEMS, wikiLinkProblemTitle, type WikiLinkHandlers, type WikiLinkTarget } from '@/components/studio/markdown/wiki-link-status'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { Button } from '@/components/ui/button'
 import { Card, CardPanel } from '@/components/ui/card'
@@ -33,6 +34,7 @@ import { locateInMarkdown } from '@/lib/mermaid/source-locations'
 import { notifyError, notifyInfo } from '@/lib/notify'
 import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
+import { resolveWikiTarget, wikiIndexFor, type WikiLookup } from '@/lib/workspace/wiki-link-lookup'
 import { cn } from '@/lib/utils'
 
 type MarkdownDocumentViewerProps = {
@@ -182,6 +184,16 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     /** A `#fragment` to scroll to once the linked document has opened. */
     const pendingAnchorRef = useRef<{ tabId: string; id: string } | null>(null)
     const linkHandlerRef = useRef<(href: string) => void>(() => {})
+    const wikiOpenRef = useRef<(link: WikiLinkTarget) => void>(() => {})
+    // Wiki links lead to notes in the open folder, found in the same file list the explorer shows. A document outside
+    // it (an example, or a file opened on its own) has nowhere to look.
+    const inFolder = documentPath !== null && workspaceRoot !== null && isPathInside(documentPath, workspaceRoot)
+    const wikiIndex = useMemo(() => (inFolder && workspaceRoot ? wikiIndexFor(workspaceRoot, tree) : null), [inFolder, workspaceRoot, tree])
+    const wikiStatus = useCallback(
+        (target: string): WikiLookup | { kind: 'no-folder' } =>
+            wikiIndex ? resolveWikiTarget(wikiIndex, target, documentPath) : { kind: 'no-folder' },
+        [wikiIndex, documentPath]
+    )
     const overlayRef = useRef<HTMLDivElement>(null)
     /** Where focus goes back to when the expanded diagram closes (normally the Expand button). */
     const returnFocusRef = useRef<{ blockId: string; element: HTMLElement | null } | null>(null)
@@ -308,6 +320,44 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             else notifyInfo("Couldn't find that section", { description: `#${id}` })
         }
 
+        /** Opens a linked file in its own tab (or the one it is open in already), at its `#fragment`. */
+        const followFile = (path: string, fragment: string | null) => {
+            if (documentPath && isSamePath(path, documentPath)) {
+                if (fragment) scrollToAnchor(fragment)
+                return
+            }
+            const reveal = () => {
+                revealItemInDir(path).catch((err: unknown) => notifyError("Couldn't show the linked file", err))
+            }
+            if (!isSupportedDocument(path)) {
+                reveal()
+                return
+            }
+            // The path its tab or the explorer already uses, so the file never ends up open in two tabs.
+            const openPath =
+                tabs.find((t) => isSamePath(t.path, path))?.path ??
+                (workspaceRoot && isPathInside(path, workspaceRoot) ? workspaceFilePath(path, workspaceRoot, tree) : null)
+            if (!openPath) {
+                // Scrivon can only read files in the open folder, so opening it would fail with a vague error.
+                notifyInfo('That file is outside the open folder', {
+                    description: 'Scrivon can only open files inside the folder you have open.',
+                    action: { label: 'Show in folder', onClick: reveal },
+                })
+                return
+            }
+            pendingAnchorRef.current = fragment ? { tabId: openPath, id: fragment } : null
+            void openFile(openPath)
+        }
+
+        wikiOpenRef.current = (link) => {
+            const status = wikiStatus(link.target)
+            if (status.kind === 'found') {
+                followFile(status.path, link.heading)
+                return
+            }
+            notifyInfo(wikiLinkProblemTitle(status.kind, link.target), { description: WIKI_LINK_PROBLEMS[status.kind].description })
+        }
+
         linkHandlerRef.current = (href) => {
             const target = resolveMarkdownLink(href, { documentPath, workspaceRoot })
 
@@ -325,34 +375,9 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                 case 'external':
                     openExternalLink(target.url)
                     return
-                case 'file': {
-                    if (documentPath && isSamePath(target.path, documentPath)) {
-                        if (target.fragment) scrollToAnchor(target.fragment)
-                        return
-                    }
-                    const reveal = () => {
-                        revealItemInDir(target.path).catch((err: unknown) => notifyError("Couldn't show the linked file", err))
-                    }
-                    if (!isSupportedDocument(target.path)) {
-                        reveal()
-                        return
-                    }
-                    // The path its tab or the explorer already uses, so the file never ends up open in two tabs.
-                    const openPath =
-                        tabs.find((t) => isSamePath(t.path, target.path))?.path ??
-                        (workspaceRoot && isPathInside(target.path, workspaceRoot) ? workspaceFilePath(target.path, workspaceRoot, tree) : null)
-                    if (!openPath) {
-                        // Scrivon can only read files in the open folder, so opening it would fail with a vague error.
-                        notifyInfo('That file is outside the open folder', {
-                            description: 'Scrivon can only open files inside the folder you have open.',
-                            action: { label: 'Show in folder', onClick: reveal },
-                        })
-                        return
-                    }
-                    pendingAnchorRef.current = target.fragment ? { tabId: openPath, id: target.fragment } : null
-                    void openFile(openPath)
+                case 'file':
+                    followFile(target.path, target.fragment)
                     return
-                }
                 case 'network':
                     notifyInfo("Network links aren't opened", { description: "Scrivon doesn't follow links to files on other computers." })
                     return
@@ -366,6 +391,10 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     })
 
     const onLinkClick = useCallback((href: string) => linkHandlerRef.current(href), [])
+    const wikiLinks = useMemo<WikiLinkHandlers>(
+        () => ({ status: (target) => wikiStatus(target).kind, open: (link) => wikiOpenRef.current(link) }),
+        [wikiStatus]
+    )
 
     // The Outline panel moves the preview to a heading. Focus stays where it is (the panel moves it to the editor).
     useEffect(
@@ -434,6 +463,8 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
             }
             // A link such as `other.md#top`, with nothing in it called that, opens it at the top.
             if (opened && tabId && isTopOfDocument(opened.id)) scrollTopByTab.delete(tabId)
+            // Any other section it doesn't have is said, as for a link within the document.
+            else if (opened) notifyInfo("Couldn't find that section", { description: `#${opened.id}` })
         }
 
         const scrollTop = (tabId ? scrollTopByTab.get(tabId) : undefined) ?? 0
@@ -489,6 +520,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                                 onRemoteImageBlocked={onRemoteImageBlocked}
                                 documentPath={documentPath}
                                 workspaceRoot={workspaceRoot}
+                                wikiLinks={wikiLinks}
                             />
                         </PaneErrorBoundary>
                     )}

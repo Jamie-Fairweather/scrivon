@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { markdownOutline } from '@/lib/markdown/document-outline'
 import { MarkdownPreview } from './markdown-preview'
 
 vi.mock('@/components/studio/canvas/use-mermaid-svg', () => ({
@@ -91,6 +92,18 @@ describe('MarkdownPreview source lines', () => {
         expect(lineOf(container, 'table')).toBe(1)
         expect(lineOf(container, 'td', '1')).toBe(3)
         expect(lineOf(container, 'td', '3')).toBe(4)
+    })
+
+    it('gives a heading with a wiki link the id the Outline gives it, and keeps the line of the block a link is in', () => {
+        const source =
+            '---\ntitle: T\n---\n# See [[Meeting notes|the notes]]\n\n## [[Plan#Next]] and [[#Intro]]\n\nText\nmore [[Plan]]\n\n[Plan]: x.md\n'
+        const { container } = preview(source)
+        const ids = [...container.querySelectorAll('h1, h2')].map((heading) => heading.id.replace(/^user-content-/, ''))
+        expect(ids).toEqual(markdownOutline(source).map((heading) => heading.id))
+        expect(ids).toEqual(['see-the-notes', 'plan--next-and-intro'])
+        expect(lineOf(container, 'a.wiki-link', 'Plan')).toBe(6)
+        const links = [...container.querySelectorAll('a.wiki-link')]
+        expect(links.at(-1)!.closest('[data-source-line]')).toHaveAttribute('data-source-line', '8')
     })
 
     it('marks blocks after raw HTML, and the raw HTML blocks too', () => {

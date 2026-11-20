@@ -3,6 +3,7 @@ import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'r
 import type { PluggableList } from 'unified'
 import { EXIT, visit } from 'unist-util-visit'
 import { GITHUB_ALERT_KINDS } from '@/lib/markdown/github-alerts'
+import { WIKI_LINK_CLASS } from '@/lib/markdown/wiki-links'
 
 /**
  * rehype-raw, but only for a document that has raw HTML. It parses the whole tree again, which more than doubles
@@ -47,6 +48,13 @@ const baseSchema: SanitizeSchema = {
         ...defaultSchema.attributes,
         '*': ANY_ELEMENT_ATTRIBUTES,
         img: [...(defaultSchema.attributes?.img ?? []), 'alt', 'width', 'height', 'align'],
+        // A wiki link (remarkWikiLinks): its class, and the note and heading it names. GitHub's footnote class stays.
+        a: [
+            ...(defaultSchema.attributes?.a ?? []).filter((attribute) => !(Array.isArray(attribute) && attribute[0] === 'className')),
+            ['className', 'data-footnote-backref', WIKI_LINK_CLASS],
+            'dataWikiTarget',
+            'dataWikiHeading',
+        ],
         // GitHub's alert classes (see remarkGithubAlerts), and no others.
         p: ['align', ['className', 'markdown-alert-title']],
         div: [

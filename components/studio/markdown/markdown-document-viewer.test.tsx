@@ -971,4 +971,101 @@ describe('MarkdownDocumentViewer', () => {
             expect(notifyInfo).toHaveBeenCalledWith("Can't follow this link", expect.anything())
         })
     })
+
+    describe('wiki links', () => {
+        const PLAN = 'C:\\notes\\projects\\Plan.md'
+        const folder = (name: string, children: FileNode[], extra: object = {}): FileNode => ({
+            kind: 'directory',
+            name,
+            path: `C:\\notes\\${name}`,
+            children,
+            ...extra,
+        })
+
+        beforeEach(() => {
+            workspace.tree = [folder('projects', [fileNode(PLAN)]), fileNode('C:\\notes\\a.md')]
+        })
+
+        it('opens the note in a new tab at its heading, matched by the shared anchor helper', () => {
+            const { container, rerender } = render(viewer(DOC_A, 'See [[plan#Next Steps|the plan]].'))
+            const link = screen.getByRole('link', { name: 'the plan' })
+            expect(link).toHaveAttribute('data-wiki-status', 'found')
+            expect(link).toHaveClass('underline')
+            expect(link).not.toHaveClass('decoration-dashed')
+            fireEvent.click(link)
+            expect(workspace.openFile).toHaveBeenCalledWith(PLAN)
+
+            workspace.tabs = [fileTab(DOC_A), fileTab(PLAN)]
+            vi.mocked(findAnchorId).mockClear()
+            rerender(viewer(PLAN, '# Plan\n\n## Next steps'))
+            expect(findAnchorId).toHaveBeenCalledWith(expect.anything(), 'Next Steps')
+            expect(scrollIntoView.mock.contexts).toEqual([container.querySelector('h2#user-content-next-steps')])
+        })
+
+        it('uses the tab the note is open in, however its path is written', () => {
+            workspace.tabs = [fileTab(DOC_A), fileTab('c:/notes/projects/plan.md')]
+            render(viewer(DOC_A, '[[Plan]]'))
+            fireEvent.click(screen.getByRole('link', { name: 'Plan' }))
+            expect(workspace.openFile).toHaveBeenCalledWith('c:/notes/projects/plan.md')
+        })
+
+        it('jumps within the same file for [[#Heading]], and says when the section isn’t there', () => {
+            const { container } = render(viewer(DOC_A, '# Intro\n\n## Set Up\n\n[[#Set Up]] and [[#Nowhere]]'))
+            fireEvent.click(screen.getByRole('link', { name: 'Set Up' }))
+            expect(scrollIntoView.mock.contexts).toEqual([container.querySelector('h2#user-content-set-up')])
+            fireEvent.click(screen.getByRole('link', { name: 'Nowhere' }))
+            expect(notifyInfo).toHaveBeenCalledWith("Couldn't find that section", { description: '#nowhere' })
+            expect(workspace.openFile).not.toHaveBeenCalled()
+        })
+
+        it('shows the missing-section notice once the note opens without that heading', () => {
+            const { rerender } = render(viewer(DOC_A, '[[Plan#Gone]]'))
+            fireEvent.click(screen.getByRole('link', { name: 'Plan › Gone' }))
+            workspace.tabs = [fileTab(DOC_A), fileTab(PLAN)]
+            rerender(viewer(PLAN, '# Plan'))
+            expect(scrollIntoView).not.toHaveBeenCalled()
+            expect(workspace.openFile).toHaveBeenCalledWith(PLAN)
+            expect(notifyInfo).toHaveBeenCalledWith("Couldn't find that section", { description: '#Gone' })
+        })
+
+        it('marks a note the folder doesn’t have, says so to a screen reader, and explains when it is clicked', () => {
+            render(viewer(DOC_A, 'See [[Nowhere|that note]].'))
+            const link = screen.getByRole('link', { name: 'that note, note not found' })
+            expect(link).toHaveClass('decoration-dashed', 'text-muted-foreground')
+            expect(link).toHaveAttribute('title', expect.stringContaining('No Markdown file'))
+            fireEvent.click(link)
+            expect(workspace.openFile).not.toHaveBeenCalled()
+            expect(notifyInfo).toHaveBeenCalledWith("Couldn't find Nowhere", { description: expect.stringContaining('No Markdown file') })
+        })
+
+        it('marks a link that leaves the open folder as missing', () => {
+            render(viewer(DOC_A, '[[../secret]] [[C:\\other\\Plan]]'))
+            for (const link of screen.getAllByRole('link')) expect(link).toHaveAttribute('data-wiki-status', 'missing')
+        })
+
+        it('says Scrivon didn’t list every file when the tree was cut short, not that the note doesn’t exist', () => {
+            workspace.tree = [...workspace.tree, folder('big', [], { truncated: true })]
+            render(viewer(DOC_A, '[[Nowhere]]'))
+            const link = screen.getByRole('link', { name: /^Nowhere, / })
+            expect(link).toHaveAttribute('data-wiki-status', 'unlisted')
+            fireEvent.click(link)
+            expect(notifyInfo).toHaveBeenCalledWith("Couldn't find Nowhere", { description: expect.stringContaining("didn't list every file") })
+        })
+
+        it('says wiki links need an open folder in an example or a file outside the folder', () => {
+            workspace.tabs = [{ ...fileTab('example:intro'), readOnly: true }, fileTab('D:\\loose\\x.md')]
+            const { rerender } = render(viewer('example:intro', '[[Plan]]'))
+            fireEvent.click(screen.getByRole('link', { name: 'Plan, needs an open folder' }))
+            rerender(viewer('D:\\loose\\x.md', '[[Plan]]'))
+            fireEvent.click(screen.getByRole('link', { name: 'Plan, needs an open folder' }))
+            expect(workspace.openFile).not.toHaveBeenCalled()
+            expect(notifyInfo).toHaveBeenCalledTimes(2)
+            expect(notifyInfo).toHaveBeenCalledWith('Wiki links need an open folder', expect.anything())
+        })
+
+        it('keeps the source line of the block a wiki link is in', () => {
+            const { container } = render(viewer(DOC_A, 'Intro\n\nFirst line\nsecond [[Plan]]'))
+            expect(container.querySelector('a.wiki-link')!.closest('[data-source-line]')).toHaveAttribute('data-source-line', '3')
+        })
+    })
 })
