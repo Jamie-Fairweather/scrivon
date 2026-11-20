@@ -11,6 +11,7 @@ import { editorAriaLabel, tabFocusToggleKeyLabel } from '@/lib/monaco/editor-ari
 import { MERMAID_LANGUAGE_ID } from '@/lib/monaco/mermaid-language'
 import { leaveF1ToAppKeybinds } from '@/lib/monaco/editor-keybindings'
 import { bindMarkdownListEnter } from '@/lib/monaco/markdown-editing'
+import { bindWikiLinkSuggest } from '@/lib/monaco/wiki-link-completion'
 import { WORD_SEGMENTER_LOCALES } from '@/lib/markdown/inline-format'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { takeOverEditorPaste } from '@/lib/monaco/paste-command'
@@ -27,6 +28,7 @@ import { attachEditorImages, imageDocumentFor, pasteClipboardPicture } from '@/c
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
 import { useEditorLinkCheck } from '@/components/studio/editor/use-editor-link-check'
+import { useWikiLinkSource } from '@/components/studio/editor/use-wiki-link-source'
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
 import { EditorContextMenu } from '@/components/studio/editor/editor-context-menu'
 import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
@@ -441,6 +443,8 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
     const { attach: attachEditorSpellcheck, misspeltWordAt } = useEditorSpellcheck(activeTab, editorPath)
     const attachEditorLinkCheck = useEditorLinkCheck(activeTab, editorPath)
+    // The notes [[ offers in a Markdown file.
+    useWikiLinkSource(activeTab)
     const isReadOnly = activeTab?.readOnly ?? false
     // Monaco sets up Ctrl+. (the quick fix list) for a file when the file is put in the editor, and only if the
     // editor can be edited at that moment. @monaco-editor/react puts the new file in first and passes on the new
@@ -763,6 +767,9 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
             editor.onDidDispose(() => links.dispose())
             // Enter continues (or ends) a list in Markdown files.
             bindMarkdownListEnter(editor, monaco, () => isMarkdownTab(activeTabRef.current))
+            // Typing [[ in a Markdown file offers the folder's notes; [[# the file's headings.
+            const wikiSuggest = bindWikiLinkSuggest(editor, () => isMarkdownTab(activeTabRef.current))
+            editor.onDidDispose(() => wikiSuggest.dispose())
             // Turns the table commands on and off as the caret moves in and out of a table.
             const tableCaret = trackCaretInTable(editor, () => isMarkdownTab(activeTabRef.current), setCaretInTable)
             tableCaretRef.current = tableCaret

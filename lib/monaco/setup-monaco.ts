@@ -20,6 +20,7 @@ import { IOpenerService } from 'monaco-editor/platform/opener/common/opener.js'
 import { createMonacoClipboardService } from '@/lib/monaco/clipboard-service'
 import { registerExternalLinkOpener } from '@/lib/monaco/link-opener'
 import { registerMermaidLanguage } from '@/lib/monaco/mermaid-language'
+import { registerWikiLinkCompletion } from '@/lib/monaco/wiki-link-completion'
 
 // Monaco's background work (link detection, word suggestions) runs in a bundled worker.
 // The bundler turns this `new Worker(new URL(...))` into its own worker chunk.
@@ -35,6 +36,9 @@ StandaloneServices.initialize({ [String(IClipboardService)]: createMonacoClipboa
 
 // .mmd and .mermaid files, and ```mermaid blocks in Markdown.
 registerMermaidLanguage(monaco)
+
+// [[ in a Markdown file offers the open folder's notes, and [[# the file's headings.
+registerWikiLinkCompletion(monaco)
 
 // Ctrl+Clicked web and email links open in the system browser or mail app.
 registerExternalLinkOpener(StandaloneServices.get(IOpenerService))

@@ -176,3 +176,10 @@ declare module 'monaco-editor/editor/contrib/codeAction/browser/codeActionContri
 
 // Monaco's snippet controller, used by lib/monaco/diagram-starter-insert.test.tsx with the real editor.
 declare module 'monaco-editor/editor/contrib/snippet/browser/snippetController2.js'
+
+// Monaco's when-clause reader, used by lib/monaco/markdown-editing.test.ts to check a keybinding's condition reads as meant.
+declare module 'monaco-editor/platform/contextkey/common/contextkey.js' {
+    export const ContextKeyExpr: {
+        deserialize(when: string): { evaluate(context: { getValue(key: string): unknown }): boolean } | undefined
+    }
+}
