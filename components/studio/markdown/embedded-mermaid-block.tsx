@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, memo, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CircleAlert, Maximize2 } from 'lucide-react'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -14,6 +14,14 @@ import { cn } from '@/lib/utils'
 const DIAGRAM_PADDING_X = 32
 /** Top padding (pt-10) plus bottom padding (pb-4): the top strip keeps the Expand button off the diagram. */
 const DIAGRAM_PADDING_Y = 56
+/** Top and bottom padding (pt-4, pb-4) of a block with no Expand button. */
+const DIAGRAM_PADDING_Y_WITHOUT_EXPAND = 32
+
+/**
+ * The most height a diagram's box may take, in pixels, as well as the width it has: a slide's, so the whole diagram
+ * shows at once. Null (the preview) scales it to the width only, as the preview scrolls.
+ */
+export const DiagramHeightLimitContext = createContext<number | null>(null)
 
 type EmbeddedMermaidBlockProps = {
     source: string
@@ -22,6 +30,8 @@ type EmbeddedMermaidBlockProps = {
     ordinal: number
     tabId: string | null
     onExpand: (blockId: string, ordinal: number, source: string) => void
+    /** Whether it has an Expand button. A slide's diagram has none: the slide is already the whole screen. */
+    expandable?: boolean
     className?: string
 }
 
@@ -70,8 +80,11 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
     ordinal,
     tabId,
     onExpand,
+    expandable = true,
     className,
 }: EmbeddedMermaidBlockProps) {
+    const heightLimit = useContext(DiagramHeightLimitContext)
+    const paddingY = expandable ? DIAGRAM_PADDING_Y : DIAGRAM_PADDING_Y_WITHOUT_EXPAND
     const documentKey = tabId ? `${tabId}:block:${blockId}` : null
     const trimmed = source.trim()
     const { svgForDisplay, dimensions, error, currentError, isStale, isPending, isEmpty } = useMermaidSvg(source, documentKey)
@@ -95,7 +108,9 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
     const fitWidth = dimensions?.width
     const fitHeight = dimensions?.height
     const availableWidth = Math.max(0, containerWidth - DIAGRAM_PADDING_X)
-    const scale = fitWidth && availableWidth > 0 ? Math.min(1, availableWidth / fitWidth) : 1
+    const availableHeight = heightLimit === null ? null : Math.max(1, heightLimit - paddingY)
+    const widthScale = fitWidth && availableWidth > 0 ? Math.min(1, availableWidth / fitWidth) : 1
+    const scale = fitHeight && availableHeight !== null ? Math.min(widthScale, availableHeight / fitHeight) : widthScale
     const layoutWidth = fitWidth ? fitWidth * scale : undefined
     const layoutHeight = fitHeight ? fitHeight * scale : undefined
 
@@ -111,36 +126,38 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
         // Diagrams and their errors read left to right, even in a right-to-left list item or quote.
         <div dir="ltr" className={cn('relative my-4 w-full min-w-0', className)} data-mermaid-block-id={blockId}>
             {/* English, unless the button's name has the diagram's own accTitle in it. */}
-            <div className="absolute top-2 right-2 z-10" lang={accessibility.title ? undefined : APP_LANG}>
-                <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    className={cn('h-7 gap-1', overlayButtonClassName)}
-                    disabled={!trimmed}
-                    onClick={() => onExpand(blockId, ordinal, source)}
-                    aria-label={expandDiagramLabel(ordinal, accessibility.title)}
-                    title="Expand diagram"
-                >
-                    <Maximize2 className="size-3.5" />
-                    Expand
-                </Button>
-            </div>
+            {expandable ? (
+                <div className="absolute top-2 right-2 z-10" lang={accessibility.title ? undefined : APP_LANG}>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        className={cn('h-7 gap-1', overlayButtonClassName)}
+                        disabled={!trimmed}
+                        onClick={() => onExpand(blockId, ordinal, source)}
+                        aria-label={expandDiagramLabel(ordinal, accessibility.title)}
+                        title="Expand diagram"
+                    >
+                        <Maximize2 className="size-3.5" />
+                        Expand
+                    </Button>
+                </div>
+            ) : null}
             <div
                 ref={containerRef}
                 className={cn(
                     'relative w-full min-w-0 overflow-hidden rounded-lg border border-border bg-muted/30',
                     showPlaceholder ? 'flex min-h-[120px] items-center justify-center' : ''
                 )}
-                style={showDiagram && layoutHeight != null ? { minHeight: layoutHeight + DIAGRAM_PADDING_Y } : undefined}
+                style={showDiagram && layoutHeight != null ? { minHeight: layoutHeight + paddingY } : undefined}
             >
                 {error ? (
-                    <div lang={APP_LANG} className="px-4 pt-10 pb-4">
+                    <div lang={APP_LANG} className={cn('px-4 pb-4', expandable ? 'pt-10' : 'pt-4')}>
                         <DiagramError message={error} />
                     </div>
                 ) : showDiagram && layoutWidth != null && layoutHeight != null ? (
                     <>
-                        <div className="flex min-w-0 justify-center px-4 pt-10 pb-4">
+                        <div className={cn('flex min-w-0 justify-center px-4 pb-4', expandable ? 'pt-10' : 'pt-4')}>
                             <div className="relative shrink-0" style={{ width: layoutWidth, height: layoutHeight }}>
                                 <div
                                     className={cn('absolute top-0 left-0 origin-top-left transition-opacity', staleError && 'opacity-40')}

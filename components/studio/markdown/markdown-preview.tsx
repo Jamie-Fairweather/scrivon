@@ -31,6 +31,7 @@ import {
     markdownBodyFirstLine,
     markdownPreviewDocument,
     rehypePreviewArticle,
+    rehypePreviewSlides,
     remarkPreviewLang,
 } from '@/components/studio/markdown/markdown-preview-body'
 import { rehypeDisplayMathLines, rehypeSourceLines, sourceLineProps } from '@/components/studio/markdown/source-lines'
@@ -60,6 +61,18 @@ type MarkdownPreviewProps = {
     documentPath?: string | null
     /** The open folder. Only images inside it are read. */
     workspaceRoot?: string | null
+    /**
+     * 'slides' splits the document into slides at its top-level breaks (see splitArticleIntoSlides) and shows only
+     * the one numbered `slide`, from 0. Its diagrams fit the slide's height too (DiagramHeightLimitContext) and have
+     * no Expand button. Changing `slide` only changes which slide shows: the document isn't parsed again.
+     */
+    variant?: 'document' | 'slides'
+    slide?: number
+    /**
+     * What the diagrams' lasting ids and pictures are kept under (rehypeMermaidBlockIds); the tab by default. A
+     * second view of the same tab gives its own, so it never moves the preview's ids.
+     */
+    documentKey?: string
     className?: string
 }
 
@@ -90,6 +103,23 @@ const baseRemarkPlugins: PluggableList = [...markdownRemarkPlugins, remarkHeadin
  * sizes the text and spacing by the Preview text size setting (app/globals.css).
  */
 const ARTICLE_CLASS_NAME = 'preview-text w-full max-w-3xl min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm'
+
+/** A slide's <article>: as wide as the preview's would be at the slide's larger text size. */
+const SLIDES_ARTICLE_CLASS_NAME =
+    'preview-text w-full max-w-[calc(48rem*var(--preview-text-scale,1))] min-w-0 break-words [&_math[display=block]]:mb-3 [&_math[display=block]]:text-sm'
+
+/** Which slide shows, for each slide's <section>. A context, so changing slide doesn't parse the document again. */
+const CurrentSlideContext = createContext(0)
+
+/** A slide made by splitArticleIntoSlides: shown only while it is the current one. Any other <section> is as written. */
+function PreviewSection(props: ComponentProps<'section'> & ExtraProps) {
+    const current = useContext(CurrentSlideContext)
+    const index = props.node?.properties.dataSlide
+    const count = props.node?.properties.dataSlides
+    const rest = withoutNode(props)
+    if (typeof index !== 'number' || typeof count !== 'number') return <section {...rest} />
+    return <section {...rest} hidden={index !== current} aria-roledescription="slide" aria-label={`Slide ${index + 1} of ${count}`} />
+}
 
 /** Drops react-markdown's `node` prop so everything else (ids, classes, aria and data attributes) reaches the element. */
 function withoutNode<P extends ExtraProps>(props: P): Omit<P, 'node'> {
@@ -427,6 +457,7 @@ const staticMarkdownComponents: Components = {
         )
     },
     img: PreviewImage,
+    section: PreviewSection,
 }
 
 /**
@@ -443,8 +474,13 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     onRemoteImageBlocked,
     documentPath = null,
     workspaceRoot = null,
+    variant = 'document',
+    slide = 0,
+    documentKey: ownDocumentKey,
     className,
 }: MarkdownPreviewProps) {
+    const slides = variant === 'slides'
+    const documentKey = ownDocumentKey ?? tabId
     const components = useMemo((): Components => {
         return {
             ...staticMarkdownComponents,
@@ -472,15 +508,16 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 if (node && ordinal !== null) {
                     // Keyed by an id that stays with the block, not its position, so a block never shows the picture
                     // of the one that was in its place before a block above it was added or removed.
-                    const blockId = mermaidBlockId(tabId, mermaidBlockKey(node) ?? `at-${ordinal}`)
+                    const blockId = mermaidBlockId(documentKey, mermaidBlockKey(node) ?? `at-${ordinal}`)
                     return (
                         <EmbeddedMermaidBlock
                             key={blockId}
                             blockId={blockId}
                             ordinal={ordinal}
                             source={mermaidBlockText(node)}
-                            tabId={tabId}
+                            tabId={documentKey}
                             onExpand={onExpandBlock}
+                            expandable={!slides}
                         />
                     )
                 }
@@ -491,11 +528,11 @@ export const MarkdownPreview = memo(function MarkdownPreview({
                 }
 
                 const lang = codeLanguage(codeClassName)
-                const blockId = fencedCodeBlockId(tabId, codeOrdinal, lang)
+                const blockId = fencedCodeBlockId(documentKey, codeOrdinal, lang)
                 return <FencedCodeBlock key={blockId} code={codeBlockText(node)} language={lang} />
             },
         }
-    }, [onExpandBlock, onLinkClick, tabId])
+    }, [onExpandBlock, onLinkClick, documentKey, slides])
 
     const { body, lang } = useMemo(() => markdownPreviewDocument(source), [source])
     const firstLine = useMemo(() => markdownBodyFirstLine(source, body), [source, body])
@@ -511,11 +548,12 @@ export const MarkdownPreview = memo(function MarkdownPreview({
             rehypeDisplayMathLines,
             ...mathRehypePlugins,
             rehypeFencedBlockOrdinals,
-            rehypeMermaidBlockIds(tabId ?? ''),
+            rehypeMermaidBlockIds(documentKey ?? ''),
             rehypeSourceLines(firstLine),
-            rehypePreviewArticle(ARTICLE_CLASS_NAME),
+            rehypePreviewArticle(slides ? SLIDES_ARTICLE_CLASS_NAME : ARTICLE_CLASS_NAME),
+            ...(slides ? [rehypePreviewSlides] : []),
         ],
-        [tabId, firstLine]
+        [documentKey, firstLine, slides]
     )
 
     // Kept as one element so that loading web images (a context change) redraws only the images, without parsing
@@ -542,7 +580,9 @@ export const MarkdownPreview = memo(function MarkdownPreview({
         <div className={cn('flex min-h-full justify-center px-6 py-8', className)}>
             {/* The document's <article> comes from rehypePreviewArticle, with its language. */}
             <RemoteImagesContext.Provider value={remoteImages}>
-                <DocumentFolderContext.Provider value={folder}>{markdown}</DocumentFolderContext.Provider>
+                <DocumentFolderContext.Provider value={folder}>
+                    <CurrentSlideContext.Provider value={slide}>{markdown}</CurrentSlideContext.Provider>
+                </DocumentFolderContext.Provider>
             </RemoteImagesContext.Provider>
         </div>
     )
