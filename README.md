@@ -30,8 +30,8 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 ### Mermaid diagrams
 
 - **Dedicated diagram files** — Edit standalone `.mmd` / `.mermaid` sources with a split editor and canvas preview
-- **Supported diagram types** — Flowcharts (`flowchart` / `graph`), sequence diagrams, class diagrams, state diagrams, entity relationship diagrams and XY charts. Other Mermaid types (pie, Gantt, mindmap and so on) show a "not supported yet" message instead of a diagram
-- **Mermaid highlighting and starters** — Keywords, arrows, node labels and `%%` comments are coloured in diagram files and in `mermaid` blocks in Markdown. Press **Ctrl+Space** in a diagram file for a starter for each diagram type
+- **Supported diagram types** — Flowcharts (`flowchart` / `graph`), sequence diagrams, class diagrams, state diagrams, entity relationship diagrams and XY charts, drawn by beautiful-mermaid. Pie charts, Gantt charts, mind maps, timelines, user journeys, git graphs, quadrant charts, requirement diagrams, C4 diagrams, Sankey diagrams, block diagrams, packet diagrams, kanban boards, architecture diagrams (built-in icons only), radar charts and treemaps are drawn by the official Mermaid package, in the same diagram theme and offline. Each one is drawn on the canvas, in Markdown, and in every export. A diagram's own `%%{init}%%` or front matter can't change the theme or turn off strict security. ZenUML isn't supported yet. A diagram drawn with HTML labels can be saved as SVG, PDF or HTML, but not as PNG or in Word
+- **Mermaid highlighting and starters** — Keywords, arrows, node labels and `%%` comments are coloured in diagram files and in `mermaid` blocks in Markdown. Press **Ctrl+Space** in a diagram file for a starter for flowcharts, sequence, class, state and ER diagrams and XY charts
 - **Canvas tools** — Pan and zoom the preview, fit diagram to screen, or switch to preview-only layout
 - **Diagram export** — Save the active diagram as SVG or PNG (1×, 2×, or 4×), or copy it to the clipboard. Pick a light or dark diagram theme and a transparent background in the export menu
 - **Export every diagram in a folder** — **File → Export → All Diagrams in Folder…**, the command palette, or **Export Diagrams…** on a folder in the explorer saves every `.mmd` and `.mermaid` file as SVG or PNG into a folder you choose, keeping the subfolders if you like. Files already there are never replaced: you choose Keep Both or Skip, and a summary lists what was saved, skipped and failed
@@ -118,7 +118,7 @@ For release builds, signing keys, branch workflow, and semantic-release setup, s
 | Desktop shell      | [Tauri 2](https://v2.tauri.app/) (Rust)                                                                            |
 | UI                 | [Next.js](https://nextjs.org/), [React 19](https://react.dev/)                                                     |
 | Editor             | [Monaco](https://microsoft.github.io/monaco-editor/)                                                               |
-| Diagram rendering  | [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid)                                                 |
+| Diagram rendering  | [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid), [Mermaid](https://mermaid.js.org/) for the other types |
 | Markdown rendering | [react-markdown](https://github.com/remarkjs/react-markdown), [remark-gfm](https://github.com/remarkjs/remark-gfm) |
 | Code highlighting  | [Shiki](https://shiki.style/)                                                                                      |
 | Styling            | [Tailwind CSS](https://tailwindcss.com/)                                                                           |

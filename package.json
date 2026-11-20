@@ -21,6 +21,7 @@
         "generate:examples": "node scripts/generate-examples.mjs",
         "generate:licenses": "node scripts/generate-licenses.mjs",
         "check:workers": "node scripts/check-workers.mjs",
+        "check:mermaid": "node scripts/check-lazy-mermaid.mjs",
         "release": "semantic-release",
         "prepare": "husky"
     },

@@ -13,7 +13,7 @@ describe("a diagram's own settings, read by the real mermaid package", () => {
     it.each([
         [
             'an %%{init}%% directive',
-            '%%{init: {"theme": "dark", "securityLevel": "loose", "themeCSS": ".a{background:url(https://example.com/x.png)}", "themeVariables": {"background": "#ff0000"}, "darkMode": true, "fontFamily": "Comic Sans MS", "htmlLabels": true}}%%\npie\n  "A" : 1',
+            '%%{init: {"theme": "dark", "securityLevel": "loose", "themeCSS": ".a{background:url(https://example.com/x.png)}", "themeVariables": {"background": "#ff0000"}, "darkMode": false, "fontFamily": "Comic Sans MS", "htmlLabels": true}}%%\npie\n  "A" : 1',
         ],
         [
             'front matter config',

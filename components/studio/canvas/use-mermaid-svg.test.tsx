@@ -45,6 +45,12 @@ vi.mock('@/lib/mermaid/render-client', async (importOriginal) => {
     }
 })
 
+/** render-official.ts, faked: the official mermaid package can't lay a diagram out in a test page. */
+const officialSvg = (themeId: string) => `<svg width="40" height="20" viewBox="0 0 40 20" data-theme="${themeId}"></svg>`
+vi.mock('@/lib/mermaid/render-official', () => ({
+    renderOfficialDiagram: async (_source: string, themeId: string) => officialSvg(themeId),
+}))
+
 const V1 = 'graph TD\n  A --> B'
 const V2 = 'graph TD\n  A --> B --> C'
 const V3 = 'graph TD\n  A --> B --> C --> D'
@@ -367,6 +373,21 @@ describe('useMermaidSvg', () => {
         theme.id = 'scrivon-light'
         rerender()
         expect(result.current.svgForDisplay).toBe(expectedSvg(V1))
+    })
+
+    it('redraws a diagram the official mermaid package draws in the new theme, without reopening it', async () => {
+        const PIE = 'pie title Pets\n  "Dogs" : 386'
+        const { result, rerender } = renderHook(() => useMermaidSvg(PIE, 'pets.mmd'))
+        await waitForRender()
+        expect(result.current.svgForDisplay).toBe(officialSvg('scrivon-light'))
+
+        theme.id = 'nord'
+        rerender()
+        // The light picture stays up until the new one is drawn.
+        expect(result.current).toMatchObject({ svgForDisplay: officialSvg('scrivon-light'), isStale: true })
+        await waitForRender(0)
+        expect(result.current).toMatchObject({ svgForDisplay: officialSvg('nord'), isStale: false })
+        expect(vi.mocked(renderMermaidDiagram)).not.toHaveBeenCalled()
     })
 
     it('keeps the current text on screen after a theme change, not an older version in that theme (U38 review)', async () => {
