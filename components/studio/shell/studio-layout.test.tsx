@@ -56,7 +56,10 @@ vi.mock('@/components/studio/markdown/markdown-document-viewer', () => ({
         )
     },
 }))
-vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
+vi.mock('@/components/studio/editor/document-export-menu', () => ({
+    DocumentExportMenu: () => null,
+    FocusModeExportMenu: () => <span data-testid="focus-mode-export-menu" />,
+}))
 vi.mock('@/components/studio/dialogs/file-history-provider', () => ({ useFileHistory: () => ({ showFileHistory: vi.fn() }) }))
 vi.mock('@/components/studio/editor/document-export-provider', () => ({
     DocumentExportProvider: ({ children }: { children: ReactNode }) => <div data-testid="document-export">{children}</div>,
@@ -107,7 +110,7 @@ vi.mock('@/components/studio/editor/code-editor-panel', () => ({
 vi.mock('@/components/studio/shell/studio-status-bar', () => ({ StudioStatusBar: () => <footer aria-label="Status bar" /> }))
 
 const { StudioLayout } = await import('./studio-layout')
-const { focusPane } = await import('./pane-focus')
+const { cyclePaneFocus, focusPane } = await import('./pane-focus')
 
 function tab(path: string): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content: '', isDirty: false, isSaving: false }
@@ -382,6 +385,16 @@ describe('StudioLayout focus mode', () => {
         expect(screen.getByTestId('batch-export')).toBeInTheDocument()
     })
 
+    it("puts the export menu in the export's provider without the tab bar, so Export… can open it for a diagram", () => {
+        const view = render(<StudioLayout />)
+        // Out of focus mode the tab bar holds it, by its Export button.
+        expect(screen.queryByTestId('focus-mode-export-menu')).toBeNull()
+
+        enterFocusMode()
+        view.rerender(<StudioLayout />)
+        expect(screen.getByTestId('document-export')).toContainElement(screen.getByTestId('focus-mode-export-menu'))
+    })
+
     it('keeps the same editor, so its undo history and cursor stay, and brings the panes back when it ends', () => {
         const view = render(<StudioLayout />)
         enterFocusMode()
@@ -431,6 +444,20 @@ describe('StudioLayout focus mode', () => {
         enterFocusMode()
         render(<StudioLayout />)
         expect([...document.querySelectorAll('[data-pane]')].map((pane) => pane.getAttribute('data-pane'))).toEqual(['editor'])
+    })
+
+    it('lets F6 and Shift+F6 reach the editor region with no file open', () => {
+        tabs = []
+        activeTabId = null
+        enterFocusMode()
+        render(<StudioLayout />)
+        const region = document.querySelector<HTMLElement>('[data-pane="editor"]')!
+
+        act(() => void cyclePaneFocus(1))
+        expect(region).toHaveFocus()
+        act(() => region.blur())
+        act(() => void cyclePaneFocus(-1))
+        expect(region).toHaveFocus()
     })
 })
 

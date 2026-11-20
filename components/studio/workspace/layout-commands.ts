@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
+import { focusPaneSoon } from '@/components/studio/shell/pane-focus'
 import type { DiagramZoom } from '@/components/studio/canvas/use-pan-zoom'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import type { KeybindActionId } from '@/lib/settings/types'
@@ -19,7 +20,12 @@ export type LayoutCommandsContext = {
     /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
     canFitDiagram: boolean
     setFocusMode: (on: boolean) => void
-    // These leave focus mode first (studio-layout-context.tsx), so the pane they show appears.
+    /**
+     * Moves the keyboard to the editor once the menu or palette the command came from has let go of focus. Focus mode
+     * calls it as it turns on, since the pane that had focus may be gone.
+     */
+    focusEditorSoon: () => void
+    // These leave focus mode when they show a pane it hides (studio-layout-context.tsx), so that pane appears.
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
     setPreviewOpen: (open: boolean) => void
@@ -30,6 +36,9 @@ export type LayoutCommandsContext = {
 }
 
 const NO_FOLDER = 'No folder open'
+
+/** The editor, or its region while no file is open (pane-focus.ts). */
+const focusEditorSoon = () => focusPaneSoon('editor')
 
 /** Which panes show, the layouts, and fitting and zooming the diagram. */
 export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
@@ -116,7 +125,11 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
             checked: ctx.focusMode,
             disabled: off,
             disabledReason: NO_FOLDER,
-            run: () => ctx.setFocusMode(!ctx.focusMode),
+            run: () => {
+                const on = !ctx.focusMode
+                ctx.setFocusMode(on)
+                if (on) ctx.focusEditorSoon()
+            },
         },
         {
             id: 'fit-diagram',
@@ -152,6 +165,7 @@ export function useLayoutCommands(): void {
                 focusMode,
                 canFitDiagram: canFitToView,
                 setFocusMode,
+                focusEditorSoon,
                 setExplorerOpen,
                 setEditorOpen,
                 setPreviewOpen,

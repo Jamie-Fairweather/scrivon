@@ -124,6 +124,78 @@ describe('StudioLayoutProvider', () => {
         expect(result.current.layout).toMatchObject(expected)
     })
 
+    it('stays in focus mode when the editor is shown, as Find in Workspace and Go to Line do, since it already shows', () => {
+        // The palette shows the editor before it moves it to a hit or a line (use-palette-search.ts).
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, focusMode: true } }
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+
+        act(() => result.current.setEditorOpen(true))
+        rerender()
+
+        expect(result.current.focusMode).toBe(true)
+        expect(result.current.layout).toEqual({ explorerOpen: false, editorOpen: true, previewOpen: false, outlineOpen: false })
+    })
+
+    it('keeps the editor shown for when focus mode ends, when it is shown over a saved Preview Only', () => {
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, editorOpen: false, previewOpen: true, focusMode: true } }
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+
+        act(() => result.current.setEditorOpen(true))
+        rerender()
+        expect(result.current.focusMode).toBe(true)
+
+        act(() => result.current.setFocusMode(false))
+        rerender()
+        expect(result.current.layout).toMatchObject({ editorOpen: true, previewOpen: true })
+    })
+
+    it('stays in focus mode when a pane it hides is hidden, and keeps that for when it ends', () => {
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, explorerOpen: true, focusMode: true } }
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+
+        act(() => result.current.setExplorerOpen(false))
+        rerender()
+        expect(result.current.focusMode).toBe(true)
+
+        act(() => result.current.setFocusMode(false))
+        rerender()
+        expect(result.current.layout.explorerOpen).toBe(false)
+    })
+
+    it('leaves focus mode when the editor, the one pane it shows, is hidden', () => {
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, focusMode: true } }
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+
+        act(() => result.current.setEditorOpen(false))
+        rerender()
+
+        expect(result.current.focusMode).toBe(false)
+        expect(result.current.layout).toMatchObject({ editorOpen: false, previewOpen: true })
+    })
+
+    it.each([
+        ['Show All Panels', true],
+        ['Editor and Preview', false],
+    ])('leaves focus mode for %s and shows the editor and the preview, also over a saved Preview Only', (_, sidePanels) => {
+        app.settings = {
+            ...app.settings,
+            layout: { ...app.settings.layout, explorerOpen: false, editorOpen: false, previewOpen: true, focusMode: true },
+        }
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+
+        // As the layout commands set the panes (layout-commands.ts), in this order.
+        act(() => {
+            result.current.setExplorerOpen(sidePanels)
+            result.current.setEditorOpen(true)
+            result.current.setPreviewOpen(true)
+            result.current.setOutlineOpen(sidePanels)
+        })
+        rerender()
+
+        expect(result.current.focusMode).toBe(false)
+        expect(result.current.layout).toEqual({ explorerOpen: sidePanels, editorOpen: true, previewOpen: true, outlineOpen: sidePanels })
+    })
+
     it('hides the Outline panel too for Preview Only', () => {
         app.settings = { ...app.settings, layout: { ...app.settings.layout, outlineOpen: true } }
         const { result } = renderHook(() => useStudioLayout(), { wrapper })

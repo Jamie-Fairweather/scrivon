@@ -11,6 +11,7 @@ function context(overrides: Partial<LayoutCommandsContext> = {}): LayoutCommands
         focusMode: false,
         canFitDiagram: true,
         setFocusMode: vi.fn(),
+        focusEditorSoon: vi.fn(),
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
         setPreviewOpen: vi.fn(),
@@ -130,6 +131,18 @@ describe('buildLayoutCommands Focus Mode', () => {
         expect(find(on, 'toggle-focus-mode')?.checked).toBe(true)
         void find(on, 'toggle-focus-mode')!.run()
         expect(on.setFocusMode).toHaveBeenCalledWith(false)
+    })
+
+    it('moves the keyboard to the editor as focus mode turns on, as the pane that had it may be gone', () => {
+        // From the View menu or the palette, which hold focus as the command runs, the editor would not get it otherwise.
+        const off = context({ focusMode: false })
+        void find(off, 'toggle-focus-mode')!.run()
+        expect(off.focusEditorSoon).toHaveBeenCalledOnce()
+
+        // Leaving keeps focus where it is: the tab bar's focus handling covers the editor's empty region.
+        const on = context({ focusMode: true, explorerOpen: false, previewOpen: false, outlineOpen: false })
+        void find(on, 'toggle-focus-mode')!.run()
+        expect(on.focusEditorSoon).not.toHaveBeenCalled()
     })
 
     it('can be found by the words people use for it', () => {

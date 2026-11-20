@@ -7,6 +7,7 @@ import { usePanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { MarkdownDocumentViewer } from '@/components/studio/markdown/markdown-document-viewer'
 import { MarkdownExpandProvider } from '@/components/studio/markdown/markdown-expand-context'
 import { CodeEditorPanel } from '@/components/studio/editor/code-editor-panel'
+import { FocusModeExportMenu } from '@/components/studio/editor/document-export-menu'
 import { DocumentExportProvider } from '@/components/studio/editor/document-export-provider'
 import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
 import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
@@ -44,7 +45,8 @@ function cannotHoldFocus(el: Element | null, editorHidden: boolean): boolean {
  */
 function focusFallback(root: HTMLElement | null, focusMode: boolean): void {
     if (focusMode) {
-        if (!focusPane('editor')) root?.querySelector<HTMLElement>(`${CODE_EDITOR}[data-pane="editor"]`)?.focus()
+        // The editor, else the editor's region itself while no file is open (pane-focus.ts).
+        focusPane('editor')
         return
     }
     const target =
@@ -120,10 +122,11 @@ export function StudioLayout() {
                     <MarkdownExpandProvider tabId={activeTabId}>
                         {/* The page's one main landmark: the tabs, the editor and the preview.
                         data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
-                        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
+                        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
                             {/* Export for the active tab, from the tab bar, the File menu, the palette and the shortcut.
-                                Mounted in focus mode too, without the tab bar, so exporting still works there. */}
-                            <DocumentExportProvider>{!focusMode && <EditorTabBar />}</DocumentExportProvider>
+                                Mounted in focus mode too, without the tab bar, so exporting still works there: its export
+                                menu, which Export… opens for a diagram, then shows at the top right of the editor. */}
+                            <DocumentExportProvider>{focusMode ? <FocusModeExportMenu /> : <EditorTabBar />}</DocumentExportProvider>
 
                             {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
                             <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>

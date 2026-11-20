@@ -81,6 +81,9 @@ These are the things automated tests can't cover, so they need a person using th
 - [ ] Type Japanese with the Microsoft IME and press Esc while a word is still underlined: the composition is cancelled and focus mode stays.
 - [ ] In focus mode, press Ctrl+W until no tab is left. Focus mode stays, the editor says how to leave, Tab and Esc still work, and Esc brings the panes back.
 - [ ] In focus mode, use Ctrl+Tab, Ctrl+PageUp/PageDown, Ctrl+S with a failing save (a read-only file), change the file in another app, and Ctrl+Shift+X. The title bar dot, the error notification, the file-changed dialog and the export dialog all show.
+- [ ] Open a .mmd file, press F11, then Ctrl+Shift+X (and F1 > Export…). The diagram export menu opens at the top right of the editor, and Esc closes it with focus back in the editor. Press Esc again to leave focus mode: the tab bar's Export menu stays shut.
+- [ ] Click a file in the explorer, then choose View > Focus Mode with the mouse (and again from F1 > Focus Mode). Typing goes straight into the editor, and one Esc leaves focus mode.
+- [ ] In focus mode, use F1 > Find in Workspace (Ctrl+Shift+F) and pick a hit, then F1 > `:12`. The editor moves there and focus mode stays.
 - [ ] Press F11, close Scrivon and start it again: it opens in focus mode. Turn Restore panel layout off and do the same: it opens with all panels.
 - [ ] Turn on View > Dim Other Paragraphs. Type, move with the arrow keys and select across two paragraphs: only those paragraphs are at full strength, and the selection, find highlights and spelling squiggles stay clear. In a Windows Contrast theme nothing is faded.
 

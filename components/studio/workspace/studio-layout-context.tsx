@@ -12,7 +12,8 @@ type StudioLayoutContextValue = {
     /** Only the editor shows, filling the window. The tab bar and the status bar are hidden too. */
     focusMode: boolean
     setFocusMode: (on: boolean) => void
-    // Each of these leaves focus mode first, so the pane it shows really appears.
+    // Each of these leaves focus mode when it shows a pane focus mode hides (or hides the editor), so that pane really
+    // appears. Otherwise focus mode stays, and the change is kept for when it ends.
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
     setPreviewOpen: (open: boolean) => void
@@ -31,11 +32,22 @@ export function useStudioLayout(): StudioLayoutContextValue {
 type Pane = 'explorerOpen' | 'editorOpen' | 'previewOpen' | 'outlineOpen'
 
 /**
- * Shows or hides a pane, out of focus mode. Hiding the editor or the preview while it is the one left on screen
- * shows the other, so the window is never empty.
+ * Whether showing or hiding this pane changes what focus mode shows, so focus mode has to end for it. Showing the
+ * editor doesn't (it is the one pane there, so Find in Workspace and Go to Line keep focus mode), and nor does hiding
+ * a pane focus mode already hides. Showing any other pane, or hiding the editor, does.
+ */
+function leavesFocusMode(pane: Pane, open: boolean): boolean {
+    return pane === 'editorOpen' ? !open : open
+}
+
+/**
+ * Shows or hides a pane, leaving focus mode when that changes what is on screen. In focus mode, a change that
+ * doesn't is kept for when it ends. Hiding the editor or the preview while it is the one left on screen shows the
+ * other, so the window is never empty.
  */
 function withPaneOpen(settings: AppSettings, pane: Pane, open: boolean): AppSettings {
-    const layout = { ...settings.layout, [pane]: open, focusMode: false }
+    const focusMode = settings.layout.focusMode && !leavesFocusMode(pane, open)
+    const layout = { ...settings.layout, [pane]: open, focusMode }
     if (!layout.editorOpen && !layout.previewOpen) layout[pane === 'editorOpen' ? 'previewOpen' : 'editorOpen'] = true
     return { ...settings, layout }
 }
