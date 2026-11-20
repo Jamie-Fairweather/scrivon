@@ -116,11 +116,21 @@ describe('GlobalKeybindsProvider', () => {
 
     describe("with the editor's own commands", () => {
         /** The editor's real commands for the file, plus Toggle Editor, which shares Ctrl+E with Inline Code. */
-        function renderFor(file: { readOnly: boolean; markdown: boolean }) {
+        function renderFor(file: { readOnly: boolean; markdown: boolean; inTable?: boolean }) {
             const runFormat = vi.fn()
+            const runTable = vi.fn()
             const toggleEditor = vi.fn()
             const commands: AppCommand[] = [
-                ...buildEditorCommands({ editor: 'ready', isMac: false, runAction: vi.fn(), runFormat, ...file }),
+                ...buildEditorCommands({
+                    editor: 'ready',
+                    isMac: false,
+                    runAction: vi.fn(),
+                    runFormat,
+                    inTable: false,
+                    runTable,
+                    insertTable: vi.fn(),
+                    ...file,
+                }),
                 { id: 'toggle-editor', label: 'Editor', keybind: 'view.toggleEditor', run: toggleEditor },
             ]
             function FileCommands() {
@@ -143,8 +153,35 @@ describe('GlobalKeybindsProvider', () => {
             text.className = 'native-edit-context'
             editor.appendChild(text)
             document.body.appendChild(editor)
-            return { text, runFormat, toggleEditor, cleanUp: () => editor.remove() }
+            return { text, runFormat, runTable, toggleEditor, cleanUp: () => editor.remove() }
         }
+
+        it('runs Format Table on Shift+Alt+F in a table in a Markdown file', () => {
+            const { text, runTable, cleanUp } = renderFor({ readOnly: false, markdown: true, inTable: true })
+
+            expect(press('F', { shiftKey: true, altKey: true, code: 'KeyF' }, text)).toBe(true)
+
+            expect(runTable).toHaveBeenCalledWith('format')
+            cleanUp()
+        })
+
+        it('takes Shift+Alt+F in a Markdown file outside a table, doing nothing', () => {
+            const { text, runTable, cleanUp } = renderFor({ readOnly: false, markdown: true, inTable: false })
+
+            expect(press('F', { shiftKey: true, altKey: true, code: 'KeyF' }, text)).toBe(true)
+
+            expect(runTable).not.toHaveBeenCalled()
+            cleanUp()
+        })
+
+        it('leaves Shift+Alt+F to the editor (Format Document) in other files', () => {
+            const { text, runTable, cleanUp } = renderFor({ readOnly: false, markdown: false })
+
+            expect(press('F', { shiftKey: true, altKey: true, code: 'KeyF' }, text)).toBe(false)
+
+            expect(runTable).not.toHaveBeenCalled()
+            cleanUp()
+        })
 
         it('takes the format keys in a read-only Markdown file and does nothing, so Ctrl+E never hides the editor', () => {
             const { text, runFormat, toggleEditor, cleanUp } = renderFor({ readOnly: true, markdown: true })

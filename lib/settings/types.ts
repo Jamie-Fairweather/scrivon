@@ -54,6 +54,8 @@ export type KeybindActionId =
     | 'format.italic'
     | 'format.code'
     | 'format.link'
+    | 'format.insertTable'
+    | 'format.table'
 
 /** Where an action's keys work: anywhere, with a folder open, or while typing in the editor (where they come first). */
 export type KeybindWhen = 'global' | 'workspace' | 'editor'

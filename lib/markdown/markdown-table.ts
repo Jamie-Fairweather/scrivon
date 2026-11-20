@@ -410,10 +410,25 @@ export function editTable(lineAt: (index: number) => string, lineCount: number, 
     return { status: 'edited', edit, caret: { line: found.start + changed.caret.row, column: written.caretAt(changed.caret) } }
 }
 
+/** Why a table can't go in at the caret. */
+export type TableInsertProblem = 'in-table' | 'code-block'
+
 /** What Insert Table does, or why it can't. */
-export type InsertTableResult = { status: 'edited'; edit: LinesEdit; caret: TextCaret } | { status: 'in-table' } | { status: 'code-block' }
+export type InsertTableResult = { status: 'edited'; edit: LinesEdit; caret: TextCaret } | { status: TableInsertProblem }
 
 const isBlank = (line: string) => line.trim() === ''
+
+/** Why a new table can't go in at the caret (it's in a table already, or a code block), or null when it can. */
+export function tableInsertProblem(lineAt: (index: number) => string, lineCount: number, caret: TextCaret): TableInsertProblem | null {
+    if (findTable(lineAt, lineCount, caret.line)) return 'in-table'
+    // The table starts on the caret's line when that is blank, or else on the one after.
+    const startLine = isBlank(lineAt(caret.line)) ? caret.line : caret.line + 1
+    return insideCodeBlock(lineAt, startLine) ? 'code-block' : null
+}
+
+function clampSize(value: number, { min, max, default: fallback }: { min: number; max: number; default: number }): number {
+    return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.floor(value))) : fallback
+}
 
 /**
  * Inserts an empty table with a header row, a delimiter row and `size.rows` body rows, on lines of its
@@ -422,14 +437,13 @@ const isBlank = (line: string) => line.trim() === ''
  * the first header cell. A table after a line of text takes that line's indent, so it stays in a list item.
  */
 export function insertTable(lineAt: (index: number) => string, lineCount: number, caret: TextCaret, size: TableSize): InsertTableResult {
-    if (findTable(lineAt, lineCount, caret.line)) return { status: 'in-table' }
+    const problem = tableInsertProblem(lineAt, lineCount, caret)
+    if (problem) return { status: problem }
     const line = lineAt(caret.line)
     const onLine = isBlank(line)
-    // The table starts on the caret's line, or the one after.
-    if (insideCodeBlock(lineAt, onLine ? caret.line : caret.line + 1)) return { status: 'code-block' }
 
-    const columns = Math.min(TABLE_COLUMNS.max, Math.max(TABLE_COLUMNS.min, Math.floor(size.columns)))
-    const rows = Math.min(TABLE_ROWS.max, Math.max(TABLE_ROWS.min, Math.floor(size.rows)))
+    const columns = clampSize(size.columns, TABLE_COLUMNS)
+    const rows = clampSize(size.rows, TABLE_ROWS)
     const empty = () => Array.from({ length: columns }, () => '')
     const table: Table = {
         indent: onLine ? '' : /^[ \t]*/.exec(line)![0],

@@ -133,6 +133,9 @@ class FakeModel {
     getLineContent(lineNumber: number) {
         return this.lines[lineNumber - 1] ?? ''
     }
+    getLineCount() {
+        return this.lines.length
+    }
     /** Single-line ranges are enough here. */
     getValueInRange(range: FakeRange) {
         const line = this.lines[range.startLineNumber - 1] ?? ''
@@ -259,6 +262,10 @@ class FakeEditor {
         this.cursorListeners.add(listener)
         return { dispose: () => this.cursorListeners.delete(listener) }
     }
+    onDidChangeCursorPosition(listener: Listener) {
+        this.cursorListeners.add(listener)
+        return { dispose: () => this.cursorListeners.delete(listener) }
+    }
     onDidChangeModelOptions() {
         return { dispose: () => {} }
     }
@@ -334,7 +341,13 @@ const scrollSyncBinding = vi.hoisted(() => ({ dispose: vi.fn() }))
 vi.mock('@/components/studio/editor/editor-scroll-sync', () => ({ bindEditorScrollSync: vi.fn(() => scrollSyncBinding) }))
 
 // The Markdown helpers have their own tests (lib/monaco/markdown-editing.test.ts), with an editor that can edit text.
-vi.mock('@/lib/monaco/markdown-editing', () => ({ formatMarkdown: vi.fn(), bindMarkdownListEnter: vi.fn() }))
+vi.mock('@/lib/monaco/markdown-editing', () => ({
+    formatMarkdown: vi.fn(),
+    bindMarkdownListEnter: vi.fn(),
+    editMarkdownTable: vi.fn(),
+    canInsertMarkdownTable: vi.fn(() => true),
+    insertMarkdownTable: vi.fn(),
+}))
 
 /** Monaco's shared "Tab moves focus" switch; Ctrl+M calls setTabFocusMode with the opposite. */
 const tabFocus = {
@@ -1893,5 +1906,34 @@ describe('CodeEditorPanel Edit commands', () => {
         tabsState = { tabs: tabsState.tabs, activeTabId: b }
         view.rerender(<PanelWithCommands />)
         await waitFor(() => expect(command('link')).toMatchObject({ disabled: true, disabledReason: 'Only in Markdown files' }))
+    })
+
+    it('turns the table commands on as the caret moves into a table, and off as it leaves', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |')], activeTabId: '/w/a.md' }
+        render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.format')).toMatchObject({ disabled: true, disabledReason: 'Put the caret in a table' }))
+        const editor = editors[0]!
+
+        act(() => editor.setPosition({ lineNumber: 5, column: 3 }))
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(false))
+        expect(command('table.insert')).toMatchObject({ disabled: true, disabledReason: 'The caret is already in a table' })
+
+        act(() => void command('table.format')!.run())
+        expect(markdownEditing.editMarkdownTable).toHaveBeenCalledWith(editor, 'format')
+
+        act(() => editor.setPosition({ lineNumber: 1, column: 1 }))
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(true))
+        expect(command('table.insert')?.disabled).toBe(false)
+    })
+
+    it('asks for the size of a new table in a dialog', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'Intro')], activeTabId: '/w/a.md' }
+        render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.insert')?.disabled).toBe(false))
+
+        act(() => void command('table.insert')!.run())
+
+        expect(await screen.findByRole('dialog', { name: 'Insert table' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Columns')).toHaveValue('3')
     })
 })

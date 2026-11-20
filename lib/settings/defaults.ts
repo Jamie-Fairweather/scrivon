@@ -71,6 +71,9 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'format.italic': [chord('i', mod)],
         'format.code': [chord('e', mod)],
         'format.link': [chord('k', mod)],
+        'format.insertTable': [],
+        // Format Document's keys in the editor, where they do nothing in a Markdown file.
+        'format.table': [chord('f', { shift: true, alt: true })],
     }
 
     return bindings

@@ -23,7 +23,7 @@ import {
     useWorkspaceCoordinator,
     useWorkspaceSession,
 } from '@/components/studio/workspace/workspace-provider'
-import { formatMarkdown } from '@/lib/monaco/markdown-editing'
+import { editMarkdownTable, formatMarkdown } from '@/lib/monaco/markdown-editing'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { KeybindBindings } from '@/lib/settings/types'
 import { isTauri } from '@/lib/tauri/platform'
@@ -58,7 +58,12 @@ vi.mock('@/components/studio/command-palette/command-palette-provider', () => ({
     useOptionalCommandPalette: () => ({ open: vi.fn(), openMode: openPaletteMode }),
 }))
 vi.mock('@/components/studio/theme/theme-menu', () => ({ ThemeMenu: () => null }))
-vi.mock('@/lib/monaco/markdown-editing', () => ({ formatMarkdown: vi.fn() }))
+vi.mock('@/lib/monaco/markdown-editing', () => ({
+    formatMarkdown: vi.fn(),
+    editMarkdownTable: vi.fn(),
+    canInsertMarkdownTable: vi.fn(() => true),
+    insertMarkdownTable: vi.fn(),
+}))
 vi.mock('@/components/studio/dialogs/open-source-licenses-dialog', () => ({ OpenSourceLicensesDialog: () => null }))
 vi.mock('@/components/studio/shell/menu-bar-update-button', () => ({ MenuBarUpdateButton: () => <button type="button">Update</button> }))
 const { checkForUpdates } = vi.hoisted(() => ({ checkForUpdates: vi.fn(async () => {}) }))
@@ -158,9 +163,17 @@ function mockContexts({
     vi.mocked(useCanvasFit).mockReturnValue({ requestCanvasFit: vi.fn() } as unknown as ReturnType<typeof useCanvasFit>)
 }
 
+const askTableSize = vi.fn(async () => null)
+
 /** Stands in for the editor panel, which registers the Edit menu's commands. */
-function EditorCommands({ state }: { state: EditorState }) {
-    useEditorCommands(state === 'none' ? null : (fakeEditor as never), { shown: state === 'ready', readOnly: false, markdown: true })
+function EditorCommands({ state, inTable = false }: { state: EditorState; inTable?: boolean }) {
+    useEditorCommands(state === 'none' ? null : (fakeEditor as never), {
+        shown: state === 'ready',
+        readOnly: false,
+        markdown: true,
+        inTable,
+        askTableSize,
+    })
     return null
 }
 
@@ -175,12 +188,12 @@ function PaletteRows() {
 }
 
 /** The menu bar as the studio has it: the commands registered by the features, read by the menu bar. */
-function Studio({ children, editor = 'none' }: { children?: ReactNode; editor?: EditorState }) {
+function Studio({ children, editor = 'none', inTable }: { children?: ReactNode; editor?: EditorState; inTable?: boolean }) {
     return (
         <CommandRegistryProvider>
             <StudioCommands />
             <HelpCommands />
-            <EditorCommands state={editor} />
+            <EditorCommands state={editor} inTable={inTable} />
             <PaletteRows />
             <StudioMenuBar />
             {children}
@@ -753,6 +766,7 @@ describe('StudioMenuBar Edit menu', () => {
             'ItalicCtrl+I',
             'Inline CodeCtrl+E',
             'LinkCtrl+K',
+            'Table',
         ])
     })
 
@@ -793,9 +807,105 @@ describe('StudioMenuBar Edit menu', () => {
         const editorItems = within(menu)
             .getAllByRole('menuitem')
             .filter((item) => !palette.includes(item))
-        expect(editorItems).toHaveLength(13)
+        // The editor's thirteen, and the Table submenu.
+        expect(editorItems).toHaveLength(14)
         expect(editorItems.every((item) => item.getAttribute('aria-disabled') === 'true')).toBe(true)
         expect(palette.every((item) => item.getAttribute('aria-disabled') !== 'true')).toBe(true)
+    })
+})
+
+describe('StudioMenuBar Edit → Table', () => {
+    beforeEach(() => {
+        mockContexts({ workspaceRoot: 'C:/work', activeTabId: 'C:/work/a.md' })
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0)
+            return 0
+        })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    async function openTableMenu() {
+        const edit = await openMenu('Edit')
+        await userEvent.setup().click(within(edit).getByRole('menuitem', { name: 'Table' }))
+        const table = (await screen.findByRole('menuitem', { name: 'Insert Table…' })).closest<HTMLElement>('[role="menu"]')!
+        return { edit, table }
+    }
+
+    it('ends the Edit menu, with every table command and Format Table’s keys', async () => {
+        render(<Studio editor="ready" inTable />)
+
+        const { edit, table } = await openTableMenu()
+        expect(menuLabels(edit).at(-1)).toBe('Table')
+        expect(menuLabels(table)).toEqual([
+            'Insert Table…',
+            'Insert Row Above',
+            'Insert Row Below',
+            'Delete Row',
+            'Move Row Up',
+            'Move Row Down',
+            'Insert Column Left',
+            'Insert Column Right',
+            'Delete Column',
+            'Move Column Left',
+            'Move Column Right',
+            'Align Column Left',
+            'Align Column Centre',
+            'Align Column Right',
+            'Align Column None',
+            'Format TableAlt+Shift+F',
+        ])
+    })
+
+    it('runs a table command in the editor', async () => {
+        render(<Studio editor="ready" inTable />)
+
+        const { table } = await openTableMenu()
+        await userEvent.setup().click(within(table).getByRole('menuitem', { name: 'Move Column Right' }))
+
+        expect(fakeEditor.focus).toHaveBeenCalled()
+        expect(editMarkdownTable).toHaveBeenCalledWith(fakeEditor, 'move-column-right')
+    })
+
+    it('opens Insert Table… from the menu', async () => {
+        render(<Studio editor="ready" />)
+
+        const { table } = await openTableMenu()
+        await userEvent.setup().click(within(table).getByRole('menuitem', { name: 'Insert Table…' }))
+
+        await waitFor(() => expect(askTableSize).toHaveBeenCalled())
+    })
+
+    const off = (menu: HTMLElement) =>
+        menuItems(menu)
+            .filter((item) => item.getAttribute('aria-disabled') === 'true')
+            .map((item) => item.textContent)
+
+    it('greys out what needs a table outside one', async () => {
+        render(<Studio editor="ready" />)
+
+        const { table } = await openTableMenu()
+
+        expect(off(table)).toHaveLength(15)
+        expect(off(table)).not.toContain('Insert Table…')
+    })
+
+    it('greys out Insert Table… in a table', async () => {
+        render(<Studio editor="ready" inTable />)
+
+        const { table } = await openTableMenu()
+
+        expect(off(table)).toEqual(['Insert Table…'])
+    })
+
+    it('greys out the submenu when no file is open', async () => {
+        render(<Studio editor="none" />)
+
+        const edit = await openMenu('Edit')
+
+        expect(within(edit).getByRole('menuitem', { name: 'Table' })).toHaveAttribute('aria-disabled', 'true')
     })
 })
 
