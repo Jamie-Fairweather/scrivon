@@ -141,6 +141,8 @@ function Commands({ codeEditor, readOnly }: { codeEditor: FakeEditor; readOnly: 
         markdown: true,
         inTable: false,
         askTableSize: async () => null,
+        fileKind: 'markdown',
+        openStarterGallery: () => {},
     })
     useRegisterCommands(PALETTE_COMMANDS)
     return null

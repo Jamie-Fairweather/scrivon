@@ -68,6 +68,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName: vi.fn(async () => null) }) }))
 vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate: vi.fn(async () => null) }) }))
+vi.mock('@/components/studio/dialogs/diagram-starters-provider', () => ({ useDiagramStarters: () => ({ openStarterGallery: vi.fn() }) }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => state.session,
@@ -844,7 +845,15 @@ describe("usePaletteSearch the editor's commands", () => {
     ])('runs %s in the editor', (query, monacoAction) => {
         const editor = { focus: vi.fn(), trigger: vi.fn(), getModel: () => ({}) }
         function Editor() {
-            useEditorCommands(editor as never, { shown: true, readOnly: false, markdown: true, inTable: false, askTableSize: async () => null })
+            useEditorCommands(editor as never, {
+                shown: true,
+                readOnly: false,
+                markdown: true,
+                inTable: false,
+                askTableSize: async () => null,
+                fileKind: 'markdown',
+                openStarterGallery: () => {},
+            })
             return null
         }
         const { result } = renderHookAlone(() => usePaletteSearch('all', true), {

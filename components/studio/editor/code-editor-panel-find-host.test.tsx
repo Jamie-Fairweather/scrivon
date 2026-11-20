@@ -14,6 +14,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => ({ workspaceRoot: '/w' }),
 }))
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
+vi.mock('@/components/studio/dialogs/diagram-starters-provider', () => ({ useDiagramStarters: () => ({ openStarterGallery: () => {} }) }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ isLight: true, tokens: {} }) }))
 vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-theme', defineMonacoDiagramTheme: () => {} }))
 vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({

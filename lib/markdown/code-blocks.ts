@@ -12,16 +12,46 @@ export function isCodeFence(line: string): boolean {
     return CODE_FENCE.test(line)
 }
 
-/** Whether the line sits inside a ``` or ~~~ code block that starts above it. Reads every line above it. */
+// A block quote's marker: up to 3 spaces, `>`, and the one space after it, which is part of the marker.
+const QUOTE_MARKER = /^ {0,3}> ?/
+
+/** The line's block quote markers, up to `most` of them: how many, and the text after them. */
+function unquote(line: string, most: number): { depth: number; text: string } {
+    let depth = 0
+    let text = line
+    while (depth < most) {
+        const marker = QUOTE_MARKER.exec(text)
+        if (!marker) break
+        text = text.slice(marker[0].length)
+        depth += 1
+    }
+    return { depth, text }
+}
+
+/**
+ * Whether the line sits inside a ``` or ~~~ code block that starts above it, in a block quote or not. Reads every
+ * line above it, and never the line itself (which may be one past the end of the file).
+ */
 export function insideCodeBlock(lineAt: (index: number) => string, lineIndex: number): boolean {
-    let open: string | null = null
+    // The open block's fence, and how many block quotes it is in.
+    let open: { marks: string; depth: number } | null = null
     for (let index = 0; index < lineIndex; index += 1) {
-        const fence = CODE_FENCE.exec(lineAt(index))
-        if (!fence) continue
-        const [, marks, rest] = fence
-        if (open === null) open = marks
-        // Closed by the same kind of fence, at least as long, with nothing after it.
-        else if (marks[0] === open[0] && marks.length >= open.length && rest.trim() === '') open = null
+        const line = lineAt(index)
+        if (open !== null) {
+            // Inside the block, only its own quote markers come off: a quoted fence in an unquoted block is code.
+            const inner = unquote(line, open.depth)
+            if (inner.depth === open.depth) {
+                const fence = CODE_FENCE.exec(inner.text)
+                // Closed by the same kind of fence, at least as long, with nothing after it.
+                if (fence && fence[1][0] === open.marks[0] && fence[1].length >= open.marks.length && fence[2].trim() === '') open = null
+                continue
+            }
+            // Fewer quote markers: the quote the block was in has ended, and the block with it.
+            open = null
+        }
+        const outer = unquote(line, Infinity)
+        const fence = CODE_FENCE.exec(outer.text)
+        if (fence) open = { marks: fence[1], depth: outer.depth }
     }
     return open !== null
 }

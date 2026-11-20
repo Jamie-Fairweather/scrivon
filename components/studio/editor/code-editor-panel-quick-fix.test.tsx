@@ -59,7 +59,9 @@ const DIAGRAM_EXAMPLE = tabFromExample(APP_EXAMPLES.find((example) => example.ca
 const MISSPELT = 'helo'
 /** The link in NOTE that leads nowhere: the folder has docs/setup.md. */
 const BROKEN_LINK = 'docs/setp.md'
-const TREE: FileNode[] = [{ kind: 'directory', name: 'docs', path: '/w/docs', children: [{ kind: 'file', name: 'setup.md', path: '/w/docs/setup.md' }] }]
+const TREE: FileNode[] = [
+    { kind: 'directory', name: 'docs', path: '/w/docs', children: [{ kind: 'file', name: 'setup.md', path: '/w/docs/setup.md' }] },
+]
 
 let tabs: DocumentTab[] = [NOTE, CHART, DIAGRAM_EXAMPLE]
 let activeTabId = NOTE.id
@@ -75,12 +77,22 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => ({ workspaceRoot: '/w', tree: TREE }),
 }))
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
+vi.mock('@/components/studio/dialogs/diagram-starters-provider', () => ({ useDiagramStarters: () => ({ openStarterGallery: () => {} }) }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ isLight: true, tokens: {} }) }))
 vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'vs', defineMonacoDiagramTheme: () => {} }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({
         settings: {
-            editor: { fontSize: 13, tabSize: 2, wordWrap: 'on', wordWrapColumn: 80, lineNumbers: 'on', minimap: false, tabMovesFocus: false, checkLinks: true },
+            editor: {
+                fontSize: 13,
+                tabSize: 2,
+                wordWrap: 'on',
+                wordWrapColumn: 80,
+                lineNumbers: 'on',
+                minimap: false,
+                tabMovesFocus: false,
+                checkLinks: true,
+            },
             spellcheck: { enabled: true, language: 'en-GB', words: [] },
         },
         updateSettings: () => {},

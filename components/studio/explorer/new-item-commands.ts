@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
+import { useDiagramStarters } from '@/components/studio/dialogs/diagram-starters-provider'
 import { useCreateFromTemplate, useCreateNewItem, type NewItemKind } from '@/components/studio/explorer/use-file-tree-actions'
 import { useActiveTabId, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import type { KeybindActionId } from '@/lib/settings/types'
@@ -16,6 +17,8 @@ export type NewItemCommandsContext = {
     createNewItem: (kind: NewItemKind, folder: string) => Promise<boolean>
     /** Asks for a template, then a name, and makes the file. Resolves to false when either was cancelled. */
     newFromTemplate: (folder: string) => Promise<boolean>
+    /** Opens the Diagram Starters window, whose main button makes a new diagram in the folder given. */
+    newFromStarter: (folder: string) => void
     /** Opens the explorer if it is hidden. */
     showExplorer: () => void
 }
@@ -35,7 +38,17 @@ export const NEW_FROM_TEMPLATE = {
     keybind: 'workspace.newFromTemplate',
 } as const satisfies { id: string; label: string; keywords: string; keybind: KeybindActionId }
 
-/** New Diagram, New Document, New Folder and New from Template, for the palette, the File menu and their shortcuts. */
+/** New Diagram from Starter, which the File menu shows after New Diagram. It has no keys or keybind setting yet. */
+export const NEW_DIAGRAM_FROM_STARTER = {
+    id: 'new-diagram-from-starter',
+    label: 'New Diagram from Starter…',
+    keywords: 'new create file mermaid mmd diagram starter gallery flowchart sequence class state entity relationship er xy chart',
+} as const
+
+/**
+ * New Diagram, New Document, New Folder, New from Template and New Diagram from Starter, for the palette, the File
+ * menu and their shortcuts.
+ */
 export function buildNewItemCommands(ctx: NewItemCommandsContext): AppCommand[] {
     const availability = { disabled: !ctx.hasWorkspace, disabledReason: 'Open a folder first' }
     const plainItems = NEW_ITEMS.map(({ kind, label, keywords, keybind }): AppCommand => ({
@@ -62,7 +75,16 @@ export function buildNewItemCommands(ctx: NewItemCommandsContext): AppCommand[] 
             if (folder) void ctx.newFromTemplate(folder)
         },
     }
-    return [...plainItems, fromTemplate]
+    const fromStarter: AppCommand = {
+        ...NEW_DIAGRAM_FROM_STARTER,
+        ...availability,
+        run: () => {
+            // Worked out before the window takes the keyboard, as for New from Template.
+            const folder = ctx.targetFolder()
+            if (folder) ctx.newFromStarter(folder)
+        },
+    }
+    return [...plainItems, fromTemplate, fromStarter]
 }
 
 /** Where focus goes on the way to a command: the menu bar, a menu, or the palette (a dialog). */
@@ -113,9 +135,20 @@ export function useNewItemCommands(): void {
         if (!explorerOpen) setExplorerOpen(true)
     }, [explorerOpen, setExplorerOpen])
 
+    const { openStarterGallery } = useDiagramStarters()
+    const newFromStarter = useCallback((folder: string) => openStarterGallery({ primary: 'new-file', folder }), [openStarterGallery])
+
     const commands = useMemo(
-        () => buildNewItemCommands({ hasWorkspace: Boolean(workspaceRoot), targetFolder, createNewItem, newFromTemplate, showExplorer }),
-        [workspaceRoot, targetFolder, createNewItem, newFromTemplate, showExplorer]
+        () =>
+            buildNewItemCommands({
+                hasWorkspace: Boolean(workspaceRoot),
+                targetFolder,
+                createNewItem,
+                newFromTemplate,
+                newFromStarter,
+                showExplorer,
+            }),
+        [workspaceRoot, targetFolder, createNewItem, newFromTemplate, newFromStarter, showExplorer]
     )
     useRegisterCommands(commands)
 }
