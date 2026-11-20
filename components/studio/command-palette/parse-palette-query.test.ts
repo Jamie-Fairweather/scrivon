@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parsePaletteQuery, queryForMode, queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
+import { escapeRegExp, parsePaletteQuery, queryForMode, queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
 
 describe('parsePaletteQuery', () => {
     it('switches to commands when the query starts with >', () => {
@@ -78,5 +78,34 @@ describe('queryFromEditorSelection', () => {
 
     it('keeps a selection starting with @ or :, which Find in Workspace searches as text', () => {
         expect(queryFromEditorSelection('@media')).toBe('@media')
+    })
+
+    it('escapes regex syntax when Use Regular Expression is on, so the selection is found as it is', () => {
+        const seed = queryFromEditorSelection('a.b (1)', { escapeRegex: true })!
+        expect(seed).toBe('a\\.b \\(1\\)')
+        expect(new RegExp(seed, 'u').exec('x a.b (1) y')?.[0]).toBe('a.b (1)')
+        expect(new RegExp(seed, 'u').test('axb (1)')).toBe(false)
+        expect(queryFromEditorSelection('a.b', { escapeRegex: false })).toBe('a.b')
+    })
+})
+
+describe('escapeRegExp', () => {
+    it('escapes only regex syntax, so the result is a valid u pattern', () => {
+        const text = '^$\\.*+?()[]{}| - / , : = ! < > # @ ~ \' " `'
+        const escaped = escapeRegExp(text)
+        expect(escaped).toBe('\\^\\$\\\\\\.\\*\\+\\?\\(\\)\\[\\]\\{\\}\\| - / , : = ! < > # @ ~ \' " `')
+        expect(new RegExp(`^${escaped}$`, 'u').test(text)).toBe(true)
+    })
+})
+
+describe('parsePaletteQuery keepSpaces', () => {
+    it('keeps a search as typed, for a regular expression', () => {
+        expect(parsePaletteQuery(' +$', 'text', { keepSpaces: true })).toEqual({ kind: 'search', query: ' +$' })
+        expect(parsePaletteQuery('foo\\ ', 'text', { keepSpaces: true })).toEqual({ kind: 'search', query: 'foo\\ ' })
+        expect(parsePaletteQuery('  foo  ', 'text', { keepSpaces: true })).toEqual({ kind: 'search', query: '  foo  ' })
+    })
+
+    it('still finds > after leading spaces', () => {
+        expect(parsePaletteQuery('  >save ', 'text', { keepSpaces: true })).toEqual({ kind: 'commands', query: 'save' })
     })
 })

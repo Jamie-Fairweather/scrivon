@@ -5,6 +5,7 @@ import { isMacPlatform, isModifierKey, physicalKeyFallback } from '@/lib/setting
 import { getKeybindActionMeta } from '@/lib/settings/keybind-registry'
 import { isInsideCodeEditor, matchKeybinds } from '@/lib/settings/match-keybind'
 import type { KeybindActionId, KeybindBindings } from '@/lib/settings/types'
+import { SEARCH_OPTION_KEYS_ATTRIBUTE, workspaceSearchOptionForKey } from '@/lib/settings/workspace-search-keys'
 
 /** Each returns false to turn the key down, which passes it on to the next action with those keys (or the page). */
 export type KeybindHandlers = Partial<Record<KeybindActionId, () => boolean | void>>
@@ -55,6 +56,11 @@ function isInOpenPalette(target: EventTarget | null): boolean {
     return target instanceof Element && target.closest(`${COMMAND_PALETTE_SELECTOR}[data-open]`) !== null
 }
 
+/** True when the key was pressed in the palette while it shows Find in Workspace's options. */
+function isAtSearchOptions(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest(`[${SEARCH_OPTION_KEYS_ATTRIBUTE}]`) !== null
+}
+
 /** Monaco's two-key shortcuts (Ctrl+K Ctrl+0 folds all…) all start with Ctrl+K, Cmd+K on a Mac. */
 function startsEditorKeyPair(event: KeyboardEvent, isMac: boolean): boolean {
     const mod = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
@@ -101,6 +107,9 @@ export function useGlobalKeybinds(bindings: KeybindBindings, handlers: KeybindHa
             const key = event.code || event.key
             if (!event.repeat) heldKey = null
             if (event.defaultPrevented) return
+            // While Find in Workspace shows its options, Alt+C, Alt+W and Alt+R switch them, even when a
+            // shortcut that runs in the palette was given one of them outside Keyboard settings.
+            if (isAtSearchOptions(event.target) && workspaceSearchOptionForKey(event, isMac)) return
 
             if (keyPairUntil > 0 && (!isModifierKey(event.key) || LOCK_KEYS.has(event.key))) {
                 if (Date.now() >= keyPairUntil) {

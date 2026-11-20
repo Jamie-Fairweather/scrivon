@@ -208,6 +208,24 @@ describe('mergeStoredSettings', () => {
         })
     })
 
+    it("keeps Find in Workspace's options, reading missing or damaged ones as off", () => {
+        const off = { matchCase: false, wholeWord: false, useRegex: false }
+        expect(createDefaultSettings(false).workspaceSearch).toEqual(off)
+        // Settings saved before the options existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).workspaceSearch).toEqual(off)
+        expect(mergeStoredSettings({ workspaceSearch: { matchCase: true, wholeWord: true, useRegex: true } }, false).workspaceSearch).toEqual({
+            matchCase: true,
+            wholeWord: true,
+            useRegex: true,
+        })
+        expect(mergeStoredSettings({ workspaceSearch: { matchCase: 'yes', wholeWord: 1, useRegex: true } }, false).workspaceSearch).toEqual({
+            ...off,
+            useRegex: true,
+        })
+        expect(mergeStoredSettings({ workspaceSearch: 'on' }, false).workspaceSearch).toEqual(off)
+        expect(mergeStoredSettings({ workspaceSearch: null }, false).workspaceSearch).toEqual(off)
+    })
+
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
         expect(createDefaultSettings(false).editor.wordWrapColumn).toBe(80)
         // Settings saved before the option existed.

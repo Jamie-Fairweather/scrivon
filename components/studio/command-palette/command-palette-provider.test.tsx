@@ -9,19 +9,29 @@ import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@
 
 const search = vi.hoisted(() => ({
     enabled: false,
+    searchOptions: undefined as unknown,
     groups: [] as PaletteGroup[],
     emptyHint: null as string | null,
     runItem: (async () => {}) as (item: PaletteItem) => Promise<void>,
 }))
 
+const appSettings = vi.hoisted(() => ({
+    current: { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: false } },
+    updateSettings: (() => {}) as (update: (current: object) => object) => void,
+}))
+
 vi.mock('@/components/studio/editor/editor-focus', () => ({ focusEditorFor: vi.fn() }))
 vi.mock('@/lib/notify', () => ({ notifyError: vi.fn() }))
+vi.mock('@/components/studio/settings/settings-provider', () => ({
+    useAppSettings: () => ({ settings: appSettings.current, updateSettings: appSettings.updateSettings }),
+}))
 
 vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
     const { useCallback, useState } = await import('react')
     return {
-        usePaletteSearch: (_mode: unknown, enabled: boolean) => {
+        usePaletteSearch: (mode: unknown, enabled: boolean, searchOptions: unknown) => {
             search.enabled = enabled
+            search.searchOptions = searchOptions
             const [query, setQuery] = useState('')
             const resetSearch = useCallback(() => setQuery(''), [])
             return {
@@ -36,6 +46,7 @@ vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
                 runItem: (item: PaletteItem) => search.runItem(item),
                 hasWorkspace: true,
                 emptyHint: search.emptyHint,
+                searchOptionsApply: mode === 'text' && !query.trimStart().startsWith('>'),
             }
         },
     }
@@ -47,6 +58,8 @@ beforeEach(() => {
     search.groups = []
     search.emptyHint = null
     search.runItem = async () => {}
+    appSettings.current = { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: false } }
+    appSettings.updateSettings = () => {}
 })
 
 function CaptureOpenMode() {
@@ -160,6 +173,14 @@ describe('CommandPaletteProvider query seeding', () => {
         expect(screen.getByRole('combobox')).toHaveValue('')
     })
 
+    it('escapes regex syntax in the selection when Use Regular Expression is on', () => {
+        appSettings.current = { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: true } }
+        renderProvider('a.b (1)')
+        focusEditor()
+        act(() => palette.openMode('text'))
+        expect(screen.getByRole('combobox')).toHaveValue('a\\.b \\(1\\)')
+    })
+
     it('keeps what the user typed when the palette is opened again while open', () => {
         renderProvider('flowchart')
         act(() => palette.openMode('all'))
@@ -170,6 +191,26 @@ describe('CommandPaletteProvider query seeding', () => {
         act(() => palette.openMode('text'))
         expect(screen.getByRole('combobox')).toHaveValue('>save')
         expect(screen.getByPlaceholderText('Find in workspace…')).toBeInTheDocument()
+    })
+})
+
+describe('CommandPaletteProvider search options', () => {
+    beforeEach(() => {
+        palette.openMode = () => {}
+    })
+
+    it('searches with the saved options and saves a change to them', () => {
+        appSettings.current = { workspaceSearch: { matchCase: true, wholeWord: false, useRegex: false } }
+        let saved: unknown = null
+        appSettings.updateSettings = (update) => {
+            saved = update(appSettings.current)
+        }
+        renderProvider(null)
+        act(() => palette.openMode('text'))
+        expect(search.searchOptions).toEqual({ matchCase: true, wholeWord: false, useRegex: false })
+
+        fireEvent.click(screen.getByRole('button', { name: 'Use Regular Expression' }))
+        expect(saved).toEqual({ workspaceSearch: { matchCase: true, wholeWord: false, useRegex: true } })
     })
 })
 

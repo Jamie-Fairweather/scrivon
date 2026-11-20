@@ -57,8 +57,22 @@ export type FoldedLine = {
 
 /** Folds one line and remembers how positions map back, so columns and previews use the original text. */
 export function foldLine(line: string): FoldedLine {
+    return mapLine(line, foldText)
+}
+
+/** The case-keeping variant of foldText, for Match Case: NFC only, so an accent typed either way still matches. */
+export function normalizeText(text: string): string {
+    return text.normalize('NFC')
+}
+
+/** The case-keeping variant of foldLine: NFC only, with the same map back to the original line. */
+export function normalizeLine(line: string): FoldedLine {
+    return mapLine(line, normalizeText)
+}
+
+function mapLine(line: string, transform: (text: string) => string): FoldedLine {
     if (line.normalize('NFC') === line) {
-        const folded = foldText(line)
+        const folded = transform(line)
         if (folded.length === line.length) return { folded, starts: null, ends: null }
     }
 
@@ -66,7 +80,7 @@ export function foldLine(line: string): FoldedLine {
     const starts: number[] = []
     const ends: number[] = []
     for (const { segment, index } of pieces(line)) {
-        const piece = foldText(segment)
+        const piece = transform(segment)
         folded += piece
         for (let i = 0; i < piece.length; i++) {
             starts.push(index)
