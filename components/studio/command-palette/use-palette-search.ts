@@ -24,7 +24,7 @@ import {
     type SearchWorkspaceContentResult,
 } from '@/components/studio/command-palette/search-content'
 import { compileTextQuery, PLAIN_SEARCH_OPTIONS, type WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
-import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
+import { folderOf, resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode, TextPaletteItem } from '@/components/studio/command-palette/types'
 import { useCommands } from '@/components/studio/commands/command-registry'
 import { jumpToHeading } from '@/components/studio/outline/jump-to-heading'
@@ -126,9 +126,16 @@ function stopMessage(stop: SearchStop): string {
 /**
  * The palette's results for `query` in `mode`. `searchOptions` are Find in Workspace's saved options
  * (Match Case, Match Whole Word, Use Regular Expression). They only apply to a Text-mode search, not to the
- * default list or a '>' commands query, where the search is the plain one.
+ * default list or a '>' commands query, where the search is the plain one. `replacement` is what Replace in
+ * Workspace's box holds while it shows (null otherwise): the text results are then grouped by file, each match
+ * saying what it becomes.
  */
-export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOptions: WorkspaceSearchOptions = PLAIN_SEARCH_OPTIONS) {
+export function usePaletteSearch(
+    mode: PaletteMode,
+    enabled: boolean,
+    searchOptions: WorkspaceSearchOptions = PLAIN_SEARCH_OPTIONS,
+    replacement: string | null = null
+) {
     const { workspaceRoot, tree, recentWorkspaces, openWorkspace } = useWorkspaceSession()
     const { tabs, activeTab, openFile, setActiveTab } = useDocumentTabs()
     const { layout, setEditorOpen } = useStudioLayout()
@@ -143,12 +150,23 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
     const [textTruncatedFiles, setTextTruncatedFiles] = useState(0)
     const [textLongLinesSkipped, setTextLongLinesSkipped] = useState(0)
     const [textStop, setTextStop] = useState<SearchStop | null>(null)
+    const [textTruncatedPaths, setTextTruncatedPaths] = useState<string[]>([])
     const [lastResolvedSearchKey, setLastResolvedSearchKey] = useState<string | null>(null)
+    // Bumped to search again for the same query (after a replace), at once and with the results greyed out until then.
+    const [refreshCount, setRefreshCount] = useState(0)
+    const lastRefreshRef = useRef(0)
     const abortRef = useRef<AbortController | null>(null)
     // What the search effect last ran for, so a change of options (or mode) with the same typed query skips the typing pause.
     // `typed` is the query with its spaces trimmed, as typed: turning Use Regular Expression on or off keeps or trims the
     // spaces of the pattern, but nothing new was typed. An invalid pattern is recorded too, though it starts no search.
-    const lastStartedRef = useRef<{ query: string; typed: string; mode: PaletteMode; optionsKey: string; immediate: boolean } | null>(null)
+    const lastStartedRef = useRef<{
+        query: string
+        typed: string
+        mode: PaletteMode
+        optionsKey: string
+        replacement: string | null
+        immediate: boolean
+    } | null>(null)
     // File text read by earlier searches in this palette session (cleared on close and folder change).
     const [contentCache] = useState(() => createContentCache())
 
@@ -174,9 +192,14 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
     const queryError = compiledQuery && !compiledQuery.ok ? compiledQuery.error : null
     const textMatcher = compiledQuery?.ok ? compiledQuery.matcher : null
     const shouldSearchText = textMatcher !== null
-    // Text results (and their footer notes) only count for the query, mode and options they were found
-    // for, so hits for something the user has typed past are never opened by a quick Enter.
-    const searchKey = shouldSearchText ? JSON.stringify([mode, parsedQueryState.query, optionsKey]) : null
+    // Replace in Workspace's box only works with a Find in Workspace search, as the options do.
+    const replaceActive = replacement !== null && searchOptionsApply
+    // What the search works replacements out with. A plain replacement is put in as typed, so the results show it
+    // without searching again on each key; a regex one fills in groups, which only the search (in the worker) can.
+    const searchReplacement = replaceActive ? (useRegex ? replacement : '') : null
+    // Text results (and their footer notes) only count for the query, mode, options and replacement they were
+    // found for, so hits for something the user has typed past are never opened (or replaced) by a quick key.
+    const searchKey = shouldSearchText ? JSON.stringify([mode, parsedQueryState.query, optionsKey, searchReplacement]) : null
     const textResolved = searchKey !== null && lastResolvedSearchKey === searchKey
     const isSearchingText = shouldSearchText && !textResolved
 
@@ -195,11 +218,33 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
 
     // While a new search runs, the last hits stay in place (so the list doesn't jump on every key)
     // but can't be opened until the new hits replace them.
-    const textGroup = useMemo((): PaletteGroup | null => {
-        if (!shouldSearchText || textHits.length === 0) return null
+    const textGroups = useMemo((): PaletteGroup[] => {
+        if (!shouldSearchText || textHits.length === 0) return NO_GROUPS
         const items = textResolved ? textHits : textHits.map((item) => ({ ...item, disabled: true }))
-        return { id: 'text', label: 'Text', items }
-    }, [shouldSearchText, textResolved, textHits])
+        if (!replaceActive) return [{ id: 'text', label: 'Text', items }]
+        // Replace in Workspace: one group per file, its heading naming the file, each match saying what it becomes.
+        const byFile = new Map<string, TextPaletteItem[]>()
+        for (const item of items) {
+            const withReplacement = useRegex ? item : { ...item, newText: replacement ?? '' }
+            const list = byFile.get(item.path)
+            if (list) list.push(withReplacement)
+            else byFile.set(item.path, [withReplacement])
+        }
+        const truncated = new Set(textTruncatedPaths)
+        return [...byFile].map(([path, fileItems]) => ({
+            id: `replace:${path}`,
+            label: fileItems[0]!.name,
+            items: fileItems,
+            file: {
+                path,
+                name: fileItems[0]!.name,
+                folder: folderOf(fileItems[0]!.relativePath),
+                matchCount: fileItems.length,
+                capped: truncated.has(path),
+                ...(textResolved ? {} : { disabled: true }),
+            },
+        }))
+    }, [shouldSearchText, textResolved, textHits, replaceActive, useRegex, replacement, textTruncatedPaths])
 
     const recentFiles = useMemo(() => (recentFilesState?.root === workspaceRoot ? recentFilesState.paths : []), [recentFilesState, workspaceRoot])
 
@@ -224,9 +269,16 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
         setTextCapped(false)
         setTextUnreadableFiles(0)
         setTextTruncatedFiles(0)
+        setTextTruncatedPaths([])
         setTextLongLinesSkipped(0)
         setTextStop(null)
     }, [contentCache])
+
+    /** Searches again for the same query at once, the results greyed out until then: after a replace, so none is stale. */
+    const refreshText = useCallback(() => {
+        setLastResolvedSearchKey(null)
+        setRefreshCount((count) => count + 1)
+    }, [])
 
     // Every app command, from the same list the menu bar reads.
     const commands = useCommands()
@@ -289,7 +341,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
             }
         }
 
-        if (textGroup) result.push(textGroup)
+        result.push(...textGroups)
 
         // While typing, commands come last, so a matching file name or text hit is what Enter opens.
         if (commandGroup && parsedQuery) result.push(commandGroup)
@@ -306,7 +358,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
         headings,
         liveRecentFiles,
         filePaths,
-        textGroup,
+        textGroups,
         mode,
     ])
 
@@ -321,7 +373,8 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
         if (!textMatcher || searchKey === null) {
             abortRef.current?.abort()
             // Remembered, so an option switched over an invalid pattern searches at once.
-            if (enabled) lastStartedRef.current = { query: parsedQuery, typed: typedQuery, mode, optionsKey, immediate: false }
+            if (enabled)
+                lastStartedRef.current = { query: parsedQuery, typed: typedQuery, mode, optionsKey, replacement: searchReplacement, immediate: false }
             return
         }
 
@@ -332,11 +385,23 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
 
         // Typing waits for a pause. Switching an option or the mode for the same typed query searches at once.
         // The same search started again (an edit to an open file, or Strict Mode running effects twice) keeps its own timing.
+        // A replacement typed in regex mode waits for a pause too. Searching again after a replace doesn't wait.
         const previous = lastStartedRef.current
-        const sameSearch = previous !== null && previous.query === parsedQuery && previous.optionsKey === optionsKey && previous.mode === mode
-        const switched = previous !== null && previous.typed === typedQuery && (previous.optionsKey !== optionsKey || previous.mode !== mode)
-        const immediate = sameSearch ? previous.immediate : switched
-        lastStartedRef.current = { query: parsedQuery, typed: typedQuery, mode, optionsKey, immediate }
+        const sameSearch =
+            previous !== null &&
+            previous.query === parsedQuery &&
+            previous.optionsKey === optionsKey &&
+            previous.mode === mode &&
+            previous.replacement === searchReplacement
+        const switched =
+            previous !== null &&
+            previous.typed === typedQuery &&
+            previous.replacement === searchReplacement &&
+            (previous.optionsKey !== optionsKey || previous.mode !== mode)
+        const refreshed = refreshCount !== lastRefreshRef.current
+        lastRefreshRef.current = refreshCount
+        const immediate = refreshed || (sameSearch ? previous.immediate : switched)
+        lastStartedRef.current = { query: parsedQuery, typed: typedQuery, mode, optionsKey, replacement: searchReplacement, immediate }
 
         const timeout = window.setTimeout(
             () => {
@@ -358,6 +423,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
                             getFileStamp: isTauri() ? readStamp : undefined,
                             cache: contentCache,
                             signal: controller.signal,
+                            replacement: searchReplacement,
                         })
                     } catch (err) {
                         if (!controller.signal.aborted) notifyError("Couldn't search file contents", err, { id: 'palette-text-search' })
@@ -370,6 +436,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
                     setTextCapped(result?.capped ?? false)
                     setTextUnreadableFiles(result?.unreadableFiles ?? 0)
                     setTextTruncatedFiles(result?.truncatedFiles ?? 0)
+                    setTextTruncatedPaths(result?.truncatedPaths ?? [])
                     setTextLongLinesSkipped(result?.longLinesSkipped ?? 0)
                     setTextStop(result?.stopped ?? null)
                     setLastResolvedSearchKey(searchKey)
@@ -383,7 +450,23 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
             controller.abort()
         }
         // searchKey stands for the query, the mode and the options together, so any of them runs the search again.
-    }, [searchKey, textMatcher, parsedQueryState.query, typedQuery, mode, optionsKey, enabled, tabs, filePaths, contentCache, workspaceRoot])
+    }, [
+        searchKey,
+        textMatcher,
+        parsedQueryState.query,
+        typedQuery,
+        mode,
+        optionsKey,
+        searchReplacement,
+        refreshCount,
+        enabled,
+        tabs,
+        filePaths,
+        contentCache,
+        workspaceRoot,
+    ])
+
+    const showEditor = useCallback(() => setEditorOpen(true), [setEditorOpen])
 
     const runItem = useCallback(
         async (item: PaletteItem) => {
@@ -440,5 +523,16 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
         hasWorkspace: Boolean(workspaceRoot),
         /** What to show instead of results when ':', '@' or '?' lists nothing. */
         emptyHint,
+        /** Whether Replace in Workspace's box applies now (Text mode, searching, the box asked for). */
+        replaceActive,
+        /** The query compiled for the search's options, or null when there is none to search (or it is invalid). */
+        textMatcher,
+        /** Whether the text results listed are those of the query, options and replacement as they are now. */
+        textResolved,
+        refreshText,
+        /** The workspace's files, in the order the results list them. */
+        filePaths,
+        /** Shows the editor, as opening a text hit does. */
+        showEditor,
     }
 }

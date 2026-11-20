@@ -25,10 +25,11 @@ describe('buildPaletteCommands', () => {
             { id: 'command-palette', label: 'Command Palette…', keybind: 'palette.open' },
             { id: 'go-to-file', label: 'Go to File…', keybind: 'palette.openFiles' },
             { id: 'find-in-workspace', label: 'Find in Workspace…', keybind: 'palette.openText' },
+            { id: 'replace-in-workspace', label: 'Replace in Workspace…', keybind: 'palette.openReplace' },
         ])
 
         for (const command of commands) void command.run()
-        expect(openMode.mock.calls).toEqual([['all'], ['files'], ['text']])
+        expect(openMode.mock.calls).toEqual([['all'], ['files'], ['text'], ['text', { replace: true }]])
     })
 
     it('can always run, as their keys can, also on the welcome screen', () => {

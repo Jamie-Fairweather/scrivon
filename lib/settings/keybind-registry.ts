@@ -43,6 +43,7 @@ const KEYBIND_ACTION_META = {
     'settings.open': { label: 'Open settings', category: 'Navigation', when: 'global' },
     'palette.open': { label: 'Open command palette', category: 'Navigation', when: 'global', allowInNativeTextField: true, allowInPalette: true },
     'palette.openText': { label: 'Find in workspace', category: 'Navigation', when: 'global', allowInPalette: true },
+    'palette.openReplace': { label: 'Replace in workspace', category: 'Navigation', when: 'global', allowInPalette: true },
     'palette.openFiles': { label: 'Go to file', category: 'Navigation', when: 'global', allowInPalette: true },
     'tabs.close': { label: 'Close tab', category: 'Tabs', when: 'workspace' },
     'tabs.next': { label: 'Next tab', category: 'Tabs', when: 'workspace', allowRepeat: true },

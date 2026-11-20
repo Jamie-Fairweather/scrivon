@@ -16,7 +16,7 @@ const search = vi.hoisted(() => ({
 }))
 
 const appSettings = vi.hoisted(() => ({
-    current: { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: false } },
+    current: { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: false }, fileHistory: { enabled: false } },
     updateSettings: (() => {}) as (update: (current: object) => object) => void,
 }))
 
@@ -58,7 +58,7 @@ beforeEach(() => {
     search.groups = []
     search.emptyHint = null
     search.runItem = async () => {}
-    appSettings.current = { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: false } }
+    appSettings.current = { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: false }, fileHistory: { enabled: false } }
     appSettings.updateSettings = () => {}
 })
 
@@ -174,7 +174,7 @@ describe('CommandPaletteProvider query seeding', () => {
     })
 
     it('escapes regex syntax in the selection when Use Regular Expression is on', () => {
-        appSettings.current = { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: true } }
+        appSettings.current = { workspaceSearch: { matchCase: false, wholeWord: false, useRegex: true }, fileHistory: { enabled: false } }
         renderProvider('a.b (1)')
         focusEditor()
         act(() => palette.openMode('text'))
@@ -200,7 +200,7 @@ describe('CommandPaletteProvider search options', () => {
     })
 
     it('searches with the saved options and saves a change to them', () => {
-        appSettings.current = { workspaceSearch: { matchCase: true, wholeWord: false, useRegex: false } }
+        appSettings.current = { workspaceSearch: { matchCase: true, wholeWord: false, useRegex: false }, fileHistory: { enabled: false } }
         let saved: unknown = null
         appSettings.updateSettings = (update) => {
             saved = update(appSettings.current)
@@ -210,7 +210,7 @@ describe('CommandPaletteProvider search options', () => {
         expect(search.searchOptions).toEqual({ matchCase: true, wholeWord: false, useRegex: false })
 
         fireEvent.click(screen.getByRole('button', { name: 'Use Regular Expression' }))
-        expect(saved).toEqual({ workspaceSearch: { matchCase: true, wholeWord: false, useRegex: true } })
+        expect(saved).toEqual({ workspaceSearch: { matchCase: true, wholeWord: false, useRegex: true }, fileHistory: { enabled: false } })
     })
 })
 

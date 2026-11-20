@@ -240,6 +240,7 @@ export function StudioMenuBar() {
                                 {item('edit.find')}
                                 {item('edit.replace')}
                                 {item('find-in-workspace')}
+                                {item('replace-in-workspace')}
                                 {item('edit.go-to-line')}
                                 {item('go-to-file')}
                             </MenuGroup>

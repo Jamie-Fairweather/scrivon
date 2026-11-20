@@ -25,6 +25,12 @@ export function relativePath(workspaceRoot: string, path: string): string {
     return path
 }
 
+/** Folder part of a workspace-relative path ('' for a file at the top of the folder). */
+export function folderOf(relativePath: string): string {
+    const cut = Math.max(relativePath.lastIndexOf('/'), relativePath.lastIndexOf('\\'))
+    return cut > 0 ? relativePath.slice(0, cut) : ''
+}
+
 function toFileItem(path: string, workspaceRoot: string): FilePaletteItem {
     const name = getBaseName(path)
     const rel = relativePath(workspaceRoot, path)

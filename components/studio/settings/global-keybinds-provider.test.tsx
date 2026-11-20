@@ -180,8 +180,9 @@ describe('GlobalKeybindsProvider', () => {
         press('F1')
         press('f', { ctrlKey: true, shiftKey: true })
         press('n', { ctrlKey: true, shiftKey: true })
+        press('h', { ctrlKey: true, shiftKey: true })
 
-        expect(mocks.openMode.mock.calls).toEqual([['all'], ['text'], ['files']])
+        expect(mocks.openMode.mock.calls).toEqual([['all'], ['text'], ['files'], ['text', { replace: true }]])
     })
 
     it('turns shortcuts off while settings is open, so recording a shortcut does not also run it', () => {

@@ -21,6 +21,7 @@ export type KeybindActionId =
     | 'settings.open'
     | 'palette.open'
     | 'palette.openText'
+    | 'palette.openReplace'
     | 'palette.openFiles'
     | 'view.toggleExplorer'
     | 'view.toggleEditor'

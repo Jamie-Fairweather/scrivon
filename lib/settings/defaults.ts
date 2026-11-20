@@ -31,6 +31,7 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'settings.open': [chord(',', mod)],
         'palette.open': [chord('F1')],
         'palette.openText': [chord('f', { ...mod, shift: true })],
+        'palette.openReplace': [chord('h', { ...mod, shift: true })],
         'palette.openFiles': [chord('n', { ...mod, shift: true })],
         // Not Ctrl+B: that makes text bold in the editor.
         'view.toggleExplorer': [chord('b', { ...mod, shift: true })],

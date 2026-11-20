@@ -2,6 +2,9 @@ import type { DocumentKind } from '@/lib/workspace/file-types'
 
 export type PaletteMode = 'all' | 'files' | 'text'
 
+/** How the palette opens. `replace` shows Replace in Workspace's box (Text mode only). */
+export type PaletteOpenOptions = { replace?: boolean }
+
 export type ActionPaletteItem = {
     kind: 'action'
     value: string

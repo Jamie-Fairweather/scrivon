@@ -95,6 +95,11 @@ export type WorkspaceCoordinatorRefs = {
      * isn't open or is read-only, and nothing changed.
      */
     applyTabEdits: MutableRefObject<(tabId: string, edits: readonly TextEdit[]) => boolean>
+    /**
+     * The open tabs as they are at this moment, with any edit or newly opened file not yet drawn: for work that
+     * must decide what is open right when it acts (Replace in Workspace), not as of the last render.
+     */
+    getTabs: MutableRefObject<() => readonly DocumentTab[]>
     getEditorSelectedText: MutableRefObject<() => string | null>
 }
 
@@ -130,6 +135,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         revealInEditor: { current: () => {} },
         replaceEditorText: { current: () => {} },
         applyTabEdits: { current: () => false },
+        getTabs: { current: () => [] },
         getEditorSelectedText: { current: () => null },
     }
 }
