@@ -258,6 +258,11 @@ export const SCRIVON_SECURE_KEYS = ['theme', 'themeVariables', 'themeCSS', 'font
  */
 export function officialMermaidConfig(themeId: AppThemeId): MermaidConfig {
     const darkMode = !isLightTheme(themeId)
+    const vars = officialThemeVariables(themeId)
+    const { fg, surface, border } = completeDiagramColors(themeId)
+    const journeyTasks = Array.from({ length: 8 }, (_, i) => vars[`fillType${i}`]!)
+    // Small labels in the packet's blocks.
+    const packetText = ensureContrast(fg, fg, [surface], LABEL_CONTRAST)
     return {
         startOnLoad: false,
         securityLevel: 'strict',
@@ -266,7 +271,31 @@ export function officialMermaidConfig(themeId: AppThemeId): MermaidConfig {
         darkMode,
         fontFamily: DIAGRAM_FONT_FAMILY,
         htmlLabels: false,
-        themeVariables: { ...officialThemeVariables(themeId), darkMode, fontFamily: DIAGRAM_FONT_FAMILY, pieOpacity: PIE_OPACITY },
+        journey: {
+            // A user journey ignores htmlLabels and writes its task text as HTML unless told otherwise.
+            textPlacement: 'tspan',
+            // Its task text is white whatever the theme, which can't be read on a light theme's task colours.
+            sectionColours: [ensureContrast(fg, fg, journeyTasks, LABEL_CONTRAST)],
+            taskFontFamily: DIAGRAM_FONT_FAMILY,
+            titleFontFamily: DIAGRAM_FONT_FAMILY,
+        },
+        themeVariables: {
+            ...vars,
+            darkMode,
+            fontFamily: DIAGRAM_FONT_FAMILY,
+            pieOpacity: PIE_OPACITY,
+            // The base theme leaves a packet diagram black on light grey, and a radar chart's rings light grey,
+            // whatever the theme.
+            packet: {
+                startByteColor: packetText,
+                endByteColor: packetText,
+                labelColor: packetText,
+                titleColor: fg,
+                blockStrokeColor: border,
+                blockFillColor: surface,
+            },
+            radar: { graticuleColor: border },
+        },
         // Without its defaults, setting this would let a diagram turn security off.
         secure: [...MERMAID_DEFAULT_SECURE_KEYS, ...SCRIVON_SECURE_KEYS],
     }

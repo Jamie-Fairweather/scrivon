@@ -77,6 +77,18 @@ describe('officialThemeVariables', () => {
         const shown = Array.from({ length: 12 }, (_, i) => hexColorMix(vars[`pie${i + 1}`]!, vars.background!, opacity * 100))
         for (const slice of shown) expect(contrastRatio(vars.pieSectionTextColor!, slice)).toBeGreaterThanOrEqual(4.5)
     })
+
+    it.each(APP_THEME_IDS)("writes %s's user journey tasks and packet labels so they read on their boxes", (themeId) => {
+        const config = officialMermaidConfig(themeId)
+        const vars = config.themeVariables as Record<string, string> & { packet: Record<string, string> }
+        // A journey writes every task in sectionColours[0] (white unless set) on its fillType colour, as SVG text.
+        expect(config.journey?.textPlacement).toBe('tspan')
+        const taskText = config.journey!.sectionColours![0]!
+        for (let i = 0; i < 8; i++) expect(contrastRatio(taskText, vars[`fillType${i}`]!)).toBeGreaterThanOrEqual(4.5)
+        // A packet diagram's blocks take the theme, not Mermaid's light grey.
+        expect(vars.packet.blockFillColor).toBe(completeDiagramColors(themeId).surface)
+        expect(contrastRatio(vars.packet.labelColor!, vars.packet.blockFillColor!)).toBeGreaterThanOrEqual(4.5)
+    })
 })
 
 describe('officialMermaidConfig', () => {
@@ -90,11 +102,14 @@ describe('officialMermaidConfig', () => {
             darkMode: !isLightTheme(themeId),
             fontFamily: DIAGRAM_FONT_FAMILY,
             htmlLabels: false,
+            journey: expect.objectContaining({ textPlacement: 'tspan', taskFontFamily: DIAGRAM_FONT_FAMILY }),
             themeVariables: {
                 ...officialThemeVariables(themeId),
                 darkMode: !isLightTheme(themeId),
                 fontFamily: DIAGRAM_FONT_FAMILY,
                 pieOpacity: '1',
+                packet: expect.any(Object),
+                radar: expect.any(Object),
             },
             secure: expect.any(Array),
         })
