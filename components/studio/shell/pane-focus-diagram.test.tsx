@@ -26,7 +26,12 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useDocumentTabs: () => ({ activeTabId: 'flow.mmd', tabs: [{ id: 'flow.mmd', name: 'flow.mmd' }], openFile: async () => {} }),
+    useDocumentTabs: () => ({
+        activeTabId: 'flow.mmd',
+        activeTab: { id: 'flow.mmd', name: 'flow.mmd' },
+        tabs: [{ id: 'flow.mmd', name: 'flow.mmd' }],
+        openFile: async () => {},
+    }),
     useCanvasFit: () => ({ canvasFitRequestId: 0, requestCanvasFit: () => {} }),
     useStudioLayout: () => ({ layout: { editorOpen: true } }),
     useWorkspaceCoordinator: () => ({ revealInEditor: { current: () => {} } }),

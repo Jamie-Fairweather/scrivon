@@ -1,12 +1,14 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useId } from 'react'
 import { MenuItem, MenuSeparator } from '@/components/ui/menu'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
 import { useFileHistory } from '@/components/studio/dialogs/file-history-provider'
 import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
 import { useSaveExampleCopy } from '@/components/studio/workspace/use-save-example-copy'
 import { useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useEditorGroup } from '@/components/studio/workspace/editor-group-context'
+import { useTabGroupActions } from '@/components/studio/workspace/group-commands'
 import { exampleIdFromTabId } from '@/lib/examples/example-tab'
 import { anySavedTabs, anyTabsToRight } from '@/lib/workspace/document-tab'
 
@@ -17,9 +19,13 @@ function SaveExampleCopyItem({ exampleId }: { exampleId: string }) {
 }
 
 export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; children: React.ReactNode }) {
-    const { tabs, closeTab, closeOtherTabs, closeTabsToRight, closeSavedTabs, closeAllTabs, revertTab, moveTab } = useDocumentTabs()
+    const { closeTab, closeOtherTabs, closeTabsToRight, closeSavedTabs, closeAllTabs, revertTab, moveTab } = useDocumentTabs()
+    // The tab's own group: closing and moving act on its strip, and splitting on the group beside it.
+    const { tabs, index: group } = useEditorGroup()
+    const groupActions = useTabGroupActions(tabId, group)
     const { open, anchor, openAt, onOpenChange } = useContextMenuAtPoint()
     const { showFileHistory } = useFileHistory()
+    const moveReasonId = useId()
 
     // The menu doesn't switch tabs, so closing a background tab leaves you on the one you were in.
     const onContextMenu = useCallback(
@@ -43,28 +49,44 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
         <span onContextMenu={onContextMenu} className="contents" data-menu-open={open || undefined}>
             {children}
             <ContextMenuAtPoint open={open} onOpenChange={onOpenChange} anchor={anchor} align="start" className="min-w-44">
-                <MenuItem onClick={() => void closeTab(tabId)}>Close</MenuItem>
-                <MenuItem disabled={!canCloseOthers} onClick={() => void closeOtherTabs(tabId)}>
+                <MenuItem onClick={() => void closeTab(tabId, group)}>Close</MenuItem>
+                <MenuItem disabled={!canCloseOthers} onClick={() => void closeOtherTabs(tabId, group)}>
                     Close Others
                 </MenuItem>
-                <MenuItem disabled={!hasTabsToRight} onClick={() => void closeTabsToRight(tabId)}>
+                <MenuItem disabled={!hasTabsToRight} onClick={() => void closeTabsToRight(tabId, group)}>
                     Close to the Right
                 </MenuItem>
-                <MenuItem disabled={!hasSavedTabs} onClick={() => void closeSavedTabs()}>
+                <MenuItem disabled={!hasSavedTabs} onClick={() => void closeSavedTabs(group)}>
                     Close Saved
                 </MenuItem>
-                <MenuItem disabled={tabs.length === 0} onClick={() => void closeAllTabs()}>
+                <MenuItem disabled={tabs.length === 0} onClick={() => void closeAllTabs(group)}>
                     Close All
                 </MenuItem>
                 {tab && (
                     <>
                         <MenuSeparator />
-                        <MenuItem disabled={index === 0} onClick={() => moveTab(tabId, index - 1)}>
+                        <MenuItem disabled={index === 0} onClick={() => moveTab(tabId, index - 1, group)}>
                             Move Left
                         </MenuItem>
-                        <MenuItem disabled={index === tabs.length - 1} onClick={() => moveTab(tabId, index + 1)}>
+                        <MenuItem disabled={index === tabs.length - 1} onClick={() => moveTab(tabId, index + 1, group)}>
                             Move Right
                         </MenuItem>
+                        <MenuSeparator />
+                        {/* This tab, in the group beside its own (made first when there is one group). */}
+                        <MenuItem onClick={groupActions.split}>Split Editor</MenuItem>
+                        <MenuItem
+                            disabled={!groupActions.canMove}
+                            aria-describedby={groupActions.moveDisabledReason ? moveReasonId : undefined}
+                            onClick={groupActions.move}
+                        >
+                            Move Tab to Other Group
+                        </MenuItem>
+                        {/* Why it is off, as the View menu and the palette say (and the explorer's menu does). */}
+                        {groupActions.moveDisabledReason ? (
+                            <p id={moveReasonId} className="px-2 py-1 text-xs text-muted-foreground">
+                                {groupActions.moveDisabledReason}
+                            </p>
+                        ) : null}
                         <MenuSeparator />
                     </>
                 )}

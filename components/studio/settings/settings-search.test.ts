@@ -14,6 +14,11 @@ describe('searchSettings', () => {
         ])
     })
 
+    it('finds the editor group shortcuts in Keyboard settings', () => {
+        expect(searchSettings('split editor', BROWSER)).toEqual([expect.objectContaining({ section: 'keyboard', label: 'Split editor' })])
+        expect(searchSettings('join groups', BROWSER)).toEqual([expect.objectContaining({ section: 'keyboard', label: 'Join editor groups' })])
+    })
+
     it('finds nothing for an empty search', () => {
         expect(searchSettings('', BROWSER)).toEqual([])
         expect(searchSettings('   ', BROWSER)).toEqual([])

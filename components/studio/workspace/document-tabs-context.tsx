@@ -31,42 +31,82 @@ import {
     stampChanged,
 } from '@/lib/tauri/fs'
 import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
-import { formatFileSize, isLargeFile, moveItem, tabFromFile } from '@/lib/workspace/document-tab'
+import { formatFileSize, isLargeFile, tabFromFile } from '@/lib/workspace/document-tab'
 import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import { DEFAULT_TEXT_FORMAT } from '@/lib/workspace/text-encoding'
+import {
+    EMPTY_EDITOR_GROUPS,
+    focusedActiveTabId,
+    focusedGroup,
+    focusGroup as focusGroupIn,
+    groupsForSession,
+    groupsWithTab,
+    joinGroups as joinAllGroups,
+    moveTabInGroup,
+    moveTabToOtherGroup as moveTabAcross,
+    orderLikeGroups,
+    otherGroupIndex,
+    reconcileGroups,
+    remapGroupsAfterRename,
+    removeFromGroup,
+    removeTabs,
+    restoreGroups,
+    setGroupRatio as setRatio,
+    showTab,
+    splitEditor as splitEditorIn,
+    tabsOnlyInGroup,
+    unionTabIds,
+    type EditorGroups,
+} from '@/lib/workspace/editor-groups'
 import { remapPathAfterRename, remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
+import { setFocusedEditorGroupId } from '@/components/studio/workspace/focused-editor-group'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
 
 type DocumentTabsContextValue = {
+    /** Every open tab once, however many groups show it, in the order the strips show them. */
     tabs: DocumentTab[]
+    /** The tab the focused group shows: "the current document" for everything outside the groups. */
     activeTabId: string | null
     activeTab: DocumentTab | null
+    /** The editor groups (lib/workspace/editor-groups.ts): which tabs each shows, and which has the keyboard. */
+    groups: EditorGroups
+    /**
+     * Opens a file, or shows it when a group has it open already (the focused group first, then the other,
+     * which takes the keyboard). Otherwise it opens in the focused group.
+     */
     openFile: (path: string) => Promise<void>
     openExample: (exampleId: string) => void
-    setActiveTab: (id: string) => Promise<void>
+    /** Shows the tab in group `group` (a click on its strip), or else as openFile finds it. */
+    setActiveTab: (id: string, group?: number) => Promise<void>
     updateTabContent: (id: string, content: string) => void
-    closeTab: (id: string) => Promise<void>
-    closeOtherTabs: (keepId: string) => Promise<void>
-    closeAllTabs: () => Promise<void>
-    /** Closes the tabs after this one. */
-    closeTabsToRight: (id: string) => Promise<void>
-    /** Closes the tabs with no unsaved changes. */
-    closeSavedTabs: () => Promise<void>
+    /**
+     * Closes the tab in group `group` (by default the focused group, or else the one that has it). It only really
+     * closes, saving or asking about its edits, when no other group shows it.
+     */
+    closeTab: (id: string, group?: number) => Promise<void>
+    /** Closes the other tabs in the group, or every other tab without one. */
+    closeOtherTabs: (keepId: string, group?: number) => Promise<void>
+    /** Closes every tab in the group, or every tab in every group without one. */
+    closeAllTabs: (group?: number) => Promise<void>
+    /** Closes the tabs after this one, in its group's strip. */
+    closeTabsToRight: (id: string, group?: number) => Promise<void>
+    /** Closes the tabs with no unsaved changes, in the group, or everywhere without one. */
+    closeSavedTabs: (group?: number) => Promise<void>
     /** Opens again the tab closed last that isn't open now. */
     reopenClosedTab: () => Promise<void>
     /** Puts the file's saved version back in its tab, asking first when that drops unsaved changes. Not for examples. */
     revertTab: (id: string) => Promise<void>
     /** True when there is a closed tab to reopen. */
     canReopenClosedTab: boolean
-    /** Shows the next tab (1) or the one before (-1), going round from the last to the first. */
+    /** Shows the next tab (1) or the one before (-1) in the focused group, going round from the last to the first. */
     switchTab: (step: 1 | -1) => Promise<void>
     /**
-     * Moves a tab so it ends up at `toIndex` in the strip (kept inside it), and remembers the new order for the
-     * folder. The tab shown stays the same. A move that leaves the order as it was does nothing.
+     * Moves a tab so it ends up at `toIndex` in its group's strip (kept inside it), and remembers the new order for
+     * the folder. The tab shown stays the same. A move that leaves the order as it was does nothing.
      */
-    moveTab: (id: string, toIndex: number) => void
+    moveTab: (id: string, toIndex: number, group?: number) => void
     /** The tab moved last, a new object for each move, so the tab strip can say where it went. Null before any move. */
     lastTabMove: TabMove | null
     /**
@@ -74,6 +114,21 @@ type DocumentTabsContextValue = {
      * (saved as UTF-8 from then on) or a very large one. Does nothing for a file that looks binary.
      */
     makeTabEditable: (id: string) => void
+    /** Puts the keyboard's group to `group`: the group clicked or typed in. */
+    focusGroup: (group: number) => void
+    /**
+     * Split Editor: shows the tab (the focused one by default) in the group other than `from` and focuses it, making
+     * the right-hand group first when there is only one. Never makes a third.
+     */
+    splitEditor: (id?: string, from?: number) => void
+    /** Move Tab to Other Group: as Split Editor, but the tab leaves the group it was in, which closes if left empty. */
+    moveTabToOtherGroup: (id?: string, from?: number) => void
+    /** Focus Other Group. */
+    focusOtherGroup: () => void
+    /** Join Groups: every tab in one group, each once. */
+    joinGroups: () => void
+    /** Sets where the divider between the groups is, as the left group's share of the width. */
+    setGroupRatio: (ratio: number) => void
 }
 
 /** What can be done with the tabs. These functions stay the same while the user types. */
@@ -93,10 +148,16 @@ export type DocumentTabActions = Pick<
     | 'switchTab'
     | 'moveTab'
     | 'makeTabEditable'
+    | 'focusGroup'
+    | 'splitEditor'
+    | 'moveTabToOtherGroup'
+    | 'focusOtherGroup'
+    | 'joinGroups'
+    | 'setGroupRatio'
 >
 
-/** A tab that was moved along the strip. */
-export type TabMove = { id: string }
+/** A tab that was moved along a group's strip. */
+export type TabMove = { id: string; groupId: string }
 
 /** Why a tab opened read-only, and the label of the button that lets the user edit it anyway, if there is one. */
 export type ReadOnlyReason = { text: string; editLabel: string | null }
@@ -188,9 +249,16 @@ export function useActiveTabId(): string | null {
 export type DocumentTabsState = {
     tabs: DocumentTab[]
     setTabs: Dispatch<SetStateAction<DocumentTab[]>>
+    /** The tab the focused group shows. */
     activeTabId: string | null
+    /** Shows a tab in the focused group (null: none), as the groups' one tab shown did before the split. */
     setActiveTabId: Dispatch<SetStateAction<string | null>>
     tabsRef: MutableRefObject<DocumentTab[]>
+    /** The groups as last set. Kept in step with the tabs wherever they are read (reconcileGroups). */
+    groups: EditorGroups
+    groupsRef: MutableRefObject<EditorGroups>
+    /** Sets the groups, in the ref straight away, so anything that runs before React draws again sees them. */
+    setGroups: (next: EditorGroups) => void
 }
 
 type DocumentTabsProviderProps = {
@@ -200,15 +268,46 @@ type DocumentTabsProviderProps = {
     tabsState: DocumentTabsState
 }
 
+const tabIdsOf = (list: readonly DocumentTab[]) => list.map((t) => t.id)
+
 export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tabsState }: DocumentTabsProviderProps) {
-    const { tabs, setTabs, activeTabId, setActiveTabId, tabsRef } = tabsState
-    const activeTabIdRef = useRef(activeTabId)
+    const { tabs, setTabs, tabsRef, groupsRef } = tabsState
+    const setGroupsState = tabsState.setGroups
+
+    // The groups as they are now, in step with the tabs as they are now (which change before React draws again).
+    const currentGroups = useCallback(() => reconcileGroups(groupsRef.current, tabIdsOf(tabsRef.current)), [groupsRef, tabsRef])
+    // The groups as drawn: in step with the tabs drawn.
+    const tabIdsKey = tabs.map((t) => t.id).join('\n')
+    const groups = useMemo(() => reconcileGroups(tabsState.groups, tabIdsKey === '' ? [] : tabIdsKey.split('\n')), [tabsState.groups, tabIdsKey])
+    const activeTabId = focusedActiveTabId(groups)
+    const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? null, [tabs, activeTabId])
 
     useEffect(() => {
-        activeTabIdRef.current = activeTabId
-    }, [activeTabId])
+        setFocusedEditorGroupId(groups.groups[groups.focused]?.id ?? null)
+    }, [groups])
 
-    const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? null, [tabs, activeTabId])
+    /**
+     * Sets the groups, kept in step with the open tabs (so set the tabs first). The tab list is put in the order the
+     * strips show (left group first), so everything that lists the tabs lists them as they are on screen.
+     */
+    const commitGroups = useCallback(
+        (next: EditorGroups): EditorGroups => {
+            const reconciled = reconcileGroups(next, tabIdsOf(tabsRef.current))
+            setFocusedEditorGroupId(reconciled.groups[reconciled.focused]?.id ?? null)
+            setGroupsState(reconciled)
+            const ordered = orderLikeGroups(tabsRef.current, reconciled)
+            if (ordered !== tabsRef.current) {
+                tabsRef.current = [...ordered]
+                // An update, so a keystroke queued meanwhile is kept.
+                setTabs((prev) => {
+                    const sorted = orderLikeGroups(prev, reconciled)
+                    return sorted === prev ? prev : [...sorted]
+                })
+            }
+            return reconciled
+        },
+        [setGroupsState, setTabs, tabsRef]
+    )
 
     // Tabs the user closed, the last closed at the end, for Reopen Closed Tab. Only for the folder open now.
     const [closedTabIds, setClosedTabIds] = useState<readonly string[]>([])
@@ -224,25 +323,29 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     const canReopenClosedTab = useMemo(() => closedTabIds.some((id) => !tabs.some((t) => t.id === id)), [closedTabIds, tabs])
 
     const persistTabSession = useCallback(
-        async (snapshot?: { tabs: DocumentTab[]; activeTabId: string | null }) => {
+        async (snapshot?: { tabs: readonly DocumentTab[]; groups: EditorGroups }) => {
             if (!workspaceRoot || !coordinator.canPersistTabSession.current(workspaceRoot)) return
             const sourceTabs = snapshot?.tabs ?? tabsRef.current
+            const sourceGroups = snapshot?.groups ?? currentGroups()
             const workspaceTabs = sourceTabs.filter((t) => !isExampleTabId(t.id))
-            const activeId = snapshot?.activeTabId ?? activeTabIdRef.current
+            const activeId = focusedActiveTabId(sourceGroups)
             const resolvedActiveId =
                 activeId && !isExampleTabId(activeId) && workspaceTabs.some((t) => t.id === activeId) ? activeId : (workspaceTabs[0]?.id ?? null)
+            // Each group's files, while the editor is split; examples aren't remembered.
+            const split = groupsForSession(sourceGroups, (id) => !isExampleTabId(id) && workspaceTabs.some((t) => t.id === id))
             // Remembering the open tabs is a convenience: a failure (reported by the store) never stops what the user did.
             try {
                 await setWorkspaceTabSession(workspaceRoot, {
                     // One entry per file, even if a tab was ever doubled up, so a double never comes back on restart.
                     tabIds: [...new Set(workspaceTabs.map((t) => t.id))],
                     activeTabId: resolvedActiveId,
+                    ...split,
                 })
             } catch (err) {
                 console.warn("Couldn't remember the open tabs", err)
             }
         },
-        [workspaceRoot, tabsRef, coordinator]
+        [workspaceRoot, tabsRef, coordinator, currentGroups]
     )
 
     /** Adds a file to the folder's recent files for the palette; best-effort, like the tab session. */
@@ -376,16 +479,13 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             },
             remapTabsAfterRename: (oldPath, newPath, newName) => {
                 const prevTabs = tabsRef.current
+                const prevGroups = currentGroups()
                 const nextTabs = remapTabsAfterRename(prevTabs, oldPath, newPath, newName)
-                const prevActiveId = activeTabIdRef.current
-                const nextActiveId = prevActiveId ? remapPathAfterRename(prevActiveId, oldPath, newPath) : null
                 // The refs change straight away and the state with an update, so a change queued for another tab is kept.
                 tabsRef.current = nextTabs
                 setTabs((prev) => remapTabsAfterRename(prev, oldPath, newPath, newName))
-                if (nextActiveId !== prevActiveId) {
-                    activeTabIdRef.current = nextActiveId
-                    setActiveTabId(nextActiveId)
-                }
+                // Its tabs follow it in both groups, still shown where they were.
+                const nextGroups = commitGroups(remapGroupsAfterRename(prevGroups, oldPath, newPath))
                 setClosedTabs(closedTabIdsRef.current.map((id) => remapPathAfterRename(id, oldPath, newPath)))
                 coordinator.tabsMoved.current(
                     prevTabs.flatMap((t, i) => (t.isDirty && t.id !== nextTabs[i]!.id ? [{ from: t.id, to: nextTabs[i]!.id }] : []))
@@ -395,7 +495,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 prevTabs.forEach((t, i) => {
                     if (t.id !== nextTabs[i]!.id && readOnlyReason(t)) dismissNotification(readOnlyNoticeId(t.id))
                 })
-                void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
+                void persistTabSession({ tabs: nextTabs, groups: nextGroups })
             },
             closeTabsForDelete: (path, isDirectory) => {
                 const toClose = tabsToCloseOnDelete(tabsRef.current, path, isDirectory)
@@ -403,16 +503,21 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 setClosedTabs(closedTabIdsRef.current.filter((id) => !samePath(id, path) && !(isDirectory && isPathInside(id, path))))
                 releaseTabs(toClose)
                 const closingIds = new Set(toClose.map((t) => t.id))
+                const prevGroups = currentGroups()
                 const nextTabs = tabsRef.current.filter((t) => !closingIds.has(t.id))
-                const closingActive = activeTabIdRef.current !== null && closingIds.has(activeTabIdRef.current)
-                const nextActiveId = closingActive ? (nextTabs[0]?.id ?? null) : activeTabIdRef.current
+                // A group whose tab goes shows its first tab left, as with one group; one left with none closes.
+                const shownGoes = (id: string | null) => id !== null && closingIds.has(id)
+                const firstLeft = (tabIds: readonly string[]) => tabIds.find((id) => !closingIds.has(id))
+                const withFirstShown: EditorGroups = {
+                    ...prevGroups,
+                    groups: prevGroups.groups.map((g) =>
+                        shownGoes(g.activeTabId) ? { ...g, activeTabId: firstLeft(g.tabIds) ?? g.activeTabId } : g
+                    ),
+                }
                 tabsRef.current = nextTabs
                 setTabs((prev) => prev.filter((t) => !closingIds.has(t.id)))
-                if (closingActive) {
-                    activeTabIdRef.current = nextActiveId
-                    setActiveTabId(nextActiveId)
-                }
-                void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
+                const nextGroups = commitGroups(removeTabs(withFirstShown, [...closingIds]))
+                void persistTabSession({ tabs: nextTabs, groups: nextGroups })
             },
             findTabsToCloseOnDelete: (path, isDirectory) => tabsToCloseOnDelete(tabsRef.current, path, isDirectory),
             clearTabs: () => {
@@ -423,17 +528,17 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 setClosedTabs([])
                 // The refs change straight away, so anything that runs before React re-renders sees no tabs.
                 tabsRef.current = []
-                activeTabIdRef.current = null
                 setTabs([])
-                setActiveTabId(null)
+                commitGroups(EMPTY_EDITOR_GROUPS)
             },
             getUnsavedContent: (path) => {
                 const tab = tabsRef.current.find((t) => samePath(t.path, path))
                 return tab?.isDirty ? { content: tab.content, format: tab.format } : undefined
             },
-            setTabsFromWorkspace: (nextTabs, nextActiveId) => {
+            setTabsFromWorkspace: (nextTabs, nextActiveId, split) => {
                 // A file the user opened while the saved tabs were still loading stays open, and stays the one shown.
                 const opened = tabsRef.current
+                const openedActiveId = focusedActiveTabId(currentGroups())
                 const openTab = (current: readonly DocumentTab[], path: string) => current.find((o) => samePath(o.path, path))
                 const notOpen = (current: DocumentTab[]) => nextTabs.filter((t) => !openTab(current, t.path))
                 const restored = notOpen(opened)
@@ -472,7 +577,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                     coordinator.scheduleBackup.current(id)
                     dismissNotification(readOnlyNoticeId(id))
                 }
-                if (!activeTabIdRef.current || !opened.some((t) => t.id === activeTabIdRef.current)) setActiveTabId(nextActiveId)
+                // The groups as they were, with the tabs opened meanwhile in the focused one (where they opened).
+                const keepShown = openedActiveId !== null && opened.some((t) => t.id === openedActiveId) ? openedActiveId : null
+                const restoredGroups = restoreGroups(split, tabIdsOf(tabsRef.current), keepShown ?? nextActiveId)
+                commitGroups(keepShown !== null ? showTab(restoredGroups, keepShown) : restoredGroups)
                 for (const tab of restored) explainReadOnlyFile(tab)
                 return left
             },
@@ -501,7 +609,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                 )
             },
         })
-    }, [coordinator, persistTabSession, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile, releaseTabs, reloadTab, setClosedTabs])
+    }, [coordinator, commitGroups, currentGroups, persistTabSession, setTabs, tabsRef, explainReadOnlyFile, releaseTabs, reloadTab, setClosedTabs])
 
     const openFile = useCallback(
         async (requestedPath: string) => {
@@ -512,14 +620,15 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             }
 
             const path = normalizePath(requestedPath)
-            const previousId = activeTabIdRef.current
+            const previousId = focusedActiveTabId(currentGroups())
             lastRequestedRef.current = path
 
             const existing = tabsRef.current.find((t) => samePath(t.path, path))
             if (existing) {
                 lastRequestedRef.current = existing.id
-                setActiveTabId(existing.id)
-                void persistTabSession({ tabs: tabsRef.current, activeTabId: existing.id })
+                // The group that has it shows it and takes the keyboard: the focused group first, then the other.
+                const nextGroups = commitGroups(showTab(currentGroups(), existing.id))
+                void persistTabSession({ tabs: tabsRef.current, groups: nextGroups })
                 recordRecentFile(existing.id)
                 if (previousId && previousId !== existing.id) coordinator.flushSaveOnTabLeave.current(previousId)
                 return
@@ -560,12 +669,10 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
                     explainReadOnlyFile(tab)
                 }
                 const isLatest = lastRequestedRef.current !== null && samePath(lastRequestedRef.current, path)
-                if (isLatest) {
-                    activeTabIdRef.current = tab.id
-                    setActiveTabId(tab.id)
-                    coordinator.requestCanvasFit.current()
-                }
-                await persistTabSession({ tabs: tabsRef.current, activeTabId: activeTabIdRef.current })
+                // A new tab goes in the focused group (at the end of its strip) even when another open came after it.
+                const nextGroups = commitGroups(isLatest ? showTab(currentGroups(), tab.id) : currentGroups())
+                if (isLatest) coordinator.requestCanvasFit.current()
+                await persistTabSession({ tabs: tabsRef.current, groups: nextGroups })
                 if (isLatest) recordRecentFile(tab.id)
             })()
             pendingOpens.current.set(path, open)
@@ -575,7 +682,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             })
             return open
         },
-        [coordinator, persistTabSession, recordRecentFile, forgetRecentFile, setTabs, setActiveTabId, tabsRef, explainReadOnlyFile]
+        [coordinator, commitGroups, currentGroups, persistTabSession, recordRecentFile, forgetRecentFile, setTabs, tabsRef, explainReadOnlyFile]
     )
 
     const openExample = useCallback(
@@ -587,12 +694,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             }
 
             const tabId = exampleTabId(exampleId)
-            const previousId = activeTabIdRef.current
+            const previousId = focusedActiveTabId(currentGroups())
             lastRequestedRef.current = tabId
 
             const existing = tabsRef.current.find((t) => t.id === tabId)
             if (existing) {
-                setActiveTabId(tabId)
+                commitGroups(showTab(currentGroups(), tabId))
                 if (previousId && previousId !== tabId) coordinator.flushSaveOnTabLeave.current(previousId)
                 return
             }
@@ -600,66 +707,121 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             if (previousId && previousId !== tabId) coordinator.flushSaveOnTabLeave.current(previousId)
 
             const tab = tabFromExample(example)
-            setTabs((prev) => [...prev, tab])
-            setActiveTabId(tabId)
+            tabsRef.current = [...tabsRef.current, tab]
+            setTabs((prev) => (prev.some((t) => t.id === tabId) ? prev : [...prev, tab]))
+            commitGroups(showTab(currentGroups(), tabId))
             coordinator.requestCanvasFit.current()
         },
-        [coordinator, setTabs, setActiveTabId, tabsRef]
+        [coordinator, commitGroups, currentGroups, setTabs, tabsRef]
     )
 
     const setActiveTab = useCallback(
-        async (id: string) => {
+        async (id: string, group?: number) => {
             lastRequestedRef.current = id
-            if (activeTabIdRef.current === id) return
-            const previousId = activeTabIdRef.current
-            setActiveTabId(id)
+            const before = currentGroups()
+            const next = showTab(before, id, group)
+            if (next === before) return
+            const previousId = focusedActiveTabId(before)
+            const nextGroups = commitGroups(next)
             if (!isExampleTabId(id)) {
-                void persistTabSession({ tabs: tabsRef.current, activeTabId: id })
-                recordRecentFile(id)
+                void persistTabSession({ tabs: tabsRef.current, groups: nextGroups })
+                if (previousId !== id) recordRecentFile(id)
             }
-            if (previousId) coordinator.flushSaveOnTabLeave.current(previousId)
+            if (previousId && previousId !== id) coordinator.flushSaveOnTabLeave.current(previousId)
         },
-        [coordinator, persistTabSession, recordRecentFile, setActiveTabId, tabsRef]
+        [coordinator, commitGroups, currentGroups, persistTabSession, recordRecentFile, tabsRef]
     )
 
     const switchTab = useCallback(
         async (step: 1 | -1) => {
-            const open = tabsRef.current
+            const state = currentGroups()
+            // Ctrl+Tab stays inside the focused group.
+            const { tabIds: open, activeTabId: shownId } = focusedGroup(state)
             if (open.length === 0) return
-            const index = open.findIndex((t) => t.id === activeTabIdRef.current)
+            const index = shownId === null ? -1 : open.indexOf(shownId)
             // With no tab shown, the next is the first and the previous the last.
             const next = index === -1 ? (step === 1 ? 0 : open.length - 1) : (index + step + open.length) % open.length
-            await setActiveTab(open[next]!.id)
+            await setActiveTab(open[next]!, state.focused)
         },
-        [setActiveTab, tabsRef]
+        [currentGroups, setActiveTab]
     )
 
     const [lastTabMove, setLastTabMove] = useState<TabMove | null>(null)
 
     const moveTab = useCallback(
-        (id: string, toIndex: number) => {
-            const moved = (list: DocumentTab[]) =>
-                moveItem(
-                    list,
-                    list.findIndex((t) => t.id === id),
-                    toIndex
-                )
-            const prev = tabsRef.current
-            const nextTabs = moved(prev)
-            if (nextTabs === prev) return
-            // The ref changes straight away and the state with an update, so a keystroke queued meanwhile is kept.
-            tabsRef.current = nextTabs
-            setTabs(moved)
-            setLastTabMove({ id })
+        (id: string, toIndex: number, group?: number) => {
+            const before = currentGroups()
+            const index = group ?? (focusedGroup(before).tabIds.includes(id) ? before.focused : groupsWithTab(before, id)[0])
+            if (index === undefined) return
+            const next = moveTabInGroup(before, index, id, toIndex)
+            if (next === before) return
+            const prevTabs = tabsRef.current
+            const nextGroups = commitGroups(next)
+            setLastTabMove({ id, groupId: nextGroups.groups[index]!.id })
             // Examples aren't remembered, so moving one past the others leaves nothing new to save.
-            const savedIds = (list: readonly DocumentTab[]) => list.flatMap((t) => (isExampleTabId(t.id) ? [] : [t.id]))
-            const before = savedIds(prev)
-            if (savedIds(nextTabs).some((tabId, i) => tabId !== before[i])) {
-                void persistTabSession({ tabs: nextTabs, activeTabId: activeTabIdRef.current })
+            const savedIds = (state: EditorGroups, list: readonly DocumentTab[]) => [
+                ...list.flatMap((t) => (isExampleTabId(t.id) ? [] : [t.id])),
+                ...state.groups.flatMap((g) => g.tabIds.filter((tabId) => !isExampleTabId(tabId))),
+            ]
+            const beforeIds = savedIds(before, prevTabs)
+            if (savedIds(nextGroups, tabsRef.current).some((tabId, i) => tabId !== beforeIds[i])) {
+                void persistTabSession({ tabs: tabsRef.current, groups: nextGroups })
             }
         },
-        [persistTabSession, setTabs, tabsRef]
+        [commitGroups, currentGroups, persistTabSession, tabsRef]
     )
+
+    const focusGroup = useCallback(
+        (group: number) => {
+            const before = currentGroups()
+            const next = focusGroupIn(before, group)
+            if (next === before) return
+            const nextGroups = commitGroups(next)
+            void persistTabSession({ tabs: tabsRef.current, groups: nextGroups })
+            const previousId = focusedActiveTabId(before)
+            if (previousId && previousId !== focusedActiveTabId(nextGroups)) coordinator.flushSaveOnTabLeave.current(previousId)
+        },
+        [coordinator, commitGroups, currentGroups, persistTabSession, tabsRef]
+    )
+
+    /** Applies a change to the groups made by a group command, and remembers it for the folder. */
+    const changeGroups = useCallback(
+        (change: (state: EditorGroups) => EditorGroups) => {
+            const before = currentGroups()
+            const next = change(before)
+            if (next === before) return
+            const nextGroups = commitGroups(next)
+            void persistTabSession({ tabs: tabsRef.current, groups: nextGroups })
+        },
+        [commitGroups, currentGroups, persistTabSession, tabsRef]
+    )
+
+    const splitEditor = useCallback(
+        (id?: string, from?: number) =>
+            changeGroups((state) => {
+                const tabId = id ?? focusedActiveTabId(state)
+                return tabId === null || !tabsRef.current.some((t) => t.id === tabId) ? state : splitEditorIn(state, tabId, from)
+            }),
+        [changeGroups, tabsRef]
+    )
+
+    const moveTabToOtherGroup = useCallback(
+        (id?: string, from?: number) =>
+            changeGroups((state) => {
+                const tabId = id ?? focusedActiveTabId(state)
+                return tabId === null ? state : moveTabAcross(state, tabId, from)
+            }),
+        [changeGroups]
+    )
+
+    const focusOtherGroup = useCallback(() => {
+        const other = otherGroupIndex(currentGroups())
+        if (other !== null) focusGroup(other)
+    }, [currentGroups, focusGroup])
+
+    const joinGroups = useCallback(() => changeGroups(joinAllGroups), [changeGroups])
+
+    const setGroupRatio = useCallback((ratio: number) => changeGroups((state) => setRatio(state, ratio)), [changeGroups])
 
     const updateTabContent = useCallback(
         (id: string, content: string) => {
@@ -780,69 +942,114 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     }, [coordinator, confirmCloseTabs])
 
     /**
-     * Closes the tabs given, once their edits are saved or the user lets them go. When the tab on screen is
-     * one of them, `show` takes its place, or else the nearest tab left open (the next one, then the one before).
+     * Closes the tabs given, once their edits are saved or the user lets them go. With `group`, only in that
+     * group: a tab the other group still shows stays open there, so its edits aren't asked about or lost. When the
+     * tab a group shows is one of them, `show` takes its place, or else the nearest tab left in the group (the next
+     * one, then the one before). A group left with no tabs closes.
      */
     const closeTabsById = useCallback(
-        async (ids: readonly string[], show?: string) => {
-            if (ids.length === 0 || !(await confirmCloseTabs(ids))) return
-            const closing = new Set(ids)
+        async (ids: readonly string[], show?: string, group?: number) => {
+            if (ids.length === 0) return
+            const groupId = group === undefined ? undefined : currentGroups().groups[group]?.id
+            if (group !== undefined && groupId === undefined) return
+            const inGroup = (state: EditorGroups) => (groupId === undefined ? -1 : state.groups.findIndex((g) => g.id === groupId))
+            // Only the tabs no other group shows really close.
+            const closingFor = (state: EditorGroups) => (groupId === undefined ? ids : tabsOnlyInGroup(state, inGroup(state), ids))
+            const toConfirm = closingFor(currentGroups())
+            if (toConfirm.length > 0 && !(await confirmCloseTabs(toConfirm))) return
+            // As they are once the question is answered.
+            const before = currentGroups()
+            const index = inGroup(before)
+            if (groupId !== undefined && index === -1) return
+            const nextGroups = index === -1 ? removeTabs(before, ids, show) : removeFromGroup(before, index, ids, show)
+            const stillShown = new Set(unionTabIds(nextGroups))
+            const closing = new Set(closingFor(before).filter((id) => !stillShown.has(id)))
             const prev = tabsRef.current
             releaseTabs(prev.filter((t) => closing.has(t.id)))
             const nextTabs = prev.filter((t) => !closing.has(t.id))
-            let nextActiveId = activeTabIdRef.current
-            if (nextActiveId !== null && closing.has(nextActiveId)) {
-                const shownIndex = prev.findIndex((t) => t.id === nextActiveId)
-                const after = prev.slice(shownIndex + 1).find((t) => !closing.has(t.id))
-                const before = prev.slice(0, Math.max(shownIndex, 0)).findLast((t) => !closing.has(t.id))
-                nextActiveId = show !== undefined && nextTabs.some((t) => t.id === show) ? show : ((after ?? before)?.id ?? null)
-                activeTabIdRef.current = nextActiveId
-                setActiveTabId(nextActiveId)
-            }
             rememberClosedTabs(prev.filter((t) => closing.has(t.id)).map((t) => t.id))
             // The ref changes straight away and the state with an update, so a change queued for another tab is kept.
             tabsRef.current = nextTabs
-            setTabs((current) => current.filter((t) => !closing.has(t.id)))
-            void persistTabSession({ tabs: nextTabs, activeTabId: nextActiveId })
+            if (closing.size > 0) setTabs((current) => current.filter((t) => !closing.has(t.id)))
+            const committed = commitGroups(nextGroups)
+            void persistTabSession({ tabs: nextTabs, groups: committed })
         },
-        [confirmCloseTabs, releaseTabs, rememberClosedTabs, persistTabSession, setTabs, setActiveTabId, tabsRef]
+        [commitGroups, confirmCloseTabs, currentGroups, releaseTabs, rememberClosedTabs, persistTabSession, setTabs, tabsRef]
     )
 
-    const closeTab = useCallback((id: string) => closeTabsById([id]), [closeTabsById])
+    /** The group a tab action without one acts on: the focused group when it has the tab, else the first that does. */
+    const groupFor = useCallback(
+        (id: string, group?: number): number | undefined => {
+            if (group !== undefined) return group
+            const state = currentGroups()
+            if (focusedGroup(state).tabIds.includes(id)) return state.focused
+            return groupsWithTab(state, id)[0]
+        },
+        [currentGroups]
+    )
+
+    const closeTab = useCallback(
+        (id: string, group?: number) => {
+            const index = groupFor(id, group)
+            return index === undefined ? Promise.resolve() : closeTabsById([id], undefined, index)
+        },
+        [closeTabsById, groupFor]
+    )
+
+    /** The group's tabs, or every tab without a group. */
+    const tabIdsIn = useCallback(
+        (group?: number): readonly string[] => (group === undefined ? tabIdsOf(tabsRef.current) : (currentGroups().groups[group]?.tabIds ?? [])),
+        [currentGroups, tabsRef]
+    )
 
     const closeOtherTabs = useCallback(
-        (keepId: string) =>
+        (keepId: string, group?: number) =>
             closeTabsById(
-                tabsRef.current.filter((t) => t.id !== keepId).map((t) => t.id),
-                keepId
+                tabIdsIn(group).filter((id) => id !== keepId),
+                keepId,
+                group
             ),
-        [closeTabsById, tabsRef]
+        [closeTabsById, tabIdsIn]
     )
 
     const closeTabsToRight = useCallback(
-        (id: string) => {
-            const index = tabsRef.current.findIndex((t) => t.id === id)
+        (id: string, group?: number) => {
+            const list = tabIdsIn(group)
+            const index = list.indexOf(id)
             if (index === -1) return Promise.resolve()
-            return closeTabsById(
-                tabsRef.current.slice(index + 1).map((t) => t.id),
-                id
-            )
+            return closeTabsById(list.slice(index + 1), id, group)
         },
-        [closeTabsById, tabsRef]
+        [closeTabsById, tabIdsIn]
     )
 
-    const closeSavedTabs = useCallback(() => closeTabsById(tabsRef.current.filter((t) => !t.isDirty).map((t) => t.id)), [closeTabsById, tabsRef])
+    const closeSavedTabs = useCallback(
+        (group?: number) => {
+            const ids = tabIdsIn(group)
+            return closeTabsById(
+                tabsRef.current.filter((t) => !t.isDirty && ids.includes(t.id)).map((t) => t.id),
+                undefined,
+                group
+            )
+        },
+        [closeTabsById, tabIdsIn, tabsRef]
+    )
 
-    const closeAllTabs = useCallback(async () => {
-        if (!(await confirmCloseTabs())) return
-        releaseTabs(tabsRef.current)
-        rememberClosedTabs(tabsRef.current.map((t) => t.id))
-        tabsRef.current = []
-        activeTabIdRef.current = null
-        setTabs([])
-        setActiveTabId(null)
-        await persistTabSession({ tabs: [], activeTabId: null })
-    }, [confirmCloseTabs, releaseTabs, rememberClosedTabs, persistTabSession, setTabs, setActiveTabId, tabsRef])
+    const closeAllTabs = useCallback(
+        async (group?: number) => {
+            if (group !== undefined && currentGroups().groups.length > 1) {
+                await closeTabsById(tabIdsIn(group), undefined, group)
+                return
+            }
+            if (!(await confirmCloseTabs())) return
+            releaseTabs(tabsRef.current)
+            rememberClosedTabs(tabsRef.current.map((t) => t.id))
+            tabsRef.current = []
+            setTabs([])
+            const nextGroups = commitGroups(EMPTY_EDITOR_GROUPS)
+            await persistTabSession({ tabs: [], groups: nextGroups })
+        },
+        [closeTabsById, commitGroups, confirmCloseTabs, currentGroups, releaseTabs, rememberClosedTabs, persistTabSession, setTabs, tabIdsIn, tabsRef]
+    )
 
     const reopenClosedTab = useCallback(async () => {
         const closed = [...closedTabIdsRef.current]
@@ -896,6 +1103,12 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             switchTab,
             moveTab,
             makeTabEditable,
+            focusGroup,
+            splitEditor,
+            moveTabToOtherGroup,
+            focusOtherGroup,
+            joinGroups,
+            setGroupRatio,
         }),
         [
             openFile,
@@ -912,12 +1125,18 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             switchTab,
             moveTab,
             makeTabEditable,
+            focusGroup,
+            splitEditor,
+            moveTabToOtherGroup,
+            focusOtherGroup,
+            joinGroups,
+            setGroupRatio,
         ]
     )
 
     const value = useMemo(
-        () => ({ ...actions, tabs, activeTabId, activeTab, canReopenClosedTab, lastTabMove }),
-        [actions, tabs, activeTabId, activeTab, canReopenClosedTab, lastTabMove]
+        () => ({ ...actions, tabs, activeTabId, activeTab, groups, canReopenClosedTab, lastTabMove }),
+        [actions, tabs, activeTabId, activeTab, groups, canReopenClosedTab, lastTabMove]
     )
 
     // Split up so a part of the screen that only opens files or marks the open one, such as each row of the
@@ -933,12 +1152,34 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
 
 export function useDocumentTabsState(): DocumentTabsState {
     const [tabs, setTabs] = useState<DocumentTab[]>([])
-    const [activeTabId, setActiveTabId] = useState<string | null>(null)
+    const [groups, setGroupsState] = useState<EditorGroups>(EMPTY_EDITOR_GROUPS)
     const tabsRef = useRef(tabs)
+    const groupsRef = useRef(groups)
 
     useEffect(() => {
         tabsRef.current = tabs
     }, [tabs])
 
-    return { tabs, setTabs, activeTabId, setActiveTabId, tabsRef }
+    const setGroups = useCallback((next: EditorGroups) => {
+        groupsRef.current = next
+        setGroupsState(next)
+    }, [])
+
+    const setActiveTabId = useCallback<Dispatch<SetStateAction<string | null>>>(
+        (value) => {
+            const current = reconcileGroups(groupsRef.current, tabIdsOf(tabsRef.current))
+            const id = typeof value === 'function' ? value(focusedActiveTabId(current)) : value
+            if (id !== null) {
+                setGroups(showTab(current, id))
+                return
+            }
+            const index = current.focused
+            setGroups({ ...current, groups: current.groups.map((g, i) => (i === index ? { ...g, activeTabId: null } : g)) })
+        },
+        [setGroups]
+    )
+
+    const activeTabId = focusedActiveTabId(reconcileGroups(groups, tabIdsOf(tabs)))
+
+    return { tabs, setTabs, activeTabId, setActiveTabId, tabsRef, groups, groupsRef, setGroups }
 }

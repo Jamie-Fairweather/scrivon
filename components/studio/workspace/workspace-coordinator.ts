@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react'
 
 import type { UnsavedText } from '@/lib/tauri/fs'
+import type { StoredEditorGroups } from '@/lib/workspace/editor-groups'
 import type { LinkMove } from '@/lib/workspace/link-update'
 import type { TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -57,9 +58,10 @@ export type WorkspaceCoordinatorRefs = {
     /**
      * Puts back a folder's saved tabs, keeping any the user opened meanwhile. A tab with unsaved text kept
      * from a crash goes into the open tab for its file if that has no edits and wasn't saved since. Returns
-     * those it couldn't put back because the user had already changed that file's open tab.
+     * those it couldn't put back because the user had already changed that file's open tab. `split` is the
+     * editor's split as the tab session kept it: each group gets its tabs back (lib/workspace/editor-groups.ts).
      */
-    setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null) => DocumentTab[]>
+    setTabsFromWorkspace: MutableRefObject<(tabs: DocumentTab[], activeId: string | null, split?: StoredEditorGroups) => DocumentTab[]>
     /**
      * Replaces the tab's text with its file as it is on disk now, dropping the tab's unsaved edits, their
      * copy and its "couldn't save" notice: the user chose Reload over a change made outside Scrivon.

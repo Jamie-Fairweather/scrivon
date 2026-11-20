@@ -15,15 +15,15 @@ import { bindWikiLinkSuggest } from '@/lib/monaco/wiki-link-completion'
 import { WORD_SEGMENTER_LOCALES } from '@/lib/markdown/inline-format'
 import { readEditorSelectedText } from '@/lib/monaco/editor-selection'
 import { takeOverEditorPaste } from '@/lib/monaco/paste-command'
-import { EMPTY_MODEL_KEYS, isModelKey, normalizeEditorText, samePaths, syncModelKeys } from '@/lib/monaco/model-keys'
-import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
-import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
+import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { useEditorGroup } from '@/components/studio/workspace/editor-group-context'
+import { applyIndentation, useEditorModels } from '@/components/studio/editor/editor-models'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
-import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
+import { claimEditorCursor, trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { trackCaretInTable } from '@/components/studio/editor/editor-table-caret'
 import { useTableSizePrompt } from '@/components/studio/dialogs/insert-table-dialog'
 import { useDiagramStarters } from '@/components/studio/dialogs/diagram-starters-provider'
-import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
+import { editorFocusTaken, registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
 import { attachEditorImages, imageDocumentFor, pasteClipboardPicture } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
@@ -37,8 +37,6 @@ import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import { formatKeybindForAction } from '@/lib/settings/format-keybind'
 import { editorEmptyMessage } from '@/components/studio/editor/editor-empty-message'
-import { lineEndingsOf } from '@/lib/workspace/text-stats'
-import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
@@ -148,8 +146,6 @@ type CodeEditorPanelProps = {
 /** How far one arrow key press moves the resize handle (with Shift: the larger step). */
 const KEYBOARD_RESIZE_STEP = 16
 const KEYBOARD_RESIZE_BIG_STEP = 64
-/** How many of the editor's own edits are remembered while waiting for the tab to show them. */
-const MAX_UNSEEN_EDITS = 20
 /** How long the "Ctrl+M: Tab moves focus" hint stays up after the editor gains focus or the mode switches. */
 const TAB_FOCUS_HINT_MS = 5000
 
@@ -159,15 +155,6 @@ function revealMatch(editor: editor.IStandaloneCodeEditor, line: number, column:
     editor.setSelection(range)
     editor.revealRangeInCenter(range)
     editor.focus()
-}
-
-/**
- * Uses the Tab size setting in every file, but keeps each file's own choice of tabs or spaces:
- * a file indented with tabs keeps getting tabs, so Tab and Enter don't mix the two.
- */
-function applyIndentation(model: editor.ITextModel, tabSize: number) {
-    model.detectIndentation(true, tabSize)
-    model.updateOptions({ tabSize, indentSize: tabSize })
 }
 
 /** True when the tab is the one for `path`, however the path is written (separators, or letter case on Windows). */
@@ -188,21 +175,24 @@ function languageForTab(tab: DocumentTab) {
 export function CodeEditorPanel({ open = true, fill = false, focusMode = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
-    const { tabs, activeTab, updateTabContent } = useDocumentTabs()
-    const coordinator = useWorkspaceCoordinator()
+    // The panel's own group: its tab, and whether it has the keyboard. Both groups' panels share the buffers.
+    const group = useEditorGroup()
+    const activeTab = group.tab
+    const focused = group.focused
+    const groupId = group.id
+    const models = useEditorModels()
     const { workspaceRoot } = useWorkspaceSession()
     const resizeDragRef = useRef<{ pointerId: number; startX: number; startWidth: number; available: number; width: number } | null>(null)
     const rootRef = useRef<HTMLDivElement>(null)
     const [rowWidth, setRowWidth] = useState(0)
-    const monacoRef = useRef<Monaco | null>(null)
+    const { getMonaco, setMonaco } = models
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
     // The same editor as editorRef, kept as state so the Edit menu and the palette follow it.
     const [mountedEditor, setMountedEditor] = useState<editor.IStandaloneCodeEditor | null>(null)
     const activeTabIdRef = useRef<string | null>(null)
     const activeTabRef = useRef<DocumentTab | null>(null)
-    const suppressChangeRef = useRef(false)
-    // Text the editor has sent to the active tab that the tab may not show yet.
-    const unseenEditsRef = useRef<{ tabId: string | null; texts: string[] }>({ tabId: null, texts: [] })
+    // Whether this panel's group has the keyboard, for the editor's own handlers.
+    const focusedRef = useRef(focused)
     const pendingRevealRef = useRef<{ path: string; line: number; column: number; length?: number } | null>(null)
     const [editorFocused, setEditorFocused] = useState(false)
     // The Tab key hint sits over the text, so it shows only for a while each time the editor gains focus or
@@ -242,24 +232,19 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         }
     }, [tabMovesFocusSetting, showHintAgain])
 
-    // Each open tab gets its own Monaco model; see lib/monaco/model-keys.ts.
-    const tabPaths = useMemo(() => tabs.map((t) => t.path), [tabs])
-    const [modelKeys, setModelKeys] = useState(() => syncModelKeys(EMPTY_MODEL_KEYS, tabPaths))
-    if (!samePaths(modelKeys.paths, tabPaths)) {
-        setModelKeys(syncModelKeys(modelKeys, tabPaths))
-    }
-    // For applyTabEdits, which can be asked to change any open tab.
-    const modelKeysRef = useRef(modelKeys)
-    const tabsRef = useRef(tabs)
-    useEffect(() => {
-        modelKeysRef.current = modelKeys
-        tabsRef.current = tabs
-    }, [modelKeys, tabs])
+    // Each open tab has its own Monaco model, the same in every group (EditorModelsProvider).
+    const modelKeys = models.keys
 
     useEffect(() => {
         activeTabIdRef.current = activeTab?.id ?? null
         activeTabRef.current = activeTab
     }, [activeTab])
+
+    // The focused group's editor is the one the status bar and the Outline follow.
+    useEffect(() => {
+        focusedRef.current = focused
+        if (focused && mountedEditor) claimEditorCursor(mountedEditor)
+    }, [focused, mountedEditor])
 
     // Read when an image is pasted or dropped, so the editor's handlers never hold an old one.
     const workspaceRootRef = useRef(workspaceRoot)
@@ -281,10 +266,6 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
     // Fills the palette's search box, so it must be text the user can see.
     const getEditorSelectedText = useCallback(() => (openRef.current ? readEditorSelectedText(editorRef.current) : null), [])
 
-    useEffect(() => {
-        registerCoordinatorRefs(coordinator, { revealInEditor: revealPosition, getEditorSelectedText })
-    }, [coordinator, revealPosition, getEditorSelectedText])
-
     // A file just opened or created (from the palette or the explorer's New menu) gets the keyboard once
     // the editor is ready, so typing goes straight into it.
     const pendingFocusRef = useRef<string | null>(null)
@@ -292,6 +273,7 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         const path = pendingFocusRef.current
         if (!path || !openRef.current || !editorRef.current || !isTab(activeTabIdRef.current, path)) return
         pendingFocusRef.current = null
+        editorFocusTaken(path)
         // A frame later, so a dialog that is closing (the palette, the name prompt) has let go of focus.
         requestAnimationFrame(() => {
             if (openRef.current && isTab(activeTabIdRef.current, path)) editorRef.current?.focus()
@@ -312,28 +294,34 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         []
     )
 
-    // Focus Editor and F6 (pane-focus.ts) put the keyboard here at once, while the editor shows a file.
+    // Focus Editor and F6 (pane-focus.ts) put the keyboard here at once, while the editor shows a file. F6
+    // finds this group's editor by its pane.
     useEffect(
         () =>
-            registerEditorFocusNow(() => {
-                const editor = editorRef.current
-                if (!openRef.current || !editor?.getModel()) return false
-                editor.focus()
-                return true
-            }),
-        []
+            registerEditorFocusNow(
+                () => {
+                    const editor = editorRef.current
+                    if (!openRef.current || !editor?.getModel()) return false
+                    editor.focus()
+                    return true
+                },
+                groupId,
+                () => rootRef.current
+            ),
+        [groupId]
     )
 
     // Kept only while its file is the tab showing, which may still be waiting for the editor to load. If
     // the file didn't open (the user said no to a large file, it couldn't be read or made) or another tab
     // shows later, the request is dropped, so opening that file by hand later doesn't move the keyboard.
+    // With the editor split, only the focused group's editor takes it: the file opened (or was shown) there.
     const shownTabId = activeTab?.id ?? null
     useEffect(() => {
         const path = pendingFocusRef.current
         if (path === null) return
-        if (isTab(shownTabId, path)) focusPendingTab()
+        if (focused && isTab(shownTabId, path)) focusPendingTab()
         else pendingFocusRef.current = null
-    }, [shownTabId, focusRequest, focusPendingTab])
+    }, [shownTabId, focused, focusRequest, focusPendingTab])
 
     // A search hit is kept the same way: only while its file is the tab showing, waiting for the editor
     // to load or be shown (a hidden one can't take focus). If the file didn't open or another tab shows,
@@ -426,25 +414,24 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         [effectiveWidth, availableWidth, onWidthChange, onResetWidth]
     )
 
+    // Every editor showing the buffer hears a change to it (both groups, with one file in each); the shared models
+    // pass it on to the tab once.
+    const { isSilent, editorChanged, syncModel, latestContent, registerPanel } = models
     const onEditorChange = useCallback(
-        (value: string | undefined) => {
-            if (suppressChangeRef.current) return
+        (value: string | undefined, event?: { versionId?: number }) => {
+            if (isSilent()) return
             const id = activeTabIdRef.current
             if (!id) return
-            const text = value ?? ''
-            const unseen = unseenEditsRef.current
-            if (unseen.tabId !== id) unseenEditsRef.current = { tabId: id, texts: [text] }
-            else if (unseen.texts.push(text) > MAX_UNSEEN_EDITS) unseen.texts.shift()
-            updateTabContent(id, text)
+            editorChanged(id, value ?? '', editorRef.current?.getModel() ?? null, event?.versionId)
         },
-        [updateTabContent]
+        [isSilent, editorChanged]
     )
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
     const { attach: attachEditorSpellcheck, misspeltWordAt } = useEditorSpellcheck(activeTab, editorPath)
     const attachEditorLinkCheck = useEditorLinkCheck(activeTab, editorPath)
-    // The notes [[ offers in a Markdown file.
-    useWikiLinkSource(activeTab)
+    // The notes [[ offers in a Markdown file: this editor's own, as the other group may show another file.
+    useWikiLinkSource(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     // Monaco sets up Ctrl+. (the quick fix list) for a file when the file is put in the editor, and only if the
     // editor can be edited at that moment. @monaco-editor/react puts the new file in first and passes on the new
@@ -467,8 +454,10 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
     const { askTableSize, dialog: insertTableDialog } = useTableSizePrompt()
     const { openStarterGallery } = useDiagramStarters()
     const activeKind = activeTab ? documentKind(activeTab.name) : null
-    // The Edit menu and the palette's editor commands act on this editor while it shows a file.
+    // The Edit menu and the palette's editor commands act on this editor while it shows a file and its group has the
+    // keyboard; the other group's editor leaves them to it.
     useEditorCommands(editorPath ? mountedEditor : null, {
+        register: focused,
         shown: open,
         readOnly: isReadOnly,
         markdown: activeIsMarkdown,
@@ -509,6 +498,8 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         [fontFamily, settings.editor, isReadOnly, ariaLabel, isMermaid]
     )
 
+    // The group's link to its preview, which stays the same while the group is open.
+    const previewSyncRef = useRef(group.previewSync)
     // Read through a ref, so the link to the preview always sees the current settings.
     const previewLinkRef = useRef({ scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview })
     useEffect(() => {
@@ -554,181 +545,56 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         monaco.editor.setTheme(MONACO_DIAGRAM_THEME_ID)
     }, [])
 
-    const onMonacoBeforeMount = useCallback((monaco: Monaco) => {
-        monacoRef.current = monaco
-        defineMonacoDiagramTheme(monaco, themeRef.current.tokens, themeRef.current.isLight)
-    }, [])
+    const onMonacoBeforeMount = useCallback(
+        (monaco: Monaco) => {
+            setMonaco(monaco)
+            defineMonacoDiagramTheme(monaco, themeRef.current.tokens, themeRef.current.isLight)
+        },
+        [setMonaco]
+    )
 
     /**
      * Safety net: if the editor's buffer disagrees with the tab's text, the tab wins. `given` is text the tab
-     * on screen has just been given from outside the editor, before React draws it (see replaceEditorText).
+     * on screen has just been given from outside the editor, before React draws it (see replaceEditorText in
+     * EditorModelsProvider, which also puts in text that isn't one of the editors' own edits coming back).
+     * Otherwise the tab's latest text, not the one this panel last drew: the buffer is shared, and a key typed in
+     * the other group's editor may not be drawn yet. Putting the drawn text back would drop that key and clear
+     * the undo history both groups share.
      */
-    const syncEditorWithActiveTab = useCallback((given?: { content: string }) => {
-        const model = editorRef.current?.getModel()
-        const tab = given ?? activeTabRef.current
-        const monaco = monacoRef.current
-        if (!model || !tab || !monaco) return
-        if (model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)) {
-            // The same text, but another program may have changed only its line endings (the file was
-            // reloaded). Take them on, or the next keystroke would save the old ones over every line.
-            // The change goes on the undo stack as its own step, as VS Code does: Ctrl+Z first puts the
-            // old line endings back, then undoes earlier edits. Don't use setEOL: it skips the undo
-            // stack, so undoing an earlier edit would land in the wrong place and garble the text.
-            // Monaco gives a buffer one line ending, so a file that mixes them is evened out on purpose and left that way.
-            const endings = lineEndingsOf(tab.content)
-            if (endings === null || endings === 'mixed') return
-            const eol = endings === 'CRLF' ? '\r\n' : '\n'
-            if (model.getEOL() === eol) return
-            suppressChangeRef.current = true
-            try {
-                model.pushStackElement()
-                model.pushEOL(eol === '\r\n' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF)
-                model.pushStackElement()
-            } finally {
-                suppressChangeRef.current = false
-            }
-            return
-        }
-        suppressChangeRef.current = true
-        try {
-            model.setValue(tab.content)
-        } finally {
-            suppressChangeRef.current = false
-        }
-        applyIndentation(model, tabSizeRef.current)
-    }, [])
+    const syncEditorWithActiveTab = useCallback(
+        (given?: { content: string }) => {
+            const model = editorRef.current?.getModel()
+            const tab = activeTabRef.current
+            const content = given ? given.content : tab ? latestContent(tab) : null
+            if (!model || content === null) return
+            syncModel(model, content)
+        },
+        [syncModel, latestContent]
+    )
 
     useEffect(() => {
         syncEditorWithActiveTab()
     }, [editorPath, syncEditorWithActiveTab])
 
-    // The tab's text can also change without the editor while the buffer stays the same: a
-    // folder reopened in one go, or a tab list that looked like a rename but wasn't. Anything
-    // other than the editor's own edits coming back puts the tab's text into the editor, so the
-    // next keystroke can't save the old buffer over it. Edits the tab hasn't shown yet are kept.
-    const activeTabId = activeTab?.id
-    const activeContent = activeTab?.content
-    useEffect(() => {
-        if (activeTabId === undefined || activeContent === undefined) return
-        const unseen = unseenEditsRef.current
-        const seen = unseen.tabId === activeTabId ? unseen.texts.lastIndexOf(activeContent) : -1
-        if (seen !== -1) {
-            unseen.texts.splice(0, seen + 1)
-            return
-        }
-        unseenEditsRef.current = { tabId: null, texts: [] }
-        syncEditorWithActiveTab()
-    }, [activeTabId, activeContent, syncEditorWithActiveTab])
-
-    // Text a tab gets from disk (a reload) goes into the editor at once, not when the screen next draws: a
-    // key pressed in between would otherwise edit the old text, and saving that would replace the file's
-    // new version without asking. Only the tab on screen can be typed in; another one catches up when shown.
-    const replaceEditorText = useCallback(
-        (tabId: string, text: string) => {
-            if (!editorRef.current?.getModel() || activeTabIdRef.current !== tabId) return
-            // Whatever the editor sent before is based on the old text.
-            unseenEditsRef.current = { tabId: null, texts: [] }
-            // Put in exactly as the tab's text is when the screen draws, so the two ways can't differ.
-            syncEditorWithActiveTab({ content: text })
-        },
-        [syncEditorWithActiveTab]
+    // The shared models reach this group's editor through this: to put text in it, and to jump to a place in it
+    // while the group has the keyboard (revealInEditor).
+    useEffect(
+        () =>
+            registerPanel({
+                groupId,
+                editor: () => editorRef.current,
+                tabId: () => activeTabIdRef.current,
+                sync: syncEditorWithActiveTab,
+                reveal: revealPosition,
+                selectedText: getEditorSelectedText,
+            }),
+        [registerPanel, groupId, syncEditorWithActiveTab, revealPosition, getEditorSelectedText]
     )
-
-    /**
-     * Edits any open tab as one undo step, never with setValue, which would wipe its undo history. The tab on
-     * screen is edited in its buffer and passes the new text on as typing does (onEditorChange). A tab in the
-     * background is edited in its own buffer, which then holds the same text as the tab, so showing it again
-     * leaves the buffer and its undo history as they are. A tab the editor hasn't shown has no buffer yet, and a
-     * background tab whose buffer is out of date has the wrong one: both get the edited text straight away.
-     */
-    /** The tab's buffer when it is the one to edit, and whether it is on screen; null when the tab's text is. */
-    const editableBuffer = useCallback((tab: DocumentTab) => {
-        const monaco = monacoRef.current
-        const key = modelKeysRef.current.keys.get(tab.path)
-        const model = monaco && key ? monaco.editor.getModel(monaco.Uri.parse(key)) : null
-        if (!monaco || !model) return null
-        const editor = editorRef.current
-        const onScreen = editor !== null && editor.getModel() === model && activeTabIdRef.current === tab.id
-        // A background tab's buffer doesn't follow text the tab gets from elsewhere (a reload from disk); it
-        // catches up when the tab is shown (syncEditorWithActiveTab). Until then the tab's text is the one to
-        // edit, and the buffer's undo history is of text the tab no longer has. The buffer on screen is kept
-        // up to date straight away, so it is always the one to edit.
-        const current = onScreen || model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)
-        return current ? { model, editor: onScreen ? editor : null } : null
-    }, [])
-
-    const hasTabBuffer = useCallback(
-        (tabId: string): boolean => {
-            const tab = tabsRef.current.find((t) => t.id === tabId)
-            return tab !== undefined && editableBuffer(tab) !== null
-        },
-        [editableBuffer]
-    )
-
-    const applyTabEdits = useCallback(
-        (tabId: string, edits: readonly TextEdit[]): boolean => {
-            const tab = tabsRef.current.find((t) => t.id === tabId)
-            if (!tab || tab.readOnly) return false
-            if (edits.length === 0) return true
-            const buffer = editableBuffer(tab)
-            if (!buffer) {
-                updateTabContent(tabId, applyTextEdits(tab.content, edits))
-                return true
-            }
-            const { model, editor } = buffer
-            const onScreen = editor !== null
-            const operations = edits.map((edit) => ({ range: edit.range, text: edit.text }))
-            const edit = () => {
-                model.pushStackElement()
-                model.pushEditOperations(editor ? editor.getSelections() : [], operations, () => null)
-                model.pushStackElement()
-            }
-            if (onScreen) {
-                edit()
-                return true
-            }
-            suppressChangeRef.current = true
-            try {
-                edit()
-            } finally {
-                suppressChangeRef.current = false
-            }
-            updateTabContent(tabId, model.getValue())
-            return true
-        },
-        [updateTabContent, editableBuffer]
-    )
-
-    useEffect(() => {
-        registerCoordinatorRefs(coordinator, { replaceEditorText, applyTabEdits, hasTabBuffer })
-    }, [coordinator, replaceEditorText, applyTabEdits, hasTabBuffer])
-
-    // Free the buffers of tabs that are no longer open.
-    useEffect(() => {
-        const monaco = monacoRef.current
-        if (!monaco) return
-        const liveKeys = new Set(modelKeys.keys.values())
-        const attached = editorRef.current?.getModel()
-        for (const model of monaco.editor.getModels()) {
-            const uri = model.uri.toString()
-            if (model !== attached && isModelKey(uri) && !liveKeys.has(uri)) model.dispose()
-        }
-    }, [modelKeys])
-
-    useEffect(() => {
-        return () => {
-            const monaco = monacoRef.current
-            if (!monaco) return
-            for (const model of monaco.editor.getModels()) {
-                if (isModelKey(model.uri.toString())) model.dispose()
-            }
-        }
-    }, [])
 
     const onMonacoMount = useCallback(
         (editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
             editorRef.current = editor
-            monacoRef.current = monaco
+            setMonaco(monaco)
             setMountedEditor(editor)
             // Closing the last tab throws the editor away. Forget it, so a search hit picked
             // before the next one is ready waits for it instead of going to the old one.
@@ -742,8 +608,9 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
                 showHintAgain()
             })
             editor.onDidBlurEditorText(() => setEditorFocused(false))
-            // For the status bar and the Outline panel; it stops by itself when the editor is thrown away.
-            trackEditorCursor(editor)
+            // For the status bar and the Outline panel; it stops by itself when the editor is thrown away. With the
+            // editor split, they follow the focused group's editor.
+            trackEditorCursor(editor, { claim: focusedRef.current })
             applyCurrentTheme(monaco)
             // Monaco measures character widths once; measure again when the app font has loaded,
             // or the cursor and selection drift away from the text.
@@ -778,13 +645,17 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
                 if (tableCaretRef.current === tableCaret) tableCaretRef.current = null
                 setCaretInTable(false)
             })
-            // Scrolls the Markdown preview with the editor, and the other way round.
-            const scrollSync = bindEditorScrollSync(editor, {
-                tabId: () => activeTabIdRef.current,
-                scrollEnabled: () => previewLinkRef.current.scroll,
-                jumpEnabled: () => previewLinkRef.current.jump,
-                canFocus: () => openRef.current,
-            })
+            // Scrolls the Markdown preview with the editor, and the other way round: this group's preview.
+            const scrollSync = bindEditorScrollSync(
+                editor,
+                {
+                    tabId: () => activeTabIdRef.current,
+                    scrollEnabled: () => previewLinkRef.current.scroll,
+                    jumpEnabled: () => previewLinkRef.current.jump,
+                    canFocus: () => openRef.current,
+                },
+                previewSyncRef.current
+            )
             editor.onDidDispose(() => scrollSync.dispose())
             // Fades the paragraphs the cursor isn't in, while Dim Other Paragraphs is on.
             const dimming = bindParagraphDimming(editor, () => dimOtherParagraphsRef.current)
@@ -808,13 +679,22 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck, attachEditorLinkCheck]
+        [
+            syncEditorWithActiveTab,
+            setMonaco,
+            applyCurrentTheme,
+            fontFamily,
+            focusPendingTab,
+            showHintAgain,
+            attachEditorSpellcheck,
+            attachEditorLinkCheck,
+        ]
     )
 
     useEffect(() => {
-        const monaco = monacoRef.current
+        const monaco = getMonaco()
         if (monaco) applyCurrentTheme(monaco)
-    }, [tokens, isLight, applyCurrentTheme])
+    }, [tokens, isLight, applyCurrentTheme, getMonaco])
 
     return (
         <div
@@ -854,6 +734,8 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
                         onMount={onMonacoMount}
                         options={editorOptions}
                         saveViewState
+                        // The buffers belong to EditorModelsProvider: the other group may still show this one.
+                        keepCurrentModel
                         onChange={isReadOnly ? undefined : onEditorChange}
                     />
                 ) : (

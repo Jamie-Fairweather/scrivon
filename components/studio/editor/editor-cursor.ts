@@ -28,6 +28,8 @@ export type CursorSource = Pick<
 
 let current: EditorCursor | null = null
 let owner: CursorSource | null = null
+/** Every editor tracked, with how to report its caret once it is the one followed. */
+const tracked = new Map<CursorSource, () => void>()
 const listeners = new Set<() => void>()
 
 function publish(next: EditorCursor | null) {
@@ -68,12 +70,17 @@ function readCursor(source: CursorSource): EditorCursor | null {
     return { line: position.lineNumber, column, selectedText }
 }
 
-/** Reports the editor's caret and selection from now on. Returns the function that stops it. */
-export function trackEditorCursor(source: CursorSource): () => void {
-    owner = source
+/**
+ * Reports the editor's caret and selection from now on, while it is the editor the status bar follows: the one
+ * tracked last, or the one that claimed it since (claimEditorCursor), as the focused group's editor does. With
+ * `claim` false it waits to be claimed, unless no editor is followed yet. Returns the function that stops it.
+ */
+export function trackEditorCursor(source: CursorSource, { claim = true }: { claim?: boolean } = {}): () => void {
+    if (claim || owner === null) owner = source
     const update = () => {
         if (owner === source) publish(readCursor(source))
     }
+    tracked.set(source, () => publish(readCursor(source)))
     const subscriptions = [
         source.onDidChangeCursorSelection(update),
         source.onDidChangeModel(update),
@@ -85,6 +92,7 @@ export function trackEditorCursor(source: CursorSource): () => void {
     const stop = () => {
         for (const subscription of subscriptions) subscription.dispose()
         subscriptions.length = 0
+        tracked.delete(source)
         if (owner !== source) return
         owner = null
         publish(null)
@@ -92,6 +100,14 @@ export function trackEditorCursor(source: CursorSource): () => void {
     subscriptions.push(source.onDidDispose(stop))
     update()
     return stop
+}
+
+/** Makes the status bar and the Outline follow this tracked editor, as when its group takes the keyboard. */
+export function claimEditorCursor(source: CursorSource): void {
+    const report = tracked.get(source)
+    if (!report || owner === source) return
+    owner = source
+    report()
 }
 
 function subscribe(listener: () => void): () => void {

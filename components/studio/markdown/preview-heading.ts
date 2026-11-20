@@ -1,19 +1,19 @@
+import { createGroupRegistry } from '@/components/studio/workspace/focused-editor-group'
+
 /**
  * Scrolls the Markdown preview to a heading, by the id the preview gave it (without its `user-content-` prefix).
- * The preview registers how; with no Markdown preview on screen, asking does nothing.
+ * Each preview registers how (one per editor group); the focused group's is used. With no Markdown preview on
+ * screen, asking does nothing.
  */
 type RevealHeading = (id: string) => void
 
-let registered: RevealHeading | null = null
+const previews = createGroupRegistry<RevealHeading>()
 
-/** Called by the Markdown preview. Returns the function that removes it again. */
-export function registerPreviewHeadingReveal(reveal: RevealHeading): () => void {
-    registered = reveal
-    return () => {
-        if (registered === reveal) registered = null
-    }
+/** Called by the Markdown preview, with its editor group's id. Returns the function that removes it again. */
+export function registerPreviewHeadingReveal(reveal: RevealHeading, groupId: string | null = null): () => void {
+    return previews.register(reveal, groupId)
 }
 
 export function revealHeadingInPreview(id: string): void {
-    registered?.(id)
+    previews.forFocused()?.(id)
 }

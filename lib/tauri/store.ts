@@ -4,6 +4,7 @@ import { errorMessage, notifyWarning } from '@/lib/notify'
 import { DEFAULT_MAX_RECENT_FOLDERS } from '@/lib/settings/defaults'
 import { isPathInside, normalizePath, samePath } from '@/lib/tauri/fs'
 import { isTauri } from '@/lib/tauri/platform'
+import { DEFAULT_GROUP_RATIO, MAX_EDITOR_GROUPS, type StoredEditorGroup } from '@/lib/workspace/editor-groups'
 import { remapPathAfterRename } from '@/lib/workspace/tab-paths'
 
 const STORE_PATH = 'workspace.json'
@@ -25,8 +26,35 @@ export function clampRecentWorkspaceLimit(limit: number): number {
 }
 
 export type WorkspaceTabSession = {
+    /** Every open tab once, from every group: an older version, which has no groups, still reopens them all. */
     tabIds: string[]
+    /** The tab the focused group shows. */
     activeTabId: string | null
+    /** Only while the editor is split: each group's tabs, left first (lib/workspace/editor-groups.ts). */
+    groups?: StoredEditorGroup[]
+    /** Which of `groups` had the keyboard. */
+    focusedGroup?: number
+    /** The left group's share of the width. */
+    groupRatio?: number
+}
+
+/** The split as stored, or nothing when it isn't two groups that each list a tab. Anything else in it is skipped. */
+function readStoredGroups(stored: Partial<WorkspaceTabSession>): Pick<WorkspaceTabSession, 'groups' | 'focusedGroup' | 'groupRatio'> {
+    if (!Array.isArray(stored.groups)) return {}
+    const groups = stored.groups.flatMap((group: unknown): StoredEditorGroup[] => {
+        if (!group || typeof group !== 'object') return []
+        const { tabIds, activeTabId } = group as Partial<StoredEditorGroup>
+        const ids = Array.isArray(tabIds) ? tabIds.filter((id): id is string => typeof id === 'string') : []
+        return ids.length > 0 ? [{ tabIds: ids, activeTabId: typeof activeTabId === 'string' ? activeTabId : null }] : []
+    })
+    if (groups.length < 2) return {}
+    const focused = stored.focusedGroup
+    const ratio = stored.groupRatio
+    return {
+        groups: groups.slice(0, MAX_EDITOR_GROUPS),
+        focusedGroup: typeof focused === 'number' && Number.isInteger(focused) && focused >= 0 && focused < MAX_EDITOR_GROUPS ? focused : 0,
+        groupRatio: typeof ratio === 'number' && ratio > 0 && ratio < 1 ? ratio : DEFAULT_GROUP_RATIO,
+    }
 }
 
 /**
@@ -343,7 +371,7 @@ export async function getWorkspaceTabSession(workspaceRoot: string): Promise<Wor
     if (stored && Array.isArray(stored.tabIds)) {
         const tabIds = stored.tabIds.filter((id): id is string => typeof id === 'string')
         const activeTabId = typeof stored.activeTabId === 'string' ? stored.activeTabId : null
-        if (tabIds.length > 0) return { tabIds, activeTabId }
+        if (tabIds.length > 0) return { tabIds, activeTabId, ...readStoredGroups(stored) }
     }
 
     const lastFile = await getLastOpenedFile(workspaceRoot)

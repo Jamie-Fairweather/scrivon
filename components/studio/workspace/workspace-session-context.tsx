@@ -76,6 +76,7 @@ import {
     uniqueFileName,
     uniqueNewName,
 } from '@/lib/workspace/paths'
+import { DEFAULT_GROUP_RATIO } from '@/lib/workspace/editor-groups'
 import { dropPathKeysAfterDelete, remapPathAfterRename, remapPathKeysAfterRename } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -744,7 +745,15 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 const savedActiveId = tabSession?.activeTabId
                 const activeTab = savedActiveId ? restoredTabs.find((t) => samePath(t.path, savedActiveId)) : undefined
                 const activeId = activeTab?.id ?? restoredTabs[0].id
-                left = coordinator.setTabsFromWorkspace.current(restoredTabs, activeId)
+                // The split comes back too, with each group's tabs; the store only keeps one with two groups.
+                const split = tabSession?.groups
+                    ? {
+                          groups: tabSession.groups,
+                          focusedGroup: tabSession.focusedGroup ?? 0,
+                          groupRatio: tabSession.groupRatio ?? DEFAULT_GROUP_RATIO,
+                      }
+                    : undefined
+                left = coordinator.setTabsFromWorkspace.current(restoredTabs, activeId, split)
                 coordinator.requestCanvasFit.current()
             }
             for (const tab of left) void keepRecoveredTextAsCopy(tab)

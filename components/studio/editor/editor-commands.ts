@@ -226,6 +226,11 @@ export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
 export const INSERT_DIAGRAM_STARTER_ID = 'edit.insert-diagram-starter'
 
 export type EditorCommandsState = {
+    /**
+     * False for the editor of a group without the keyboard, while the editor is split: the focused group's editor
+     * registers the commands, so the Edit menu and the palette act on it. True when left out.
+     */
+    register?: boolean
     /** The editor pane is showing. */
     shown: boolean
     readOnly: boolean
@@ -248,7 +253,7 @@ export type EditorCommandsState = {
  */
 export function useEditorCommands(
     codeEditor: editor.ICodeEditor | null,
-    { shown, readOnly, markdown, inTable, askTableSize, fileKind, openStarterGallery }: EditorCommandsState
+    { register = true, shown, readOnly, markdown, inTable, askTableSize, fileKind, openStarterGallery }: EditorCommandsState
 ): void {
     const commands = useMemo(
         () =>
@@ -313,5 +318,7 @@ export function useEditorCommands(
             }),
         [codeEditor, shown, readOnly, markdown, inTable, askTableSize, fileKind, openStarterGallery]
     )
-    useRegisterCommands(commands)
+    useRegisterCommands(register ? commands : NO_COMMANDS)
 }
+
+const NO_COMMANDS: AppCommand[] = []

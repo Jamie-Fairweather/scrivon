@@ -55,6 +55,12 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.focusPreview': [chord('2', mod)],
         'view.focusNextPane': [chord('F6')],
         'view.focusPreviousPane': [chord('F6', { shift: true })],
+        // As in VS Code. US and UK keyboards type \ without AltGr; on German or French ones it needs AltGr, which
+        // never fires a shortcut (match-keybind.ts), so it is rebound in Keyboard settings or run from the View menu.
+        'view.splitEditor': [chord('\\', mod)],
+        'view.moveTabToOtherGroup': [],
+        'view.focusOtherGroup': [],
+        'view.joinGroups': [],
         'workspace.saveAll': [chord('s', { ...mod, shift: true })],
         // N isn't the first letter of a menu (File, Edit, View, Options, Help), so it won't clash with menu keys.
         'workspace.newDiagram': [chord('n', altMod)],

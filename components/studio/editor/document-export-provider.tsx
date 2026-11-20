@@ -11,7 +11,9 @@ import { buildExportCommands, type DiagramExportKind } from '@/components/studio
 import { PdfExportDialog } from '@/components/studio/editor/pdf-export-dialog'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
-import { useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { useEditorGroup } from '@/components/studio/workspace/editor-group-context'
+import type { AppCommand } from '@/components/studio/commands/app-command'
 import type { ExportFormat } from '@/lib/markdown/export-document'
 import type { DiagramExportTarget, DiagramLook } from '@/lib/mermaid/export'
 import { notifyError } from '@/lib/notify'
@@ -36,6 +38,8 @@ export type DocumentExport = {
 }
 
 const DocumentExportContext = createContext<DocumentExport | null>(null)
+
+const NO_COMMANDS: AppCommand[] = []
 
 /** What a diagram export needs. */
 type DiagramJob = { source: string; look: DiagramLook; target: DiagramExportTarget }
@@ -76,8 +80,11 @@ function useDiagramExport(job: DiagramJob, setExporting: (exporting: boolean) =>
  * shortcut. Holds the export dialog. Whether an export is running (only one runs at a time) is shared with the
  * folder export in BatchExportProvider.
  */
-export function DocumentExportProvider({ children }: { children: ReactNode }) {
-    const { activeTab, activeTabId } = useDocumentTabs()
+export function DocumentExportProvider({ children, registerCommands = true }: { children: ReactNode; registerCommands?: boolean }) {
+    // The tab its own editor group shows. With the editor split, each group's strip has its own export menu, and
+    // the File menu, the palette and the shortcut use the focused group's (`registerCommands`).
+    const activeTab = useEditorGroup().tab
+    const activeTabId = activeTab?.id ?? null
     // The export embeds images inside the open folder, as the preview shows them.
     const { workspaceRoot } = useWorkspaceSession()
     const { expanded } = useMarkdownExpand()
@@ -140,7 +147,7 @@ export function DocumentExportProvider({ children }: { children: ReactNode }) {
         () => buildExportCommands({ availability, lastFormat: format, openDialog, openMenu, exportDiagram, diagramOptions, setDiagramOptions }),
         [availability, format, openDialog, openMenu, exportDiagram, diagramOptions, setDiagramOptions]
     )
-    useRegisterCommands(commands)
+    useRegisterCommands(registerCommands ? commands : NO_COMMANDS)
 
     const value = useMemo(
         () => ({ availability, exporting, menuOpen, setMenuOpen, openDialog, exportDiagram, diagramOptions, setDiagramOptions }),

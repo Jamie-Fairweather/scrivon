@@ -10,6 +10,7 @@ import { usePaneFocusCommands } from '@/components/studio/shell/pane-focus-comma
 import { useExitCommand, useSettingsCommand } from '@/components/studio/shell/shell-commands'
 import { useThemeCommands } from '@/components/studio/theme/theme-commands'
 import { useDocumentCommands } from '@/components/studio/workspace/document-commands'
+import { useGroupCommands } from '@/components/studio/workspace/group-commands'
 import { useLayoutCommands } from '@/components/studio/workspace/layout-commands'
 import { useWorkspaceCommands } from '@/components/studio/workspace/workspace-commands'
 import { useAppZoomCommands } from '@/components/studio/zoom/app-zoom-commands'
@@ -31,6 +32,7 @@ export function StudioCommands() {
     useLayoutCommands()
     usePresentCommands()
     usePaneFocusCommands()
+    useGroupCommands()
     useExplorerCommands()
     usePathCommands()
     useAppZoomCommands()

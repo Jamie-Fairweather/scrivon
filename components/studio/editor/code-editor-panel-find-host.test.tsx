@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { render as renderPlain, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -10,7 +11,7 @@ const tab: DocumentTab = { id: '/w/a.md', path: '/w/a.md', name: 'a.md', content
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ tabs: [tab], activeTabId: tab.id, activeTab: tab, updateTabContent: () => {} }),
     useDocumentTabActions: () => ({ makeTabEditable: vi.fn() }),
-    useWorkspaceCoordinator: () => ({}),
+    useWorkspaceCoordinator: () => ({ getTabs: { current: () => [tab] } }),
     useWorkspaceSession: () => ({ workspaceRoot: '/w' }),
 }))
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
@@ -26,6 +27,9 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 }))
 
 const { CodeEditorPanel } = await import('./code-editor-panel')
+const { EditorModelsProvider } = await import('@/components/studio/editor/editor-models')
+/** The panel with the shared editor buffers it needs above it, as in the app. */
+const render = (ui: ReactElement) => renderPlain(ui, { wrapper: EditorModelsProvider })
 
 describe('CodeEditorPanel find box', () => {
     // app/globals.css lets the find box's tooltips past every clip marked data-find-overflow-host.

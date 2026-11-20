@@ -426,6 +426,71 @@ describe('workspace store', () => {
         })
     })
 
+    describe('the open tabs of a split editor', () => {
+        const SPLIT = {
+            tabIds: ['C:\\notes\\a.md', 'C:\\notes\\b.md'],
+            activeTabId: 'C:\\notes\\b.md',
+            groups: [
+                { tabIds: ['C:\\notes\\a.md'], activeTabId: 'C:\\notes\\a.md' },
+                { tabIds: ['C:\\notes\\a.md', 'C:\\notes\\b.md'], activeTabId: 'C:\\notes\\b.md' },
+            ],
+            focusedGroup: 1,
+            groupRatio: 0.35,
+        }
+
+        it('remembers both groups, the focused one and the divider, with every tab in tabIds for older versions', async () => {
+            const store = await launch()
+            await store.setWorkspaceTabSession('C:\\notes', SPLIT)
+
+            expect(onDisk('workspace.json')?.['open-tabs:C:\\notes']).toEqual(SPLIT)
+            expect(onDisk('workspace.json')?.['last-file:C:\\notes']).toBe('C:\\notes\\b.md')
+            expect(await (await launch()).getWorkspaceTabSession('C:\\notes')).toEqual(SPLIT)
+        })
+
+        it('reads a session saved by an older version as one group', async () => {
+            fake.disk.set('workspace.json', JSON.stringify(SAVED))
+            const session = await (await launch()).getWorkspaceTabSession('C:\\notes')
+            expect(session).toEqual({ tabIds: ['C:\\notes\\a.md'], activeTabId: 'C:\\notes\\a.md' })
+            expect(session).not.toHaveProperty('groups')
+        })
+
+        it('skips groups it cannot read, and the split when fewer than two groups are left', async () => {
+            fake.disk.set(
+                'workspace.json',
+                JSON.stringify({
+                    'open-tabs:C:\\notes': {
+                        ...SPLIT,
+                        groups: [{ tabIds: ['C:\\notes\\a.md', 7], activeTabId: 3 }, 'junk', { tabIds: [] }, { tabIds: ['C:\\notes\\b.md'] }],
+                        focusedGroup: 9,
+                        groupRatio: 4,
+                    },
+                    'open-tabs:D:\\work': { ...SPLIT, tabIds: ['D:\\work\\a.md'], groups: [{ tabIds: ['D:\\work\\a.md'], activeTabId: null }] },
+                })
+            )
+            const store = await launch()
+
+            expect(await store.getWorkspaceTabSession('C:\\notes')).toEqual({
+                tabIds: SPLIT.tabIds,
+                activeTabId: SPLIT.activeTabId,
+                groups: [
+                    { tabIds: ['C:\\notes\\a.md'], activeTabId: null },
+                    { tabIds: ['C:\\notes\\b.md'], activeTabId: null },
+                ],
+                focusedGroup: 0,
+                groupRatio: 0.5,
+            })
+            expect(await store.getWorkspaceTabSession('D:\\work')).toEqual({ tabIds: ['D:\\work\\a.md'], activeTabId: SPLIT.activeTabId })
+        })
+
+        it('forgets the split once the tabs are saved as one group again', async () => {
+            const store = await launch()
+            await store.setWorkspaceTabSession('C:\\notes', SPLIT)
+            await store.setWorkspaceTabSession('C:\\notes', { tabIds: SPLIT.tabIds, activeTabId: 'C:\\notes\\a.md' })
+
+            expect(onDisk('workspace.json')?.['open-tabs:C:\\notes']).toEqual({ tabIds: SPLIT.tabIds, activeTabId: 'C:\\notes\\a.md' })
+        })
+    })
+
     describe('folders opened and closed in the file tree', () => {
         it('remembers them for each folder, skipping entries that are not a path and open or closed', async () => {
             fake.disk.set(

@@ -70,6 +70,11 @@ const KEYBIND_ACTION_META = {
     // F6 never types anything, so it also gets out of a text box.
     'view.focusNextPane': { label: 'Focus next pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
     'view.focusPreviousPane': { label: 'Focus previous pane', category: 'Navigation', when: 'workspace', allowInNativeTextField: true },
+    // The editor split into two groups, side by side.
+    'view.splitEditor': { label: 'Split editor', category: 'View', when: 'workspace' },
+    'view.moveTabToOtherGroup': { label: 'Move tab to other group', category: 'View', when: 'workspace' },
+    'view.focusOtherGroup': { label: 'Focus other group', category: 'Navigation', when: 'workspace' },
+    'view.joinGroups': { label: 'Join editor groups', category: 'View', when: 'workspace' },
     'format.bold': { label: 'Bold', category: 'Markdown', when: 'editor' },
     'format.italic': { label: 'Italic', category: 'Markdown', when: 'editor' },
     'format.code': { label: 'Inline code', category: 'Markdown', when: 'editor' },

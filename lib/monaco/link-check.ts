@@ -9,6 +9,10 @@ import type { LinkIndex } from '@/lib/workspace/link-index'
 import type { WikiIndex } from '@/lib/workspace/wiki-link-lookup'
 import { closeAnchors, closeLinkTargets } from '@/lib/workspace/link-suggestions'
 import { checkLinkTarget, forgetLinkTargets, subscribeLinkTargets, type DiskAnswer } from '@/lib/workspace/link-target-cache'
+import { createAnsweringSessions } from '@/lib/monaco/answering-session'
+
+/** Which link check gives a buffer its quick fixes, when two editors show it. */
+const answering = createAnsweringSessions()
 
 /** Whose marks these are, so setting them leaves spell check's (and any other) marks alone. */
 export const LINK_CHECK_MARKER_OWNER = 'scrivon-links'
@@ -89,6 +93,8 @@ export function attachLinkCheck(
     let config = initial
     let timer: ReturnType<typeof setTimeout> | null = null
     const marks = new WeakMap<editor.ITextModel, Mark[]>()
+    const checking = () => config?.modelUri ?? null
+    const leaveAnswering = answering.add(checking)
     /** Lines typed on since the last check, so a link edited there is asked about on disk afresh. */
     let editedLines = new Set<number>()
     const keptAnchors = new Map<string, Promise<readonly string[]>>()
@@ -148,9 +154,11 @@ export function attachLinkCheck(
     const codeActions: languages.CodeActionProvider = {
         provideCodeActions(model, range, context) {
             const asked = config
-            // Only for its own marks: spell check answers for misspelt words in the same file.
+            // Only for its own marks: spell check answers for misspelt words in the same file. With the editor split,
+            // the other group's editor may check this file too: only one of them answers.
             const mark = markAt(model, { lineNumber: range.startLineNumber, column: range.startColumn })
             if (!mark || !asked || model.uri.toString() !== asked.modelUri) return noActions
+            if (!answering.answers(checking, model.uri.toString())) return noActions
             const diagnostics = [toMarker(mark)]
             const versionId = model.getVersionId()
             const ranking = context.trigger !== monaco.languages.CodeActionTriggerType.Auto
@@ -247,6 +255,7 @@ export function attachLinkCheck(
         },
         dispose() {
             if (timer !== null) clearTimeout(timer)
+            leaveAnswering()
             codeActionsRegistration.dispose()
             subscriptions.forEach((subscription) => subscription.dispose())
         },

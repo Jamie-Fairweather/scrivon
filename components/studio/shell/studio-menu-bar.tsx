@@ -321,6 +321,13 @@ export function StudioMenuBar() {
                             </MenuGroup>
                             <MenuSeparator />
                             <MenuGroup>
+                                {item('split-editor')}
+                                {item('move-tab-to-other-group')}
+                                {item('focus-other-group')}
+                                {item('join-groups')}
+                            </MenuGroup>
+                            <MenuSeparator />
+                            <MenuGroup>
                                 {item('reveal-active-file')}
                                 {item('collapse-all-folders')}
                             </MenuGroup>

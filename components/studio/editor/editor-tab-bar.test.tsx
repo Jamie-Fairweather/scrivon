@@ -25,10 +25,12 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         closeTab,
         moveTab,
         lastTabMove,
+        groups: { groups: [{ id: 'group-1', tabIds: tabs.map((t) => t.id), activeTabId }], focused: 0, ratio: 0.5 },
         closeOtherTabs: vi.fn(),
         closeAllTabs: vi.fn(),
     }),
     useWorkspaceSession: () => ({ workspaceRoot: '/w' }),
+    useDocumentTabActions: () => ({ splitEditor: vi.fn(), moveTabToOtherGroup: vi.fn() }),
     useStudioLayout: () => ({ layout: { explorerOpen: true, editorOpen: true, previewOpen, outlineOpen: false } }),
 }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
@@ -112,9 +114,9 @@ describe('EditorTabBar', () => {
         }
 
         fireEvent.keyDown(screen.getByRole('tab', { name: 'b.md , unsaved changes' }), { key: 'Delete' })
-        expect(closeTab).toHaveBeenCalledWith('/w/b.md')
+        expect(closeTab).toHaveBeenCalledWith('/w/b.md', 0)
         fireEvent.click(close[0]!)
-        expect(closeTab).toHaveBeenLastCalledWith('/w/a.md')
+        expect(closeTab).toHaveBeenLastCalledWith('/w/a.md', 0)
     })
 
     it('closes a tab on a middle-click, without switching to it', async () => {
@@ -126,7 +128,7 @@ describe('EditorTabBar', () => {
         await user.pointer({ keys: '[MouseMiddle]', target: screen.getByRole('tab', { name: 'b.md , unsaved changes' }) })
 
         // Closing asks about unsaved changes as the X button does.
-        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 0)
         expect(setActiveTab).not.toHaveBeenCalled()
     })
 
@@ -222,18 +224,18 @@ describe('EditorTabBar', () => {
         const [a, b, c] = screen.getAllByRole('tab')
 
         fireEvent.keyDown(a!, { key: 'ArrowRight' })
-        expect(setActiveTab).toHaveBeenLastCalledWith('/w/b.md')
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/b.md', 0)
         expect(b).toHaveFocus()
 
         fireEvent.keyDown(a!, { key: 'ArrowLeft' })
-        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md')
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md', 0)
         expect(c).toHaveFocus()
 
         fireEvent.keyDown(c!, { key: 'Home' })
-        expect(setActiveTab).toHaveBeenLastCalledWith('/w/a.md')
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/a.md', 0)
 
         fireEvent.keyDown(a!, { key: 'End' })
-        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md')
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md', 0)
     })
 
     it('scrolls the tab strip sideways with the mouse wheel when the tabs do not fit', () => {
@@ -347,7 +349,7 @@ describe('EditorTabBar', () => {
         expect(view.container.querySelector('[data-menu-open]')).toContainElement(screen.getByRole('tab', { name: 'c.mmd' }))
 
         fireEvent.click(close)
-        expect(closeTab).toHaveBeenCalledWith('/w/c.mmd')
+        expect(closeTab).toHaveBeenCalledWith('/w/c.mmd', 0)
         expect(setActiveTab).not.toHaveBeenCalled()
     })
 })
@@ -395,7 +397,7 @@ describe('EditorTabBar moving tabs', () => {
         expect(dropLine(container)).toHaveClass('bg-ring', 'forced-colors:bg-[Highlight]')
 
         letGo(160)
-        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 1)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 1, 0)
         expect(dropLine(container)).toBeNull()
         expect(container.querySelector('[data-dragging]')).toBeNull()
     })
@@ -409,7 +411,7 @@ describe('EditorTabBar moving tabs', () => {
         expect(dropLine(container)!.closest('[role="presentation"]')).toContainElement(screen.getByRole('tab', { name: 'c.md' }))
         letGo(480)
 
-        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2, 0)
     })
 
     it('moves a tab to the start', () => {
@@ -419,7 +421,7 @@ describe('EditorTabBar moving tabs', () => {
         moveTo(20)
         letGo(20)
 
-        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/c.md', 0)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/c.md', 0, 0)
     })
 
     it('swallows the click that comes as the button is let go after a drag', () => {
@@ -436,7 +438,7 @@ describe('EditorTabBar moving tabs', () => {
         press('c.md', 250)
         letGo(250)
         fireEvent.click(screen.getByRole('tab', { name: 'c.md' }))
-        expect(setActiveTab).toHaveBeenCalledExactlyOnceWith('/w/c.md')
+        expect(setActiveTab).toHaveBeenCalledExactlyOnceWith('/w/c.md', 0)
     })
 
     it('puts everything back on Escape', () => {
@@ -495,7 +497,7 @@ describe('EditorTabBar moving tabs', () => {
         fireEvent.click(screen.getByRole('tab', { name: 'b.md' }))
 
         expect(moveTab).not.toHaveBeenCalled()
-        expect(setActiveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+        expect(setActiveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 0)
     })
 
     it('does not drag with the middle or right button, which close the tab or open its menu', async () => {
@@ -509,7 +511,7 @@ describe('EditorTabBar moving tabs', () => {
         letGo(260)
 
         await userEvent.setup().pointer({ keys: '[MouseMiddle]', target: screen.getByRole('tab', { name: 'b.md' }) })
-        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 0)
         expect(moveTab).not.toHaveBeenCalled()
     })
 
@@ -523,7 +525,7 @@ describe('EditorTabBar moving tabs', () => {
         // The line is at the strip's right edge, on the last tab that can be seen, not on a hidden one.
         expect(dropLine(container)!.closest('[role="presentation"]')).toContainElement(screen.getByRole('tab', { name: 'd.md' }))
         letGo(360)
-        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 2)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 2, 0)
 
         // Over the layout buttons, left of the strip: before b.md, the first tab whose left edge can be seen.
         moveTab.mockClear()
@@ -531,7 +533,7 @@ describe('EditorTabBar moving tabs', () => {
         moveTo(-40)
         expect(dropLine(container)!.closest('[role="presentation"]')).toContainElement(screen.getByRole('tab', { name: 'b.md' }))
         letGo(-40)
-        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/d.md', 1)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/d.md', 1, 0)
     })
 
     it('only draws the strip again when the place the tab would land changes', () => {
@@ -554,7 +556,7 @@ describe('EditorTabBar moving tabs', () => {
         moveTo(260)
         expect(commits).toBe(afterStart + 1)
         letGo(260)
-        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2, 0)
     })
 
     it('puts the keyboard back where it was after a drag, not on the dragged tab', () => {
@@ -574,7 +576,7 @@ describe('EditorTabBar moving tabs', () => {
         screen.getByRole('tab', { name: 'b.md' }).focus()
         moveTo(260)
         letGo(260)
-        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 2)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 2, 0)
         expect(editor).toHaveFocus()
 
         // And after a drag put back with Escape.
@@ -596,7 +598,7 @@ describe('EditorTabBar moving tabs', () => {
         const { container } = renderStrip()
 
         await userEvent.setup().click(closeButton(container, 'Close b.md')!)
-        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 0)
         expect(moveTab).not.toHaveBeenCalled()
 
         closeTab.mockClear()
@@ -605,7 +607,7 @@ describe('EditorTabBar moving tabs', () => {
         moveTo(260)
         letGo(260)
         fireEvent.click(close)
-        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2, 0)
         expect(closeTab).not.toHaveBeenCalled()
     })
 
@@ -618,14 +620,14 @@ describe('EditorTabBar moving tabs', () => {
         lastTabMove = { id: '/w/a.md' }
         rerender(<EditorTabBar />)
         fireEvent.keyDown(screen.getByRole('tab', { name: 'a.md' }), { key: 'ArrowRight' })
-        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md')
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md', 0)
         expect(screen.getByRole('tab', { name: 'c.md' })).toHaveFocus()
 
         fireEvent.keyDown(screen.getByRole('tab', { name: 'a.md' }), { key: 'ArrowLeft' })
-        expect(setActiveTab).toHaveBeenLastCalledWith('/w/b.md')
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/b.md', 0)
         expect(screen.getByRole('tab', { name: 'b.md' })).toHaveFocus()
         fireEvent.keyDown(screen.getByRole('tab', { name: 'b.md' }), { key: 'End' })
-        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md')
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md', 0)
     })
 
     it('keeps the keyboard on a moved tab, scrolls it into view, and says where it went', () => {

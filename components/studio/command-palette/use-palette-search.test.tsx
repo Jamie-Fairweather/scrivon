@@ -46,6 +46,10 @@ const state = vi.hoisted(() => ({
         closeTab: async () => {},
         closeOtherTabs: async () => {},
         closeAllTabs: async () => {},
+        /** One editor group with every tab. */
+        get groups() {
+            return { groups: [{ id: 'group-1', tabIds: this.tabs.map((t) => t.id), activeTabId: this.activeTabId }], focused: 0, ratio: 0.5 }
+        },
     },
     save: { autosaveEnabled: true, setAutosaveEnabled: () => {}, flushSave: async () => true, flushAllSaves: async () => true },
     layout: {
@@ -81,6 +85,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => state.session,
     useActiveTabId: () => state.tabs.activeTabId,
     useDocumentTabs: () => state.tabs,
+    useDocumentTabActions: () => ({ splitEditor: () => {}, moveTabToOtherGroup: () => {}, focusOtherGroup: () => {}, joinGroups: () => {} }),
     useDocumentSave: () => state.save,
     useStudioLayout: () => state.layout,
     useCanvasFit: () => state.canvas,

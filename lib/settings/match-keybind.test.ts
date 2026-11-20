@@ -178,6 +178,23 @@ describe('matchKeybind', () => {
     describe('with AltGr, input methods and dead keys', () => {
         const editorTarget = { tagName: 'DIV', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) } as unknown as EventTarget
 
+        it('splits the editor with Ctrl+\\ on US and UK keyboards, also in the editor, but not on German AltGr+ß', () => {
+            const workspace = { hasWorkspace: true }
+            // US: the key above Enter. UK: the key beside the left Shift, which Windows reports as IntlBackslash.
+            const us = keyEvent('\\', { ctrl: true, code: 'Backslash' }, editorTarget)
+            const uk = keyEvent('\\', { ctrl: true, code: 'IntlBackslash' }, editorTarget)
+            expect(matchKeybind(us, bindings, workspace)).toBe('view.splitEditor')
+            expect(matchKeybind(uk, bindings, workspace)).toBe('view.splitEditor')
+            // German: \ is AltGr+ß, which Windows reports as Ctrl+Alt. It types the backslash and runs nothing.
+            const german = keyEvent('\\', { ctrl: true, alt: true, altGraph: true, code: 'Minus' }, editorTarget)
+            expect(matchKeybind(german, bindings, workspace)).toBeNull()
+            // French AZERTY: AltGr+8.
+            const french = keyEvent('\\', { ctrl: true, alt: true, altGraph: true, code: 'Digit8' }, editorTarget)
+            expect(matchKeybind(french, bindings, workspace)).toBeNull()
+            // And never without a folder open.
+            expect(matchKeybind(us, bindings)).toBeNull()
+        })
+
         it('never fires on a character typed with AltGr, so it still gets typed', () => {
             // Polish AltGr+E types ę and German AltGr+Q types @; Windows reports both as Ctrl+Alt.
             const withAltGrChords = {
