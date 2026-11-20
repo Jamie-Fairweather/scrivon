@@ -74,12 +74,23 @@ export type WikiLinkSuggestion = {
     /** The folder, when another note has the same name. */
     description?: string
     detail?: string
-    /** What replaces what is typed so far, closing `]]` included. */
+    /** What replaces what is typed so far (and the rest of the name after the caret), with `]]` when it closes the link. */
     insertText: string
     sortText: string
 }
 
-/** The notes to offer: every note in the open folder but the file itself, those in its own folder first. */
+/**
+ * What a wiki link can't name, as nothing can be escaped inside one (see parseWikiLinkText): a note whose name or path
+ * has a bracket, `|` or `#` in it (`C# tips` would be read as `C` and its heading `tips`), or a heading with a bracket
+ * or `|` (a `#` after the first is still part of the heading). Those are left out of the list.
+ */
+const UNLINKABLE_TARGET = /[[\]|#]/
+const UNLINKABLE_HEADING = /[[\]|]/
+
+/**
+ * The notes to offer: every note in the open folder but the file itself, those in its own folder first. Not one a
+ * wiki link can't name (UNLINKABLE_TARGET).
+ */
 export function noteSuggestions({ index, documentPath }: WikiLinkSource): WikiLinkSuggestion[] {
     if (!index) return []
     const own = documentPath ? comparablePath(documentPath) : null
@@ -87,30 +98,44 @@ export function noteSuggestions({ index, documentPath }: WikiLinkSource): WikiLi
     // A file the tree doesn't list (or none) counts as at the top, as the lookup counts it.
     const ownFolder = (index.notes.find((note) => comparablePath(note.path) === own)?.folder ?? '').toLowerCase()
     return notes
-        .map((note) => ({ note, near: note.folder.toLowerCase() === ownFolder ? 0 : 1 }))
+        .map((note) => ({ note, target: wikiTargetFor(index, note, documentPath), near: note.folder.toLowerCase() === ownFolder ? 0 : 1 }))
+        .filter(({ target }) => !UNLINKABLE_TARGET.test(target))
         .sort((a, b) => a.near - b.near || a.note.relative.localeCompare(b.note.relative))
-        .map(({ note }, order) => ({
+        .map(({ note, target }, order) => ({
             label: note.name,
             ...(wikiNameClashes(index, note) ? { description: note.folder || 'top of the folder' } : {}),
             detail: note.relative,
-            insertText: `${wikiTargetFor(index, note, documentPath)}]]`,
+            insertText: `${target}]]`,
             sortText: String(order).padStart(6, '0'),
         }))
 }
 
-/** The file's own headings, from the text in the editor. */
+/** The file's own headings, from the text in the editor. Not one a wiki link can't name (UNLINKABLE_HEADING). */
 export function headingSuggestions(text: string): WikiLinkSuggestion[] {
-    return readOutline(text).map((heading, order) => ({
-        label: heading.text,
-        detail: `Heading ${heading.level}`,
-        insertText: `${heading.text}]]`,
-        sortText: String(order).padStart(6, '0'),
-    }))
+    return readOutline(text)
+        .filter((heading) => !UNLINKABLE_HEADING.test(heading.text))
+        .map((heading, order) => ({
+            label: heading.text,
+            detail: `Heading ${heading.level}`,
+            insertText: `${heading.text}]]`,
+            sortText: String(order).padStart(6, '0'),
+        }))
 }
 
-/** How many `]` straight after the caret a suggestion replaces (Monaco closes `[` with `]` as it is typed). */
-function closingAfter(after: string): number {
-    return /^\]{0,2}/.exec(after)![0].length
+/**
+ * What of the text after the caret a suggestion replaces, and whether it should still close the link with `]]`. In a
+ * link that is already written (Ctrl+Space in `[[Fo|o#Heading]]`), the rest of the name is replaced too. Before `#`
+ * or `|` the link goes on, so no `]]` is added; before `]` or `]]` (Monaco closes `[` with `]` as it is typed), those
+ * are replaced along with the name, closing `]]` and all. With neither after it, the link is still being written:
+ * only what is before the caret is replaced, and `]]` closes it.
+ */
+function restOfLink(after: string): { length: number; close: boolean } {
+    const rest = /^([^[\]|#]*)(\]{1,2}|\||#)?/.exec(after)!
+    const name = rest[1]!.length
+    const next = rest[2]
+    if (next === '|' || next === '#') return { length: name, close: false }
+    if (next) return { length: name + next.length, close: true }
+    return { length: 0, close: true }
 }
 
 /** The suggestions at a place in a Markdown model, with the range each replaces. */
@@ -123,13 +148,15 @@ export function provideWikiLinkCompletions(
     const typing = wikiLinkTyping(line.slice(0, position.column - 1))
     if (!typing) return null
     if (insideCodeBlock((index) => model.getLineContent(index + 1), position.lineNumber - 1)) return null
+    const rest = restOfLink(line.slice(position.column - 1))
     const range: IRange = {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,
         startColumn: typing.start + 1,
-        endColumn: position.column + closingAfter(line.slice(position.column - 1)),
+        endColumn: position.column + rest.length,
     }
-    const suggestions = typing.kind === 'heading' ? headingSuggestions(model.getValue()) : noteSuggestions(current)
+    const offered = typing.kind === 'heading' ? headingSuggestions(model.getValue()) : noteSuggestions(current)
+    const suggestions = rest.close ? offered : offered.map((suggestion) => ({ ...suggestion, insertText: suggestion.insertText.slice(0, -2) }))
     return { suggestions, range }
 }
 
@@ -198,7 +225,8 @@ export function bindWikiLinkSuggest(codeEditor: SuggestEditor, isMarkdown: () =>
                         .endsWith(opened)
                 )
                     return
-                if (!provideWikiLinkCompletions(model, position)) return
+                // Opened on request, an empty list would say "No suggestions." over the prose: so it isn't opened.
+                if (!provideWikiLinkCompletions(model, position)?.suggestions.length) return
                 codeEditor.trigger('wiki-links', 'editor.action.triggerSuggest', {})
             })
         }),

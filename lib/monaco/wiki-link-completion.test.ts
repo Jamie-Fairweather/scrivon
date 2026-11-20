@@ -34,10 +34,10 @@ function model(text: string) {
     return { getLineContent: (n: number) => lines[n - 1] ?? '', getValue: () => text }
 }
 
-/** The suggestions with the caret at the `|` in `text`, and what the replaced range covers. */
-function at(text: string, source: WikiLinkSource = { index, documentPath: TODAY }) {
-    const offset = text.indexOf('|')
-    const plain = text.slice(0, offset) + text.slice(offset + 1)
+/** The suggestions with the caret at the `caret` in `text`, and what the replaced range covers. */
+function at(text: string, source: WikiLinkSource = { index, documentPath: TODAY }, caret = '|') {
+    const offset = text.indexOf(caret)
+    const plain = text.slice(0, offset) + text.slice(offset + caret.length)
     const before = plain.slice(0, offset).split('\n')
     const position = { lineNumber: before.length, column: before.at(-1)!.length + 1 }
     const found = provideWikiLinkCompletions(model(plain), position, source)
@@ -82,6 +82,41 @@ describe('provideWikiLinkCompletions', () => {
         expect(found.suggestions.filter((s) => s.label === 'Ideas').map((s) => s.insertText)).toEqual(['Ideas]]', 'home/Ideas]]'])
         expect(at('Go to [[Pl|')!.replaces).toBe('Pl')
         expect(at('Go to [[Pl|] x')!.replaces).toBe('Pl]')
+    })
+
+    it('replaces the rest of a name already written, closing the link only where it isn’t closed yet', () => {
+        // The caret is at ‸, as these links have a | of their own.
+        const plan = (text: string) => {
+            const found = at(text, undefined, '‸')!
+            return { replaces: found.replaces, insertText: found.suggestions.find((s) => s.label === 'Plan')!.insertText }
+        }
+        // Ctrl+Space inside a link that has its label, heading or closing brackets already.
+        expect(plan('x [[Pl‸|label]] y')).toEqual({ replaces: 'Pl', insertText: 'Plan' })
+        expect(plan('x [[P‸l|label]] y')).toEqual({ replaces: 'Pl', insertText: 'Plan' })
+        expect(plan('x [[Pl‸#Setup]] y')).toEqual({ replaces: 'Pl', insertText: 'Plan' })
+        expect(plan('x [[P‸lx]] y')).toEqual({ replaces: 'Plx]]', insertText: 'Plan]]' })
+        // Still being written: what follows isn't part of it.
+        expect(plan('x [[P‸ and [[Today]]')).toEqual({ replaces: 'P', insertText: 'Plan]]' })
+        expect(plan('x [[P‸lan and more')).toEqual({ replaces: 'P', insertText: 'Plan]]' })
+
+        const heading = at('## Set up\n\n[[#Se‸t|here]]', undefined, '‸')!
+        expect(heading.replaces).toBe('Set')
+        expect(heading.suggestions.map((s) => s.insertText)).toEqual(['Set up'])
+    })
+
+    it('leaves out notes and headings a wiki link can’t name', () => {
+        const odd = buildWikiIndex(ROOT, [
+            file('C# tips.md'),
+            file('Draft [v2].md'),
+            file('A | B.md'),
+            folder('C#', [file('C#\\Inside.md')]),
+            folder('C#2', [file('C#2\\Plain.md')]),
+            file('Plain.md'),
+        ])
+        // `Inside` alone leads to its note; C#2's Plain would need its path, which has a # in it.
+        expect(at('[[|', { index: odd, documentPath: null })!.suggestions.map((s) => s.insertText)).toEqual(['Plain]]', 'Inside]]'])
+        const headings = at('## A | B\n## [x] done\n## C# tips\n\n[[#‸', undefined, '‸')!
+        expect(headings.suggestions.map((s) => s.insertText)).toEqual(['C# tips]]'])
     })
 
     it('offers the file’s own headings after [[#, from the text in the editor', () => {
@@ -144,7 +179,10 @@ describe('registerWikiLinkCompletion', () => {
 describe('bindWikiLinkSuggest', () => {
     type Change = { text: string; range: { startLineNumber: number; startColumn: number }; rangeLength: number }
 
-    function editorWith(text: string) {
+    afterEach(() => registerWikiLinkSource({ index: null, documentPath: null }))
+
+    /** An editor whose first line is `text`, with `below` under it. */
+    function editorWith(text: string, below = '') {
         let content = text
         let position = { lineNumber: 1, column: 1 }
         const listeners: Record<string, (event?: unknown) => void> = {}
@@ -152,7 +190,7 @@ describe('bindWikiLinkSuggest', () => {
             onDidChangeModelContent: (listener: (event: unknown) => void) => ((listeners.change = listener as never), { dispose: () => {} }),
             onDidCompositionStart: (listener: () => void) => ((listeners.start = listener), { dispose: () => {} }),
             onDidCompositionEnd: (listener: () => void) => ((listeners.end = listener), { dispose: () => {} }),
-            getModel: () => model(content),
+            getModel: () => model(content + below),
             getPosition: () => position,
             trigger: vi.fn(),
         }
@@ -169,6 +207,7 @@ describe('bindWikiLinkSuggest', () => {
     }
 
     it('opens the list when [[ or [[# has just been typed in a Markdown file', async () => {
+        registerWikiLinkSource({ index, documentPath: TODAY })
         const { fake, type } = editorWith('See [')
         bindWikiLinkSuggest(fake as unknown as editor.ICodeEditor, () => true)
         await type('[]')
@@ -177,10 +216,30 @@ describe('bindWikiLinkSuggest', () => {
         await type('x')
         expect(fake.trigger).not.toHaveBeenCalled()
 
-        const heading = editorWith('[[')
+        const heading = editorWith('[[', '\n\n## Next')
         bindWikiLinkSuggest(heading.fake as unknown as editor.ICodeEditor, () => true)
         await heading.type('#')
         expect(heading.fake.trigger).toHaveBeenCalledTimes(1)
+    })
+
+    it('opens nothing when there is nothing to offer, so no “No suggestions.” box covers the prose', async () => {
+        // No folder open: an example, a file on its own, an untitled tab.
+        const noFolder = editorWith('See [')
+        bindWikiLinkSuggest(noFolder.fake as unknown as editor.ICodeEditor, () => true)
+        await noFolder.type('[]')
+
+        // The only note in its folder.
+        registerWikiLinkSource({ index: buildWikiIndex(ROOT, [file('Only.md')]), documentPath: `${ROOT}\\Only.md` })
+        const alone = editorWith('See [')
+        bindWikiLinkSuggest(alone.fake as unknown as editor.ICodeEditor, () => true)
+        await alone.type('[]')
+
+        // [[# in a file with no headings.
+        const noHeadings = editorWith('[[', '\n\nJust prose.')
+        bindWikiLinkSuggest(noHeadings.fake as unknown as editor.ICodeEditor, () => true)
+        await noHeadings.type('#')
+
+        for (const { fake } of [noFolder, alone, noHeadings]) expect(fake.trigger).not.toHaveBeenCalled()
     })
 
     it('opens nothing in a diagram file, for a single [, on undo, or while an input method composes', async () => {
