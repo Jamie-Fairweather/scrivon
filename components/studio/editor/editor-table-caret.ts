@@ -1,11 +1,15 @@
 import type { IDisposable, editor } from 'monaco-editor'
 import { isLineInTable } from '@/lib/markdown/markdown-table'
 
-export type TableCaretSource = Pick<editor.ICodeEditor, 'getModel' | 'getPosition' | 'onDidChangeCursorPosition' | 'onDidChangeModel'>
+export type TableCaretSource = Pick<
+    editor.ICodeEditor,
+    'getModel' | 'getPosition' | 'onDidChangeCursorPosition' | 'onDidChangeModel' | 'onDidChangeModelContent'
+>
 
 /**
- * Says whether the caret is in a Markdown table, for the table commands, each time the caret moves or
- * another file shows. `onChange` runs only when the answer changes. It has to stay cheap on every caret
+ * Says whether the caret is in a Markdown table, for the table commands, each time the caret moves,
+ * the text changes (Replace All or a Local History restore can turn the lines round a caret that stays
+ * put into a table, with no caret event) or another file shows. `onChange` runs only when the answer changes. It has to stay cheap on every caret
  * move (#189): a caret line with no `|` is the only line it reads, and in a table it reads only the
  * table and the line each side. It never looks for code blocks; the commands do that when they run.
  */
@@ -27,7 +31,7 @@ export function trackCaretInTable(
         last = inTable
         onChange(inTable)
     }
-    const subscriptions = [source.onDidChangeCursorPosition(update), source.onDidChangeModel(update)]
+    const subscriptions = [source.onDidChangeCursorPosition(update), source.onDidChangeModel(update), source.onDidChangeModelContent(update)]
     update()
     return { update, dispose: () => subscriptions.forEach((subscription) => subscription.dispose()) }
 }

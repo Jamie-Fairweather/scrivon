@@ -1926,6 +1926,23 @@ describe('CodeEditorPanel Edit commands', () => {
         expect(command('table.insert')?.disabled).toBe(false)
     })
 
+    it('looks for a table at the caret again when the open tab changes to a Markdown file', async () => {
+        const diagram = '/w/a.mmd'
+        const doc = '/w/b.md'
+        const tabs = [tab(diagram, 'graph TD'), tab(doc, '| a | b |\n|---|---|\n| 1 | 2 |')]
+        tabsState = { tabs, activeTabId: diagram }
+        const view = render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.format')).toMatchObject({ disabled: true, disabledReason: 'Only in Markdown files' }))
+
+        // The Markdown file shows with the caret on its header row, and the caret doesn't move after.
+        tabsState = { tabs, activeTabId: doc }
+        view.rerender(<PanelWithCommands />)
+
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(false))
+        expect(editors[0]!.getPosition()).toEqual({ lineNumber: 1, column: 1 })
+        expect(command('table.insert')).toMatchObject({ disabled: true, disabledReason: 'The caret is already in a table' })
+    })
+
     it('asks for the size of a new table in a dialog', async () => {
         tabsState = { tabs: [tab('/w/a.md', 'Intro')], activeTabId: '/w/a.md' }
         render(<PanelWithCommands />)

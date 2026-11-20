@@ -6,6 +6,7 @@ function fakeEditor(lines: string[]) {
     const read: number[] = []
     const cursorListeners: (() => void)[] = []
     const modelListeners: (() => void)[] = []
+    const contentListeners: (() => void)[] = []
     let position = { lineNumber: 1, column: 1 }
     const model = {
         getLineContent: (lineNumber: number) => {
@@ -25,13 +26,23 @@ function fakeEditor(lines: string[]) {
             modelListeners.push(listener)
             return { dispose: () => modelListeners.splice(modelListeners.indexOf(listener), 1) }
         },
+        onDidChangeModelContent: (listener: () => void) => {
+            contentListeners.push(listener)
+            return { dispose: () => contentListeners.splice(contentListeners.indexOf(listener), 1) }
+        },
     }
     const moveTo = (lineNumber: number) => {
         position = { lineNumber, column: 1 }
         read.length = 0
         cursorListeners.forEach((listener) => listener())
     }
-    return { source: source as unknown as TableCaretSource, read, moveTo, cursorListeners, modelListeners }
+    /** An edit that leaves the caret where it is, as Replace All or a restore from Local History can. */
+    const replaceLines = (lineNumber: number, replacement: string[]) => {
+        lines.splice(lineNumber - 1, replacement.length, ...replacement)
+        read.length = 0
+        contentListeners.forEach((listener) => listener())
+    }
+    return { source: source as unknown as TableCaretSource, read, moveTo, replaceLines, cursorListeners, modelListeners, contentListeners }
 }
 
 /** 50,000 lines of prose with a table at lines 25,001 to 25,004 (from 1). */
@@ -105,5 +116,21 @@ describe('trackCaretInTable', () => {
 
         expect(editor.cursorListeners).toHaveLength(0)
         expect(editor.modelListeners).toHaveLength(0)
+        expect(editor.contentListeners).toHaveLength(0)
+    })
+
+    it('looks again when the text changes under a caret that stays put', () => {
+        const editor = fakeEditor(['Intro', 'one', 'two', 'three', 'end'])
+        const onChange = vi.fn()
+        trackCaretInTable(editor.source, () => true, onChange)
+        editor.moveTo(3)
+
+        editor.replaceLines(2, ['| a | b |', '|---|---|', '| 1 | 2 |'])
+        expect(onChange).toHaveBeenLastCalledWith(true)
+
+        editor.replaceLines(2, ['one', 'two', 'three'])
+        expect(onChange).toHaveBeenLastCalledWith(false)
+        // Still cheap: a caret line with no pipe is the only line it reads.
+        expect(editor.read).toEqual([3])
     })
 })
