@@ -1,3 +1,4 @@
+import { Profiler, type ReactElement } from 'react'
 import { fireEvent, render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -353,15 +354,23 @@ describe('EditorTabBar', () => {
 describe('EditorTabBar moving tabs', () => {
     const STRIP = { top: 0, bottom: 36, height: 36 }
 
-    /** Three tabs, 100px wide side by side from x = 0, in a strip 36px high (happy-dom has no layout). */
-    function renderStrip() {
-        tabs = [tab('/w/a.md'), tab('/w/b.md'), tab('/w/c.md')]
-        activeTabId = '/w/a.md'
-        const view = render(<EditorTabBar />)
+    /**
+     * Three tabs, 100px wide side by side from x = 0, in a strip 600px wide and 36px high (happy-dom has no
+     * layout). Or other tabs, starting elsewhere (scrolled), in a strip of another width.
+     */
+    function renderStrip({
+        names = ['a.md', 'b.md', 'c.md'],
+        firstLeft = 0,
+        stripWidth = 600,
+        ui = <EditorTabBar />,
+    }: { names?: string[]; firstLeft?: number; stripWidth?: number; ui?: ReactElement } = {}) {
+        tabs = names.map((name) => tab(`/w/${name}`))
+        activeTabId = tabs[0]!.id
+        const view = render(ui)
         const rect = (left: number, width: number) => ({ ...STRIP, left, width, right: left + width, x: left, y: 0, toJSON: () => ({}) }) as DOMRect
-        vi.spyOn(screen.getByRole('tablist'), 'getBoundingClientRect').mockReturnValue(rect(0, 600))
+        vi.spyOn(screen.getByRole('tablist'), 'getBoundingClientRect').mockReturnValue(rect(0, stripWidth))
         screen.getAllByRole('tab').forEach((t, i) => {
-            vi.spyOn(t.closest<HTMLElement>('[role="presentation"]')!, 'getBoundingClientRect').mockReturnValue(rect(i * 100, 100))
+            vi.spyOn(t.closest<HTMLElement>('[role="presentation"]')!, 'getBoundingClientRect').mockReturnValue(rect(firstLeft + i * 100, 100))
         })
         return view
     }
@@ -501,6 +510,121 @@ describe('EditorTabBar moving tabs', () => {
         await userEvent.setup().pointer({ keys: '[MouseMiddle]', target: screen.getByRole('tab', { name: 'b.md' }) })
         expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
         expect(moveTab).not.toHaveBeenCalled()
+    })
+
+    it('lands a tab let go beside a strip that scrolls in a gap that can be seen, not among the hidden tabs', () => {
+        // Six tabs in a strip that shows 0 to 300, scrolled so a.md is off to the left and d.md to f.md off to the right.
+        const { container } = renderStrip({ names: ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md'], firstLeft: -100, stripWidth: 300 })
+
+        press('b.md')
+        // Over the Export and Fit buttons, right of the strip.
+        moveTo(360)
+        // The line is at the strip's right edge, on the last tab that can be seen, not on a hidden one.
+        expect(dropLine(container)!.closest('[role="presentation"]')).toContainElement(screen.getByRole('tab', { name: 'd.md' }))
+        letGo(360)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 2)
+
+        // Over the layout buttons, left of the strip: before b.md, the first tab whose left edge can be seen.
+        moveTab.mockClear()
+        press('d.md', 250)
+        moveTo(-40)
+        expect(dropLine(container)!.closest('[role="presentation"]')).toContainElement(screen.getByRole('tab', { name: 'b.md' }))
+        letGo(-40)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/d.md', 1)
+    })
+
+    it('only draws the strip again when the place the tab would land changes', () => {
+        let commits = 0
+        renderStrip({
+            ui: (
+                <Profiler id="tabs" onRender={() => commits++}>
+                    <EditorTabBar />
+                </Profiler>
+            ),
+        })
+
+        press('a.md')
+        moveTo(160)
+        const afterStart = commits
+        // Still before c.md.
+        for (const x of [170, 180, 190, 240]) moveTo(x)
+        expect(commits).toBe(afterStart)
+        // Now at the end.
+        moveTo(260)
+        expect(commits).toBe(afterStart + 1)
+        letGo(260)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2)
+    })
+
+    it('puts the keyboard back where it was after a drag, not on the dragged tab', () => {
+        renderStrip({
+            ui: (
+                <>
+                    <EditorTabBar />
+                    <textarea aria-label="editor" />
+                </>
+            ),
+        })
+        const editor = screen.getByRole('textbox', { name: 'editor' })
+        editor.focus()
+
+        // The web view puts the keyboard on a button pressed with the mouse; happy-dom doesn't, so do it here.
+        press('b.md', 150)
+        screen.getByRole('tab', { name: 'b.md' }).focus()
+        moveTo(260)
+        letGo(260)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/b.md', 2)
+        expect(editor).toHaveFocus()
+
+        // And after a drag put back with Escape.
+        press('c.md', 250)
+        screen.getByRole('tab', { name: 'c.md' }).focus()
+        moveTo(20)
+        fireEvent.keyDown(document, { key: 'Escape' })
+        letGo(20)
+        expect(editor).toHaveFocus()
+
+        // A click isn't a drag: the keyboard stays on the tab clicked.
+        press('c.md', 250)
+        screen.getByRole('tab', { name: 'c.md' }).focus()
+        letGo(250)
+        expect(screen.getByRole('tab', { name: 'c.md' })).toHaveFocus()
+    })
+
+    it('still closes a tab with its close button, and moves rather than closes a tab dragged from there', async () => {
+        const { container } = renderStrip()
+
+        await userEvent.setup().click(closeButton(container, 'Close b.md')!)
+        expect(closeTab).toHaveBeenCalledExactlyOnceWith('/w/b.md')
+        expect(moveTab).not.toHaveBeenCalled()
+
+        closeTab.mockClear()
+        const close = closeButton(container, 'Close a.md')!
+        fireEvent.pointerDown(close, { button: 0, buttons: 1, clientX: 90, clientY: 18, pointerId: 1 })
+        moveTo(260)
+        letGo(260)
+        fireEvent.click(close)
+        expect(moveTab).toHaveBeenCalledExactlyOnceWith('/w/a.md', 2)
+        expect(closeTab).not.toHaveBeenCalled()
+    })
+
+    it('moves between tabs with the arrow keys in their new order', () => {
+        tabs = [tab('/w/a.md'), tab('/w/b.md'), tab('/w/c.md')]
+        activeTabId = '/w/a.md'
+        const { rerender } = render(<EditorTabBar />)
+
+        tabs = [tab('/w/b.md'), tab('/w/a.md'), tab('/w/c.md')]
+        lastTabMove = { id: '/w/a.md' }
+        rerender(<EditorTabBar />)
+        fireEvent.keyDown(screen.getByRole('tab', { name: 'a.md' }), { key: 'ArrowRight' })
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md')
+        expect(screen.getByRole('tab', { name: 'c.md' })).toHaveFocus()
+
+        fireEvent.keyDown(screen.getByRole('tab', { name: 'a.md' }), { key: 'ArrowLeft' })
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/b.md')
+        expect(screen.getByRole('tab', { name: 'b.md' })).toHaveFocus()
+        fireEvent.keyDown(screen.getByRole('tab', { name: 'b.md' }), { key: 'End' })
+        expect(setActiveTab).toHaveBeenLastCalledWith('/w/c.md')
     })
 
     it('keeps the keyboard on a moved tab, scrolls it into view, and says where it went', () => {

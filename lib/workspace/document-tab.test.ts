@@ -145,6 +145,42 @@ describe('dropIndexAt', () => {
 
     it('lands at the start of an empty strip', () => {
         expect(dropIndexAt(100, [])).toBe(0)
+        expect(dropIndexAt(100, [], { left: 0, right: 300 })).toBe(0)
+    })
+
+    describe('in a strip that scrolls', () => {
+        // Six tabs, 100px wide from x = -100, in a strip that shows 0 to 300: tab 0 is off to the left,
+        // tabs 3 to 5 off to the right.
+        const overflowing = Array.from({ length: 6 }, (_, i) => ({ left: -100 + i * 100, width: 100 }))
+        const visible = { left: 0, right: 300 }
+
+        it('counts a pointer beside the strip as at its nearest edge', () => {
+            // Over the Export and Fit buttons on the right: not among the tabs scrolled out of view.
+            expect(dropIndexAt(360, overflowing)).toBe(5)
+            expect(dropIndexAt(360, overflowing, visible)).toBe(3)
+            expect(dropIndexAt(900, overflowing, visible)).toBe(3)
+            // Over the layout buttons on the left.
+            expect(dropIndexAt(-60, overflowing)).toBe(0)
+            expect(dropIndexAt(-60, overflowing, visible)).toBe(1)
+        })
+
+        it('only lands in a gap whose line can be seen', () => {
+            // Past the middle of tab 3, whose right edge (the gap before tab 4) is right at the strip's edge.
+            expect(dropIndexAt(260, overflowing, visible)).toBe(3)
+            expect(dropIndexAt(240, overflowing, visible)).toBe(3)
+            expect(dropIndexAt(140, overflowing, visible)).toBe(2)
+            // The gap before tab 1 is at the strip's left edge, so it can be seen.
+            expect(dropIndexAt(10, overflowing, visible)).toBe(1)
+        })
+
+        it('works as without it when the tabs fit', () => {
+            const wide = { left: 0, right: 600 }
+            for (const x of [-20, 60, 99, 100, 180, 220, 320, 900]) {
+                expect(dropIndexAt(x, rects, wide)).toBe(dropIndexAt(Math.max(x, 0), rects))
+            }
+            // The end of the last tab, with empty strip after it.
+            expect(dropIndexAt(500, rects, wide)).toBe(3)
+        })
     })
 })
 

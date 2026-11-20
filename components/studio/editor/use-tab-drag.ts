@@ -42,10 +42,17 @@ export function useTabDrag({ stripRef, tabIds, tabElement, onMove }: TabDragOpti
             if (event.button !== 0) return
             endRef.current?.()
             const start = { x: event.clientX, y: event.clientY }
+            // Where the keyboard was before the press. The web view puts it on the tab pressed, which (for a
+            // tab in the background) isn't the one shown, so a drag gives it back.
+            const focusedBefore = document.activeElement
             let current: TabDrag | null = null
             let cancelled = false
 
-            /** The gap the tab would land in at this point, or null above or below the strip. */
+            /**
+             * The gap the tab would land in at this point, or null above or below the strip. Beside the strip
+             * (over the buttons either side) counts as at its edge, and only a gap whose line can be seen counts,
+             * when the tabs don't all fit.
+             */
             const dropIndexAtPoint = (x: number, y: number): number | null => {
                 const strip = stripRef.current?.getBoundingClientRect()
                 if (!strip || y < strip.top || y > strip.bottom) return null
@@ -54,7 +61,7 @@ export function useTabDrag({ stripRef, tabIds, tabElement, onMove }: TabDragOpti
                     const element = elementOf(tabId)
                     return element ? [element.getBoundingClientRect()] : []
                 })
-                return dropIndexAt(x, rects)
+                return dropIndexAt(x, rects, strip)
             }
 
             const end = () => {
@@ -64,18 +71,30 @@ export function useTabDrag({ stripRef, tabIds, tabElement, onMove }: TabDragOpti
                 document.removeEventListener('keydown', onKey, true)
                 window.removeEventListener('blur', end)
                 endRef.current = null
+                if (!current) return
                 setDrag(null)
+                const focused = document.activeElement
+                if (focused === focusedBefore) return
+                if (focusedBefore instanceof HTMLElement && focusedBefore !== document.body && focusedBefore.isConnected) {
+                    focusedBefore.focus({ preventScroll: true })
+                } else if (focused instanceof HTMLElement && stripRef.current?.contains(focused)) {
+                    focused.blur()
+                }
             }
             const onPointerMove = (e: PointerEvent) => {
                 // Let go outside the window, where the page doesn't hear it.
                 if (e.buttons === 0) return end()
                 if (cancelled || (!current && !pastDragStart(start, e.clientX, e.clientY))) return
-                current = { id, dropIndex: dropIndexAtPoint(e.clientX, e.clientY) }
+                const dropIndex = dropIndexAtPoint(e.clientX, e.clientY)
+                // Draw the strip again only when the line moves, not at the mouse's rate.
+                if (current?.dropIndex === dropIndex) return
+                current = { id, dropIndex }
                 setDrag(current)
             }
             const onUp = (e: PointerEvent) => {
+                const dragged = current !== null
                 end()
-                if (!current) return
+                if (!dragged) return
                 // The click that follows would show the tab under the pointer.
                 swallowNextClick()
                 if (cancelled) return

@@ -99,10 +99,27 @@ export function moveItem<T>(list: T[], from: number, to: number): T[] {
  * Where a tab dragged to `x` would be let go, as the gap before that tab (0 to the number of tabs): before the
  * first tab whose middle is to the right of the pointer, else at the end. `tabRects` are the tabs in order, as
  * `getBoundingClientRect()` gives them.
+ *
+ * With `visible`, the part of the strip that can be seen when its tabs don't all fit, the pointer counts as at
+ * that part's nearest edge when it is beside the strip (over the buttons either side), and the gap is one whose
+ * edge can be seen, so the line showing it isn't scrolled out of view.
  */
-export function dropIndexAt(x: number, tabRects: readonly Pick<DOMRect, 'left' | 'width'>[]): number {
-    const index = tabRects.findIndex((rect) => x < rect.left + rect.width / 2)
-    return index === -1 ? tabRects.length : index
+export function dropIndexAt(
+    x: number,
+    tabRects: readonly Pick<DOMRect, 'left' | 'width'>[],
+    visible?: { left: number; right: number }
+): number {
+    const at = visible ? Math.min(Math.max(x, visible.left), visible.right) : x
+    const found = tabRects.findIndex((rect) => at < rect.left + rect.width / 2)
+    let index = found === -1 ? tabRects.length : found
+    if (!visible || tabRects.length === 0) return index
+    // A gap's line runs down the left edge of the tab after it, or the right edge of the last tab.
+    const last = tabRects[tabRects.length - 1]!
+    const edge = (gap: number) => (gap < tabRects.length ? tabRects[gap]!.left : last.left + last.width)
+    const hiddenRight = (gap: number) => (gap < tabRects.length ? edge(gap) >= visible.right : edge(gap) > visible.right)
+    while (index > 0 && hiddenRight(index)) index--
+    while (index < tabRects.length && edge(index) < visible.left) index++
+    return index
 }
 
 /** The index the tab at `from` ends up at when let go in the gap `dropIndex` (from dropIndexAt). */

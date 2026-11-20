@@ -25,6 +25,7 @@ These are the things automated tests can't cover, so they need a person using th
 - [ ] Open a drive root such as `D:\` as a folder. It opens, hides System Volume Information, and is named `D:\`. A folder you can't read shows as empty with a warning.
 - [ ] Drag a tab along the strip in a light and a dark theme. A line shows where it will land, and letting go puts it there without switching tabs. A short press still switches, and middle-click, X and right-click work as before.
 - [ ] Drag a tab, then press Escape, or let go above or below the tab bar. The tab goes back where it was. Letting go after the last tab puts it at the end.
+- [ ] Type in the editor, then drag a tab in the background somewhere else. Typing still goes into the editor. With more tabs than fit, let go over the Export and Fit buttons: the tab lands where the line was drawn, at the strip's edge.
 - [ ] Type in the editor and press Ctrl+Shift+PageUp / PageDown, also held down. The open tab moves along, and the cursor and selection stay. Close and reopen the folder and the app: the order is the same.
 
 ## File explorer
