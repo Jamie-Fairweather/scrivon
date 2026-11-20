@@ -2,25 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, type FocusEvent } from 'react'
 import { BatchExportProvider } from '@/components/studio/batch-export/batch-export-provider'
-import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
-import type { LocateInFile } from '@/components/studio/canvas/use-diagram-picking'
 import { usePanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
-import { MarkdownDocumentViewer } from '@/components/studio/markdown/markdown-document-viewer'
-import { MarkdownExpandProvider } from '@/components/studio/markdown/markdown-expand-context'
-import { CodeEditorPanel } from '@/components/studio/editor/code-editor-panel'
-import { FocusModeExportMenu } from '@/components/studio/editor/document-export-menu'
-import { DocumentExportProvider } from '@/components/studio/editor/document-export-provider'
-import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
-import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
+import { EditorModelsProvider } from '@/components/studio/editor/editor-models'
+import { MarkdownPreviewMemoryProvider } from '@/components/studio/markdown/markdown-expand-context'
 import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explorer'
 import { OutlinePanel } from '@/components/studio/outline/outline-panel'
 import { PresentModeView } from '@/components/studio/present/present-mode-view'
 import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
+import { EditorGroupsView } from '@/components/studio/shell/editor-groups-view'
 import { useLeaveFocusModeOnEscape } from '@/components/studio/shell/focus-mode-escape'
-import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
-import { focusPane } from '@/components/studio/shell/pane-focus'
+import { FOCUSED_GROUP_SELECTOR, focusPane } from '@/components/studio/shell/pane-focus'
 import { StudioStatusBar } from '@/components/studio/shell/studio-status-bar'
-import { documentKind } from '@/lib/workspace/file-types'
 import type { StudioLayoutState } from '@/lib/workspace/types'
 import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 
@@ -42,7 +34,8 @@ function cannotHoldFocus(el: Element | null, editorHidden: boolean): boolean {
 
 /**
  * Where focus goes when it has nowhere else. In focus mode there is no tab bar: the editor, or the editor's
- * region itself while no file is open. Otherwise the active document tab, or the start of the tab bar.
+ * region itself while no file is open. Otherwise the active document tab, or the start of the tab bar: the focused
+ * group's, while the editor is split.
  */
 function focusFallback(root: HTMLElement | null, focusMode: boolean): void {
     if (focusMode) {
@@ -50,16 +43,18 @@ function focusFallback(root: HTMLElement | null, focusMode: boolean): void {
         focusPane('editor')
         return
     }
+    const group = root?.querySelector<HTMLElement>(FOCUSED_GROUP_SELECTOR) ?? root
     const target =
-        root?.querySelector<HTMLElement>(`${TAB_BAR} [role="tab"][tabindex="0"]`) ??
-        root?.querySelector<HTMLElement>(`${TAB_BAR} button:not(:disabled)`)
+        group?.querySelector<HTMLElement>(`${TAB_BAR} [role="tab"][tabindex="0"]`) ??
+        group?.querySelector<HTMLElement>(`${TAB_BAR} button:not(:disabled)`)
     target?.focus()
 }
 
 /**
  * Closing a tab or hiding a pane can remove or hide the element that had keyboard focus, which
  * drops focus to the page body. When that happens, focus moves to the active document tab, or to
- * the start of the tab bar when no tab is open. In focus mode it moves to the editor.
+ * the start of the tab bar when no tab is open. In focus mode it moves to the editor. A group that
+ * closes (its last tab closed, or Join Groups) counts too.
  */
 function useKeepFocusInStudio(tabIds: string, { explorerOpen, editorOpen, previewOpen, outlineOpen }: StudioLayoutState, focusMode: boolean) {
     const rootRef = useRef<HTMLDivElement>(null)
@@ -84,34 +79,19 @@ function useKeepFocusInStudio(tabIds: string, { explorerOpen, editorOpen, previe
     return { rootRef, onFocus }
 }
 
-function viewerCrashNotice(error: Error) {
-    return (
-        <PaneCrashNotice
-            className="min-h-0 min-w-0 flex-1 bg-background"
-            title="Couldn't show this document"
-            error={error}
-            hint="Edit it or switch tabs to try again."
-        />
-    )
-}
-
 export function StudioLayout() {
-    const { tabs, activeTab, activeTabId } = useDocumentTabs()
+    const { tabs, groups } = useDocumentTabs()
     const { layout, focusMode, setFocusMode } = useStudioLayout()
-    const editorLayout = useEditorPanelLayout()
-    const { rootRef, onFocus } = useKeepFocusInStudio(tabs.map((t) => t.id).join('\n'), layout, focusMode)
+    // Which tabs each group shows: a group closing moves focus too, though every tab may still be open.
+    const groupLayout = (groups?.groups ?? []).map((g) => `${g.id}:${g.tabIds.join('\n')}`).join('\n\n')
+    const { rootRef, onFocus } = useKeepFocusInStudio(`${tabs.map((t) => t.id).join('\n')}\n\n${groupLayout}`, layout, focusMode)
     const leaveFocusMode = useCallback(() => setFocusMode(false), [setFocusMode])
     useLeaveFocusModeOnEscape(focusMode, leaveFocusMode)
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
-    // Kept here because the canvas below unmounts while a Markdown tab shows.
+    // Kept here because the canvas below unmounts while a Markdown tab shows. Both groups share each tab's memory.
     const canvasViews = usePanZoomMemory(openTabIds)
 
     useWindowCloseHandler()
-
-    const viewerKind = activeTab ? documentKind(activeTab.name) : null
-    // A part double-clicked on the diagram is on the same line of the tab's own text.
-    const activePath = activeTab?.path ?? null
-    const locateInTab = useCallback<LocateInFile>((location) => (activePath ? { path: activePath, ...location } : null), [activePath])
 
     return (
         <div ref={rootRef} className="flex min-h-0 flex-1 flex-col overflow-hidden" onFocus={onFocus}>
@@ -123,62 +103,19 @@ export function StudioLayout() {
                     {layout.explorerOpen && <WorkspaceExplorer />}
                     {layout.outlineOpen && <OutlinePanel />}
 
-                    <MarkdownExpandProvider tabId={activeTabId}>
-                        {/* The page's one main landmark: the tabs, the editor and the preview.
+                    {/* Each tab's preview memory (scroll, "Load images"), shared by both groups' previews and the slides. */}
+                    <MarkdownPreviewMemoryProvider>
+                        {/* The page's one main landmark: the tabs, the editor and the preview, in one or two groups.
                         data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
                         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
-                            {/* Export for the active tab, from the tab bar, the File menu, the palette and the shortcut.
-                                Mounted in focus mode too, without the tab bar, so exporting still works there: its export
-                                menu, which Export… opens for a diagram, then shows at the top right of the editor. */}
-                            <DocumentExportProvider>{focusMode ? <FocusModeExportMenu /> : <EditorTabBar />}</DocumentExportProvider>
-
-                            {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
-                            <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>
-                                {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position.
-                                    Focus mode only changes what it is given, so it keeps them too. */}
-                                {editorLayout.hydrated && (
-                                    <CodeEditorPanel
-                                        open={layout.editorOpen}
-                                        fill={!layout.previewOpen}
-                                        focusMode={focusMode}
-                                        width={editorLayout.width}
-                                        onWidthChange={editorLayout.onWidthChange}
-                                        onResetWidth={editorLayout.resetEditorWidth}
-                                    />
-                                )}
-
-                                {/* A pane of its own for F6 and Focus Preview (pane-focus.ts). They go to the diagram canvas,
-                                else its scroll box when it scrolls, else this region itself. Unmounted while hidden, so it
-                                doesn't draw on every keystroke. */}
-                                {layout.previewOpen && (
-                                    <div
-                                        data-pane="preview"
-                                        role="region"
-                                        aria-label="Preview"
-                                        tabIndex={-1}
-                                        className="flex min-h-0 min-w-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring
-                                            focus-visible:ring-inset"
-                                    >
-                                        {/* A view that breaks takes only itself down; the editor and tabs stay usable. */}
-                                        <PaneErrorBoundary resetKeys={[activeTabId, activeTab?.content]} fallback={viewerCrashNotice}>
-                                            {viewerKind === 'markdown' ? (
-                                                <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
-                                            ) : (
-                                                <MermaidCanvas
-                                                    source={activeTab?.content ?? ''}
-                                                    viewMemory={canvasViews}
-                                                    locateInFile={locateInTab}
-                                                    partsInPalette
-                                                />
-                                            )}
-                                        </PaneErrorBoundary>
-                                    </div>
-                                )}
-                            </div>
+                            {/* One buffer per tab, shared by both groups' editors. */}
+                            <EditorModelsProvider>
+                                <EditorGroupsView canvasViews={canvasViews} />
+                            </EditorModelsProvider>
                         </main>
                         {/* Inside the preview's memory, so the slides follow each tab's "Load images" choice. */}
                         <PresentModeView />
-                    </MarkdownExpandProvider>
+                    </MarkdownPreviewMemoryProvider>
                 </BatchExportProvider>
             </div>
             {!focusMode && <StudioStatusBar />}

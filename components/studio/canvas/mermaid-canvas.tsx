@@ -8,6 +8,7 @@ import { useDiagramPicking, type LocateInFile } from '@/components/studio/canvas
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { stopCanvasGesture, usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useEditorGroup } from '@/components/studio/workspace/editor-group-context'
 import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { diagramName } from '@/lib/mermaid/diagram-alt-text'
 import { supportedDiagramsSentence } from '@/lib/mermaid/prepare-source'
@@ -154,11 +155,14 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory, locate
     const transformRef = useRef<HTMLDivElement>(null)
     const dimensionsRef = useRef<{ width: number; height: number } | null>(null)
 
-    const { activeTabId, tabs } = useDocumentTabs()
+    const { tabs } = useDocumentTabs()
+    // The tab its own editor group shows: with the editor split, each group has its own canvas.
+    const groupTab = useEditorGroup().tab
+    const activeTabId = groupTab?.id ?? null
     const viewKey = canvasKey ?? activeTabId
     const { canvasFitRequestId } = useCanvasFit()
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
-    const tabName = tabs.find((t) => t.id === activeTabId)?.name
+    const tabName = groupTab?.name
     // A diagram can name itself with accTitle or its own title (as in the exports' alt text), and describe itself with
     // accDescr; otherwise it's named for its kind and the tab: `Pie chart: pets.mmd`.
     const accessibility = useMemo(() => readDiagramAccessibility(source), [source])

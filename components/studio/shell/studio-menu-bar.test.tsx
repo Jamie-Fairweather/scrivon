@@ -45,6 +45,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useCanvasFit: vi.fn(),
     useDocumentSave: vi.fn(),
     useDocumentTabs: vi.fn(),
+    useDocumentTabActions: () => ({ splitEditor: vi.fn(), moveTabToOtherGroup: vi.fn(), focusOtherGroup: vi.fn(), joinGroups: vi.fn() }),
     useStudioLayout: vi.fn(),
     useWorkspaceCoordinator: vi.fn(),
     useWorkspaceSession: vi.fn(),
@@ -133,6 +134,7 @@ function mockContexts({
         canReopenClosedTab: true,
         reopenClosedTab: vi.fn(async () => {}),
         revertTab: vi.fn(async () => {}),
+        groups: { groups: [{ id: 'group-1', tabIds: activeTabId ? [activeTabId] : [], activeTabId }], focused: 0, ratio: 0.5 },
     } as unknown as ReturnType<typeof useDocumentTabs>)
     vi.mocked(useStudioLayout).mockReturnValue({
         layout: focusMode
@@ -970,7 +972,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(64)
+        expect(compared).toBe(68)
     })
 })
 
@@ -1025,10 +1027,11 @@ describe('StudioMenuBar View menu', () => {
         const groups = Array.from(view.querySelectorAll('[role="group"]')).map((group) =>
             Array.from(group.querySelectorAll('[role^="menuitem"]')).map((item) => item.textContent)
         )
-        expect(groups.slice(0, 4)).toEqual([
+        expect(groups.slice(0, 5)).toEqual([
             ['ExplorerCtrl+Shift+B', 'EditorCtrl+E', 'PreviewCtrl+Alt+P', 'Outline', 'Status Bar'],
             ['Show All Panels', 'Editor and Preview', 'Preview OnlyCtrl+Shift+O'],
             ['Focus ModeF11', 'Dim Other Paragraphs', 'PresentF5'],
+            ['Split EditorCtrl+\\', 'Move Tab to Other Group', 'Focus Other Group', 'Join Groups'],
             ['Reveal Active File in Sidebar', 'Collapse All Folders'],
         ])
     })

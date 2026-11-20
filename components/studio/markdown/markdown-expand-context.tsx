@@ -50,7 +50,10 @@ function usePreviewMemoryState(): MarkdownPreviewMemory {
  */
 export function MarkdownExpandProvider({ tabId, children }: { tabId: string | null; children: ReactNode }) {
     const [state, setState] = useState<ExpandedState | null>(null)
-    const memory = usePreviewMemoryState()
+    // Each editor group has its own expanded diagram, but the memory is the tabs' own, shared by both groups.
+    const shared = useContext(MarkdownPreviewMemoryContext)
+    const own = usePreviewMemoryState()
+    const memory = shared ?? own
 
     if (state && state.tabId !== tabId) setState(null)
 
@@ -65,6 +68,15 @@ export function MarkdownExpandProvider({ tabId, children }: { tabId: string | nu
             <MarkdownExpandContext.Provider value={value}>{children}</MarkdownExpandContext.Provider>
         </MarkdownPreviewMemoryContext.Provider>
     )
+}
+
+/**
+ * Holds each tab's {@link MarkdownPreviewMemory} for everything inside it, so the editor groups' previews (each with
+ * its own MarkdownExpandProvider) and the slides share it.
+ */
+export function MarkdownPreviewMemoryProvider({ children }: { children: ReactNode }) {
+    const memory = usePreviewMemoryState()
+    return <MarkdownPreviewMemoryContext.Provider value={memory}>{children}</MarkdownPreviewMemoryContext.Provider>
 }
 
 export function useMarkdownExpand(): MarkdownExpandContextValue {

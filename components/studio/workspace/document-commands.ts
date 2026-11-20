@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { useFileHistory } from '@/components/studio/dialogs/file-history-provider'
@@ -232,17 +232,18 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
 export function useDocumentCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
     const {
-        tabs,
+        tabs: allTabs,
+        groups,
         activeTabId,
         canReopenClosedTab,
         openExample,
-        closeTab,
-        closeOtherTabs,
+        closeTab: closeTabIn,
+        closeOtherTabs: closeOtherTabsIn,
         closeAllTabs,
-        closeTabsToRight,
-        closeSavedTabs,
+        closeTabsToRight: closeTabsToRightIn,
+        closeSavedTabs: closeSavedTabsIn,
         switchTab,
-        moveTab,
+        moveTab: moveTabIn,
         reopenClosedTab,
         revertTab,
     } = useDocumentTabs()
@@ -250,10 +251,24 @@ export function useDocumentCommands(): void {
     const saveExampleCopy = useSaveExampleCopy()
     const { showFileHistory } = useFileHistory()
 
+    // The tab commands act on the focused group: its tab, its strip (Close Tab, Next Tab, Move Tab Left and the
+    // rest). Close All Tabs closes every tab in every group, and Save All saves every file.
+    const focused = groups.focused
+    const focusedTabIds = groups.groups[focused]?.tabIds
+    const tabs = useMemo(() => {
+        const byId = new Map(allTabs.map((t) => [t.id, t]))
+        return (focusedTabIds ?? []).flatMap((id) => byId.get(id) ?? [])
+    }, [allTabs, focusedTabIds])
+    const closeTab = useCallback((id: string) => closeTabIn(id, focused), [closeTabIn, focused])
+    const closeOtherTabs = useCallback((keepId: string) => closeOtherTabsIn(keepId, focused), [closeOtherTabsIn, focused])
+    const closeTabsToRight = useCallback((id: string) => closeTabsToRightIn(id, focused), [closeTabsToRightIn, focused])
+    const closeSavedTabs = useCallback(() => closeSavedTabsIn(focused), [closeSavedTabsIn, focused])
+    const moveTab = useCallback((id: string, toIndex: number) => moveTabIn(id, toIndex, focused), [moveTabIn, focused])
+
     // Only what the commands show, so typing in a tab doesn't rebuild them.
     const hasWorkspace = Boolean(workspaceRoot)
     const tabCount = tabs.length
-    const hasDirtyTabs = tabs.some((t) => t.isDirty && !isExampleTabId(t.id))
+    const hasDirtyTabs = allTabs.some((t) => t.isDirty && !isExampleTabId(t.id))
     const hasSavedTabs = anySavedTabs(tabs)
     const hasTabsToRight = anyTabsToRight(tabs, activeTabId)
     const activeTabIndex = tabs.findIndex((t) => t.id === activeTabId)

@@ -1,7 +1,8 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
+import type { EditorGroups } from '@/lib/workspace/editor-groups'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 type Layout = { explorerOpen: boolean; editorOpen: boolean; previewOpen: boolean; outlineOpen?: boolean }
@@ -20,20 +21,36 @@ const mounts = { editor: 0, canvas: 0 }
 /** A document the (mocked) Markdown preview crashes on. */
 const BROKEN = '> > > (too deep)'
 
-vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useDocumentTabs: () => ({
-        tabs,
-        activeTabId,
-        activeTab: tabs.find((t) => t.id === activeTabId) ?? null,
+/** The editor split, when a test splits it: each group's tabs and the one it shows. Else one group with every tab. */
+let split: EditorGroups | null = null
+const focusGroup = vi.fn()
+const setGroupRatio = vi.fn()
+const groupsNow = (): EditorGroups => split ?? { groups: [{ id: 'group-1', tabIds: tabs.map((t) => t.id), activeTabId }], focused: 0, ratio: 0.5 }
+
+vi.mock('@/components/studio/workspace/workspace-provider', async () => {
+    const { createWorkspaceCoordinatorRefs } = await import('@/components/studio/workspace/workspace-coordinator')
+    const coordinator = createWorkspaceCoordinatorRefs()
+    const actions = {
         setActiveTab: vi.fn(),
         closeTab: vi.fn(),
         closeOtherTabs: vi.fn(),
         closeAllTabs: vi.fn(),
-    }),
-    useStudioLayout: () => ({ layout, focusMode, setFocusMode, setExplorerOpen: vi.fn(), setEditorOpen: vi.fn() }),
-}))
+        updateTabContent: vi.fn(),
+        focusGroup: (index: number) => focusGroup(index),
+        setGroupRatio: (ratio: number) => setGroupRatio(ratio),
+        splitEditor: vi.fn(),
+        moveTabToOtherGroup: vi.fn(),
+    }
+    return {
+        useDocumentTabs: () => ({ tabs, activeTabId, activeTab: tabs.find((t) => t.id === activeTabId) ?? null, groups: groupsNow(), ...actions }),
+        useDocumentTabActions: () => actions,
+        useWorkspaceCoordinator: () => coordinator,
+        useStudioLayout: () => ({ layout, focusMode, setFocusMode, setExplorerOpen: vi.fn(), setEditorOpen: vi.fn() }),
+    }
+})
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     CanvasControlsProvider: ({ children }: { children: ReactNode }) => children,
+    GroupCanvasControlsProvider: ({ children }: { children: ReactNode }) => children,
     useCanvasControls: () => ({ canFitToView: false, fitToView: () => {} }),
 }))
 vi.mock('@/components/studio/canvas/mermaid-canvas', () => ({
@@ -68,7 +85,7 @@ vi.mock('@/components/studio/batch-export/batch-export-provider', () => ({
     BatchExportProvider: ({ children }: { children: ReactNode }) => <div data-testid="batch-export">{children}</div>,
 }))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: () => {} }))
-vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {} } }) }))
+vi.mock('@/components/studio/settings/settings-provider', () => ({ useAppSettings: () => ({ settings: { keybinds: {}, editor: { tabSize: 2 } } }) }))
 vi.mock('@/components/studio/editor/use-editor-panel-layout', () => ({
     useEditorPanelLayout: () => ({ width: 400, hydrated: true, onWidthChange: () => {}, resetEditorWidth: () => {} }),
 }))
@@ -127,6 +144,9 @@ beforeEach(() => {
     mounts.editor = 0
     mounts.canvas = 0
     canvasMemories.length = 0
+    split = null
+    focusGroup.mockReset()
+    setGroupRatio.mockReset()
 })
 
 afterEach(() => {
@@ -586,5 +606,139 @@ describe('StudioLayout keeps keyboard focus', () => {
         await new Promise((resolve) => requestAnimationFrame(resolve))
 
         expect(editor).toHaveFocus()
+    })
+})
+
+describe('StudioLayout with the editor split', () => {
+    const a = '/w/a.md'
+    const b = '/w/b.mmd'
+    const innerWidth = window.innerWidth
+    function focus(el: HTMLElement) {
+        act(() => el.focus())
+        expect(el).toHaveFocus()
+    }
+
+    function splitInto(focused: number): EditorGroups {
+        return {
+            groups: [
+                { id: 'group-1', tabIds: [a], activeTabId: a },
+                { id: 'group-2', tabIds: [a, b], activeTabId: b },
+            ],
+            focused,
+            ratio: 0.5,
+        }
+    }
+
+    beforeEach(() => {
+        tabs = [tab(a), tab(b)]
+        activeTabId = b
+        split = splitInto(1)
+    })
+
+    afterEach(() => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: innerWidth })
+    })
+
+    it('shows two groups, each with its own tab list, editor and preview, and says which group is which', () => {
+        render(<StudioLayout />)
+
+        expect(screen.getByRole('tablist', { name: 'Open documents, left group' })).toBeInTheDocument()
+        expect(screen.getByRole('tablist', { name: 'Open documents, right group' })).toBeInTheDocument()
+        expect(screen.getAllByRole('tab', { name: /a\.md/ })).toHaveLength(2)
+        expect(document.querySelectorAll('[data-pane="editor"]')).toHaveLength(2)
+        expect(screen.getByRole('region', { name: 'Preview, left group' })).toBeInTheDocument()
+        expect(screen.getByRole('region', { name: 'Preview, right group' })).toBeInTheDocument()
+        // Still the page's one main landmark.
+        expect(screen.getAllByRole('main')).toHaveLength(1)
+    })
+
+    it('marks the focused group by a bar, not only a colour, and gives the group clicked in the keyboard', () => {
+        render(<StudioLayout />)
+        const [left, right] = [...document.querySelectorAll<HTMLElement>('[data-editor-group]')]
+        expect(right).toHaveAttribute('data-focused-group')
+        expect(left).not.toHaveAttribute('data-focused-group')
+        expect(right!.querySelector('[data-slot="focused-group-bar"]')).toHaveClass('bg-ring')
+        expect(left!.querySelector('[data-slot="focused-group-bar"]')).toHaveClass('bg-transparent')
+
+        fireEvent.pointerDown(screen.getByRole('region', { name: 'Preview, left group' }))
+        expect(focusGroup).toHaveBeenLastCalledWith(0)
+    })
+
+    it('has a labelled divider that keeps both groups at least 400px wide, moved with the arrow keys, Home and End', () => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 })
+        render(<StudioLayout />)
+        const divider = screen.getByRole('separator', { name: 'Resize editor groups' })
+        expect(divider).toHaveAttribute('aria-valuenow', '600')
+        expect(divider).toHaveAttribute('aria-valuemin', '400')
+        expect(divider).toHaveAttribute('aria-valuemax', '800')
+        expect(document.querySelector('[data-editor-group="group-1"]')).toHaveStyle({ width: '600px' })
+
+        fireEvent.keyDown(divider, { key: 'ArrowRight' })
+        expect(setGroupRatio).toHaveBeenLastCalledWith(616 / 1200)
+        fireEvent.keyDown(divider, { key: 'ArrowLeft', shiftKey: true })
+        expect(setGroupRatio).toHaveBeenLastCalledWith(536 / 1200)
+        fireEvent.keyDown(divider, { key: 'Home' })
+        expect(setGroupRatio).toHaveBeenLastCalledWith(400 / 1200)
+        fireEvent.keyDown(divider, { key: 'End' })
+        expect(setGroupRatio).toHaveBeenLastCalledWith(800 / 1200)
+    })
+
+    it('stops a drag of the divider at the narrowest group, and keeps the place once when it ends', () => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 })
+        render(<StudioLayout />)
+        const divider = screen.getByRole('separator', { name: 'Resize editor groups' })
+        divider.setPointerCapture = () => {}
+
+        fireEvent.pointerDown(divider, { button: 0, pointerId: 1, clientX: 600 })
+        fireEvent.pointerMove(divider, { pointerId: 1, clientX: 100 })
+        expect(divider).toHaveAttribute('aria-valuenow', '400')
+        expect(setGroupRatio).not.toHaveBeenCalled()
+        fireEvent.pointerUp(divider, { pointerId: 1 })
+        expect(setGroupRatio).toHaveBeenCalledExactlyOnceWith(400 / 1200)
+    })
+
+    it('shrinks both groups evenly when there is no room for two at 400px', () => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 700 })
+        render(<StudioLayout />)
+        const divider = screen.getByRole('separator', { name: 'Resize editor groups' })
+        expect(divider).toHaveAttribute('aria-valuenow', '350')
+        expect(divider).toHaveAttribute('aria-valuemin', '350')
+        expect(divider).toHaveAttribute('aria-valuemax', '350')
+    })
+
+    it('visits both groups’ panes in screen order with F6, and Focus Preview goes to the focused group’s', () => {
+        render(<StudioLayout />)
+        const leftPreview = screen.getByRole('region', { name: 'Preview, left group' })
+        const rightPreview = screen.getByRole('region', { name: 'Preview, right group' })
+
+        // Screen order: the left group's editor and preview, then the right group's.
+        const panes = [...document.querySelectorAll<HTMLElement>('[data-editor-group] [data-pane]')]
+        expect(panes.map((pane) => [pane.closest('[data-editor-group]')!.getAttribute('data-editor-group'), pane.dataset.pane])).toEqual([
+            ['group-1', 'editor'],
+            ['group-1', 'preview'],
+            ['group-2', 'editor'],
+            ['group-2', 'preview'],
+        ])
+
+        expect(focusPane('preview')).toBe(true)
+        expect(rightPreview).toHaveFocus()
+        act(() => void cyclePaneFocus(-1))
+        // Back past the right group's editor (the stand-in takes no focus) to the left group's preview.
+        expect(leftPreview).toHaveFocus()
+        act(() => void cyclePaneFocus(1))
+        expect(rightPreview).toHaveFocus()
+    })
+
+    it('moves focus to the group left, not the page, when the focused group closes', async () => {
+        const view = render(<StudioLayout />)
+        const rightTab = within(screen.getByRole('tablist', { name: 'Open documents, right group' })).getByRole('tab', { name: /b\.mmd/ })
+        focus(rightTab)
+
+        tabs = [tab(a)]
+        activeTabId = a
+        split = null
+        view.rerender(<StudioLayout />)
+
+        await waitFor(() => expect(screen.getByRole('tab', { name: /a\.md/ })).toHaveFocus())
     })
 })

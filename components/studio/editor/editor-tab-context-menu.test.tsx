@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { copyPath, revealInFileExplorer } from '@/lib/workspace/path-actions'
+import type { EditorGroups } from '@/lib/workspace/editor-groups'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { EditorTabRowContextMenu } from './editor-tab-context-menu'
 
@@ -17,8 +18,18 @@ const tabActions = vi.hoisted(() => ({
     moveTab: vi.fn(),
 }))
 
+const groupActions = vi.hoisted(() => ({ splitEditor: vi.fn(), moveTabToOtherGroup: vi.fn() }))
+/** One group with every tab, unless a test splits the editor. */
+let groups: EditorGroups | null = null
+
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useDocumentTabs: () => ({ tabs, ...tabActions }),
+    useDocumentTabs: () => ({
+        tabs,
+        groups: groups ?? { groups: [{ id: 'group-1', tabIds: tabs.map((t) => t.id), activeTabId: null }], focused: 0, ratio: 0.5 },
+        ...tabActions,
+    }),
+    useDocumentTabActions: () => groupActions,
+    useStudioLayout: () => ({ layout: { editorOpen: true } }),
     useWorkspaceSession: () => ({ workspaceRoot: ROOT }),
 }))
 const showFileHistory = vi.hoisted(() => vi.fn<(tabId: string) => Promise<void>>(async () => undefined))
@@ -62,6 +73,8 @@ describe('EditorTabRowContextMenu', () => {
             'Close All',
             'Move Left',
             'Move Right',
+            'Split Editor',
+            'Move Tab to Other Group',
             'Revert File',
             'Show File History…',
             'Reveal in File Explorer',
@@ -69,7 +82,7 @@ describe('EditorTabRowContextMenu', () => {
             'Copy Relative Path',
         ])
         fireEvent.click(screen.getByRole('menuitem', { name: 'Close to the Right' }))
-        expect(tabActions.closeTabsToRight).toHaveBeenCalledWith('C:/w/b.md')
+        expect(tabActions.closeTabsToRight).toHaveBeenCalledWith('C:/w/b.md', 0)
 
         rightClickTab()
         fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Saved' }))
@@ -78,6 +91,25 @@ describe('EditorTabRowContextMenu', () => {
         rightClickTab()
         fireEvent.click(await screen.findByRole('menuitem', { name: 'Revert File' }))
         expect(tabActions.revertTab).toHaveBeenCalledWith('C:/w/b.md')
+    })
+
+    it('splits the editor with the tab right-clicked, or moves it to the other group, from its own group', async () => {
+        tabs = [tab('C:/w/a.md'), tab('C:/w/b.md')]
+        openMenuFor('C:/w/b.md')
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Split Editor' }))
+        expect(groupActions.splitEditor).toHaveBeenCalledExactlyOnceWith('C:/w/b.md', 0)
+
+        rightClickTab()
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Move Tab to Other Group' }))
+        expect(groupActions.moveTabToOtherGroup).toHaveBeenCalledExactlyOnceWith('C:/w/b.md', 0)
+    })
+
+    it('turns off Move Tab to Other Group for the only tab of the only group', async () => {
+        tabs = [tab('C:/w/a.md')]
+        openMenuFor('C:/w/a.md')
+        expect(await screen.findByRole('menuitem', { name: 'Move Tab to Other Group' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByRole('menuitem', { name: 'Split Editor' })).not.toHaveAttribute('aria-disabled')
+        groups = null
     })
 
     it('opens File History for the tab right-clicked, which the provider makes the active one first', async () => {
@@ -103,10 +135,10 @@ describe('EditorTabRowContextMenu', () => {
         openMenuFor('C:/w/b.md')
 
         fireEvent.click(await screen.findByRole('menuitem', { name: 'Move Left' }))
-        expect(tabActions.moveTab).toHaveBeenLastCalledWith('C:/w/b.md', 0)
+        expect(tabActions.moveTab).toHaveBeenLastCalledWith('C:/w/b.md', 0, 0)
         rightClickTab()
         fireEvent.click(await screen.findByRole('menuitem', { name: 'Move Right' }))
-        expect(tabActions.moveTab).toHaveBeenLastCalledWith('C:/w/b.md', 2)
+        expect(tabActions.moveTab).toHaveBeenLastCalledWith('C:/w/b.md', 2, 0)
     })
 
     it('greys out Move Left on the first tab and Move Right on the last', async () => {

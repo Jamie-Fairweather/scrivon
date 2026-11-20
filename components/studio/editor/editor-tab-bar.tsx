@@ -9,7 +9,8 @@ import { EditorTabRowContextMenu } from '@/components/studio/editor/editor-tab-c
 import { getTabFolderHints } from '@/components/studio/editor/tab-labels'
 import { useTabDrag } from '@/components/studio/editor/use-tab-drag'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
-import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
+import { useStudioLayout, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useEditorGroup } from '@/components/studio/workspace/editor-group-context'
 import { displayPath } from '@/lib/workspace/display-path'
 import { tabMovedMessage } from '@/lib/workspace/document-tab'
 import { documentKind } from '@/lib/workspace/file-types'
@@ -92,7 +93,15 @@ function TabCloseButton({ tab, label, isActive, onClose }: { tab: TabState; labe
 }
 
 export function EditorTabBar({ className, style }: EditorTabBarProps) {
-    const { tabs, activeTabId, setActiveTab, closeTab, activeTab, moveTab, lastTabMove } = useDocumentTabs()
+    const { setActiveTab: showTab, closeTab: closeTabIn, moveTab: moveTabIn, lastTabMove: lastMove } = useDocumentTabs()
+    // Its own editor group's tabs. Clicking, closing and moving act in this group.
+    const group = useEditorGroup()
+    const { tabs, tab: activeTab, index: groupIndex, id: groupId } = group
+    const activeTabId = activeTab?.id ?? null
+    const setActiveTab = useCallback((id: string) => showTab(id, groupIndex), [showTab, groupIndex])
+    const closeTab = useCallback((id: string) => closeTabIn(id, groupIndex), [closeTabIn, groupIndex])
+    const moveTab = useCallback((id: string, toIndex: number) => moveTabIn(id, toIndex, groupIndex), [moveTabIn, groupIndex])
+    const lastTabMove = lastMove && (lastMove.groupId === undefined || lastMove.groupId === groupId) ? lastMove : null
     const { canFitToView, fitToView } = useCanvasControls()
     const { expanded } = useMarkdownExpand()
     const { layout } = useStudioLayout()
@@ -206,11 +215,13 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                 className={cn('flex h-9 shrink-0 items-stretch border-b border-border bg-background/95 backdrop-blur-sm', className)}
                 style={style}
             >
-                <LayoutToggleButtons />
+                {/* The Editor and Preview toggles apply to both groups, so only the left group has them. */}
+                {groupIndex === 0 && <LayoutToggleButtons />}
                 <div
                     ref={stripRef}
                     role="tablist"
-                    aria-label="Open documents"
+                    // Says which group it is while the editor is split: "Open documents, left group".
+                    aria-label={group.label ? `Open documents, ${group.label}` : 'Open documents'}
                     className="flex min-w-0 flex-1 [scrollbar-width:none] items-stretch overflow-x-auto"
                     onKeyDown={onTabListKeyDown}
                 >

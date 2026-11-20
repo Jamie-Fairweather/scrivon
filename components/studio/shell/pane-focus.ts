@@ -90,7 +90,8 @@ function focusNotifications(region: HTMLElement): boolean {
 function focusInPane(pane: HTMLElement): boolean {
     // Monaco takes focus through its own API, which also brings back its cursor. With no file open there is no Monaco,
     // and in focus mode the editor's region takes focus itself (it has a tabIndex only then), so F6 can still reach it.
-    if (pane.dataset.pane === 'editor') return focusEditorNow() || paneItself(pane).some(tryFocus)
+    // With the editor split, the editor of the group this pane is in.
+    if (pane.dataset.pane === 'editor') return focusEditorNow(pane) || paneItself(pane).some(tryFocus)
     if (pane.matches(NOTIFICATIONS)) return focusNotifications(pane)
     return focusTargets(pane).some(tryFocus)
 }
@@ -111,9 +112,16 @@ function cycleOrder(panes: HTMLElement[], active: Element | null, direction: 1 |
     return panes.map((_, i) => panes[(((start + i * direction) % count) + count) % count]!)
 }
 
-/** Focus Explorer, Focus Editor, Focus Preview. False when that pane is closed, hidden or has nothing to focus. */
+/** The editor group that has the keyboard, while the editor is split (studio-layout.tsx marks it). */
+export const FOCUSED_GROUP_SELECTOR = '[data-editor-group][data-focused-group]'
+
+/**
+ * Focus Explorer, Focus Editor, Focus Preview. With the editor split, the focused group's editor or preview. False
+ * when that pane is closed, hidden or has nothing to focus.
+ */
 export function focusPane(id: PaneId, doc: Document = document): boolean {
-    const pane = shownPanes(doc).find((element) => element.dataset.pane === id)
+    const panes = shownPanes(doc).filter((element) => element.dataset.pane === id)
+    const pane = panes.find((element) => element.closest(FOCUSED_GROUP_SELECTOR) !== null) ?? panes[0]
     return pane ? focusInPane(pane) : false
 }
 
