@@ -260,6 +260,8 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
                 typeof source.workspace?.reopenLastFolder === 'boolean' ? source.workspace.reopenLastFolder : defaults.workspace.reopenLastFolder,
             showGitChanges:
                 typeof source.workspace?.showGitChanges === 'boolean' ? source.workspace.showGitChanges : defaults.workspace.showGitChanges,
+            offerLinkUpdates:
+                typeof source.workspace?.offerLinkUpdates === 'boolean' ? source.workspace.offerLinkUpdates : defaults.workspace.offerLinkUpdates,
         },
         updates: {
             checkOnLaunch: typeof source.updates?.checkOnLaunch === 'boolean' ? source.updates.checkOnLaunch : defaults.updates.checkOnLaunch,

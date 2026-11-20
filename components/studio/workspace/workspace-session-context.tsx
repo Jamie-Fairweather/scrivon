@@ -1229,6 +1229,20 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         [explainIfHidden, updateFolderToggles, coordinator]
     )
 
+    /**
+     * Once a rename or move is done (saves released, the folder read again), offers to update the links it broke.
+     * Not awaited: the move, the tree and the explorer's focus never wait on the scan or the question.
+     */
+    const offerLinkUpdates = useCallback(
+        (root: string | null, oldPath: string, newPath: string, isDirectory: boolean, tree: FileNode[]) => {
+            if (!root || !isOpenFolder(root)) return
+            void coordinator.offerLinkUpdates
+                .current({ root, oldPath, newPath, isDirectory, tree })
+                .catch((err: unknown) => console.warn("Couldn't offer to update links", err))
+        },
+        [isOpenFolder, coordinator]
+    )
+
     const renameEntry = useCallback(
         async (oldPath: string, newName: string, isDirectory: boolean) => {
             const failed = `Couldn't rename ${getBaseName(oldPath)}`
@@ -1240,11 +1254,16 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 notifyError(failed, undefined, { description: problem })
                 return
             }
-            await relocateEntry(oldPath, joinPath(parent, newName), isDirectory, failed)
+            const root = workspaceRootRef.current
+            // Every path in it is an old one, for working out which links the rename breaks.
+            const treeBefore = treeRef.current
+            const newPath = joinPath(parent, newName)
+            const renamed = await relocateEntry(oldPath, newPath, isDirectory, failed)
             // A rename keeps the entry in its folder, so only that folder changed.
             await refreshFolder(parent)
+            if (renamed) offerLinkUpdates(root, oldPath, newPath, isDirectory, treeBefore)
         },
-        [getNameError, relocateEntry, refreshFolder]
+        [getNameError, relocateEntry, refreshFolder, offerLinkUpdates]
     )
 
     const moveEntry = useCallback(
@@ -1271,11 +1290,14 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
                 return null
             }
             const newPath = joinPath(targetFolder, newName)
+            const root = workspaceRootRef.current
+            const treeBefore = treeRef.current
             const moved = await relocateEntry(path, newPath, isDirectory, failed)
             await Promise.all([refreshFolder(getParentPath(path)), refreshFolder(targetFolder)])
+            if (moved) offerLinkUpdates(root, path, newPath, isDirectory, treeBefore)
             return moved ? newPath : null
         },
-        [relocateEntry, refreshFolder]
+        [relocateEntry, refreshFolder, offerLinkUpdates]
     )
 
     const copyIntoFolder = useCallback(

@@ -31,6 +31,7 @@ describe('formatDiagnosticInfo', () => {
                 '- Check for updates on launch: on',
                 '- Reopen last folder: on',
                 '- Git changes in the explorer: on',
+                '- Offer to update links when files move: on',
                 '- Panels open: explorer, editor, preview',
                 '- Changed shortcuts: 0',
             ].join('\n')

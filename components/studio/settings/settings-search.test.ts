@@ -85,6 +85,15 @@ describe('searchSettings', () => {
         ])
     })
 
+    it('only finds Offer to update links when files move in the desktop app, where it is shown', () => {
+        const entry = expect.objectContaining({ section: 'general', label: 'Offer to update links when files move' })
+        expect(searchSettings('update links', { desktop: true })).toEqual([entry])
+        expect(searchSettings('rename', { desktop: true })).toContainEqual(entry)
+        expect(searchSettings('broken relative', { desktop: true })).toEqual([entry])
+        expect(searchSettings('update links', { desktop: false })).toEqual([])
+        expect(searchSettings('rename', { desktop: false })).not.toContainEqual(entry)
+    })
+
     it('finds Restore panel layout by the panels it remembers', () => {
         expect(searchSettings('preview', BROWSER).map((entry) => entry.label)).toContain('Restore panel layout')
     })

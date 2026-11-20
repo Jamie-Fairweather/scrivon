@@ -138,6 +138,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,
             reopenLastFolder: true,
             showGitChanges: true,
+            offerLinkUpdates: true,
         },
         updates: {
             checkOnLaunch: true,

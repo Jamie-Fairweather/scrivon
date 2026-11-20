@@ -223,6 +223,14 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ workspace: { showGitChanges: 'off' } }, false).workspace.showGitChanges).toBe(true)
     })
 
+    it('offers to update links when files move by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).workspace.offerLinkUpdates).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ workspace: { showGitChanges: false } }, false).workspace.offerLinkUpdates).toBe(true)
+        expect(mergeStoredSettings({ workspace: { offerLinkUpdates: false } }, false).workspace.offerLinkUpdates).toBe(false)
+        expect(mergeStoredSettings({ workspace: { offerLinkUpdates: 'no' } }, false).workspace.offerLinkUpdates).toBe(true)
+    })
+
     it('keeps file history by default, and reads a saved choice', () => {
         expect(createDefaultSettings(false).fileHistory.enabled).toBe(true)
         // Settings saved before file history existed.

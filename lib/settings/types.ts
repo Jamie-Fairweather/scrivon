@@ -142,6 +142,8 @@ export type AppSettings = {
         reopenLastFolder: boolean
         /** Marks the files git sees as changed, and the folders holding them, in the explorer. */
         showGitChanges: boolean
+        /** After a rename or move in the explorer, lists the Markdown links it breaks and offers to fix them. */
+        offerLinkUpdates: boolean
     }
     updates: {
         checkOnLaunch: boolean

@@ -54,6 +54,7 @@ function settingsSummary(settings: AppSettings): string[] {
         `Check for updates on launch: ${onOff(settings.updates.checkOnLaunch)}`,
         `Reopen last folder: ${onOff(settings.workspace.reopenLastFolder)}`,
         `Git changes in the explorer: ${onOff(settings.workspace.showGitChanges)}`,
+        `Offer to update links when files move: ${onOff(settings.workspace.offerLinkUpdates)}`,
         `Panels open: ${panels.join(', ') || 'none'}`,
         `Changed shortcuts: ${changedShortcuts(settings)}`,
     ]

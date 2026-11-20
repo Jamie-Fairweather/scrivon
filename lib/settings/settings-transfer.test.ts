@@ -25,6 +25,7 @@ function changedSettings() {
     const settings = createDefaultSettings(false)
     settings.theme.id = 'tokyo-night'
     settings.editor.fontSize = 18
+    settings.workspace.offerLinkUpdates = false
     settings.keybinds['view.toggleEditor'] = [{ key: 'k', ctrl: true, alt: true }]
     settings.pdfExport = createPdfExportProfile(settings.pdfExport, 'Company report')
     return settings
