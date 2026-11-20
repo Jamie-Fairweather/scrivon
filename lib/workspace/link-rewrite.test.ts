@@ -123,7 +123,8 @@ describe('links to a moved file', () => {
         expect(rewriteEdits(source, rewrites)[0]!.range).toMatchObject({ startLineNumber: 5, startColumn: 13, endLineNumber: 5, endColumn: 26 })
     })
 
-    it('plans a long file with thousands of links quickly, giving the UI a turn every few hundred links', async () => {
+    // Parsing 3000 links first takes several seconds under coverage on CI, so the test gets room; only the planning is timed.
+    it('plans a long file with thousands of links quickly, giving the UI a turn every few hundred links', { timeout: 30_000 }, async () => {
         // Mixed line breaks: `\r\n`, `\r` and `\n` each count as one, as the editor counts them.
         const breaks = ['\n', '\r\n', '\r']
         const source = Array.from({ length: 3000 }, (_, i) => `${'Some words. '.repeat(20)}![shot ${i}](docs/setup.md#s${i})${breaks[i % 3]}`).join(
