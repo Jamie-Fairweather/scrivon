@@ -68,6 +68,7 @@ import {
     getWorkspaceFileSize,
     isFileMissingError,
     joinPath,
+    listFolderEntries,
     listFolderNames,
     listWorkspaceTree,
     newTempFileName,
@@ -455,6 +456,23 @@ describe('workspace fs (Tauri)', () => {
             { name: 'sub', isDirectory: true, isFile: false, isSymlink: false },
         ])
         await expect(listFolderNames('/ws')).resolves.toEqual(['a.md', 'sub'])
+    })
+
+    it('lists what is in a folder with whether each is a file or a folder, from one listing', async () => {
+        readDirMock.mockResolvedValue([
+            { name: 'a.md', isDirectory: false, isFile: true, isSymlink: false },
+            { name: 'sub', isDirectory: true, isFile: false, isSymlink: false },
+            { name: 'link', isDirectory: false, isFile: false, isSymlink: true },
+        ])
+        await expect(listFolderEntries('/ws')).resolves.toEqual([
+            { name: 'a.md', isFile: true, isDirectory: false, isSymlink: false },
+            { name: 'sub', isFile: false, isDirectory: true, isSymlink: false },
+            { name: 'link', isFile: false, isDirectory: false, isSymlink: true },
+        ])
+        expect(readDirMock).toHaveBeenCalledExactlyOnceWith('/ws')
+
+        readDirMock.mockRejectedValueOnce('The system cannot find the path specified. (os error 3)')
+        await expect(listFolderEntries('/ws/missing')).rejects.toBe('The system cannot find the path specified. (os error 3)')
     })
 
     it('renames through the app, which refuses a file or folder already at the new path', async () => {
@@ -857,6 +875,7 @@ describe('workspace fs (Tauri)', () => {
         await copyWorkspaceEntry('/in/docs', '/ws/docs')
         await expect(readEntryKind('/in/docs')).resolves.toBe('file')
         await expect(listFolderNames('/ws')).resolves.toEqual([])
+        await expect(listFolderEntries('/ws')).resolves.toEqual([])
         expect(writeTextFileMock).not.toHaveBeenCalled()
         expect(writeFileMock).not.toHaveBeenCalled()
         expect(mkdirMock).not.toHaveBeenCalled()

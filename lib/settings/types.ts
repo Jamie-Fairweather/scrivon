@@ -43,6 +43,7 @@ export type KeybindActionId =
     | 'workspace.newDiagram'
     | 'workspace.newDocument'
     | 'workspace.newFolder'
+    | 'workspace.newFromTemplate'
     | 'tabs.close'
     | 'tabs.next'
     | 'tabs.previous'

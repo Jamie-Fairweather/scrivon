@@ -622,7 +622,10 @@ const GIT_SIGNAL_FILES = new Set(['index', 'head', 'merge_head'])
  */
 export function isGitChangeEvent(root: string, event: WatchEvent): boolean {
     const type = event.type
-    if (typeof type === 'object' && ('access' in type || ('modify' in type && type.modify.kind === 'metadata' && type.modify.mode === 'access-time'))) {
+    if (
+        typeof type === 'object' &&
+        ('access' in type || ('modify' in type && type.modify.kind === 'metadata' && type.modify.mode === 'access-time'))
+    ) {
         return false
     }
     return event.paths.some((path) => {
@@ -722,6 +725,18 @@ export async function watchWorkspace(
 export async function listFolderNames(dirPath: string): Promise<string[]> {
     if (!isTauri()) return []
     return (await readDir(dirPath)).map((entry) => entry.name)
+}
+
+/**
+ * One thing directly in a folder, from listFolderEntries. A symlink or junction is neither a file nor a folder here,
+ * whatever it points to (readEntryKind says which).
+ */
+export type FolderEntry = { name: string; isFile: boolean; isDirectory: boolean; isSymlink: boolean }
+
+/** What is directly in a folder, from one listing. Throws as the listing does, for a missing folder too (see isFileMissingError). */
+export async function listFolderEntries(dirPath: string): Promise<FolderEntry[]> {
+    if (!isTauri()) return []
+    return (await readDir(dirPath)).map(({ name, isFile, isDirectory, isSymlink }) => ({ name, isFile, isDirectory, isSymlink }))
 }
 
 /** A tab's edits that aren't saved yet, and how its file is stored. */

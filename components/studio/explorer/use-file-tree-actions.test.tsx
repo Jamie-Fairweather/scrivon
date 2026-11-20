@@ -1,12 +1,14 @@
 import { act, renderHook } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NamePromptOptions } from '@/components/studio/dialogs/name-prompt-provider'
+import type { ChosenTemplate } from '@/components/studio/dialogs/template-picker-provider'
 import type { FileNode } from '@/lib/workspace/types'
-import { useCreateNewItem, useFileTreeActions, useFileTreeEntryActions } from './use-file-tree-actions'
+import { useCreateFromTemplate, useCreateNewItem, useFileTreeActions, useFileTreeEntryActions } from './use-file-tree-actions'
 
-const { promptName, chooseFolder, session } = vi.hoisted(() => ({
+const { promptName, chooseFolder, chooseTemplate, session } = vi.hoisted(() => ({
     promptName: vi.fn<(options: NamePromptOptions) => Promise<string | null>>(),
     chooseFolder: vi.fn<(node: unknown) => Promise<string | null>>(async () => null),
+    chooseTemplate: vi.fn<() => Promise<ChosenTemplate | null>>(async () => null),
     session: {
         createFile: vi.fn(async () => undefined),
         createFolder: vi.fn(async () => undefined),
@@ -22,6 +24,7 @@ vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNameProm
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspaceSession: () => session }))
 vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder }) }))
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete: vi.fn() }) }))
+vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate }) }))
 
 describe('useFileTreeActions', () => {
     beforeEach(() => {
@@ -116,6 +119,177 @@ describe('useCreateNewItem', () => {
         await expect(result.current('new-document', '/ws')).resolves.toBe(false)
         expect(session.createFolder).toHaveBeenCalledTimes(1)
         expect(session.createFile).toHaveBeenCalledTimes(1)
+    })
+
+    it('starts the prompt from a given name, made free in the folder, and gives a name typed without an extension its extension', async () => {
+        session.suggestName.mockImplementation((_parent, name) => (name === 'sequence.mmd' ? 'sequence 2.mmd' : name))
+        promptName.mockResolvedValueOnce('login').mockResolvedValueOnce('notes.markdown')
+        const { result } = renderHook(() => useCreateNewItem())
+
+        await act(async () => {
+            await result.current('new-diagram', '/ws', { name: 'sequence.mmd' })
+            await result.current('new-document', '/ws', { name: 'plan.markdown' })
+        })
+
+        expect(session.suggestName).toHaveBeenCalledWith('/ws', 'sequence.mmd')
+        expect(promptName.mock.calls[0]![0]).toMatchObject({ kind: 'new-diagram', folder: '/ws', defaultValue: 'sequence 2.mmd' })
+        expect(promptName.mock.calls[1]![0]).toMatchObject({ kind: 'new-document', defaultValue: 'plan.markdown' })
+        promptName.mock.calls[1]![0].validate!('meeting')
+        expect(session.getNameError).toHaveBeenLastCalledWith('/ws', 'meeting.markdown', 'file')
+        // No text given: the file gets its usual starting text, as before.
+        expect(session.createFile).toHaveBeenNthCalledWith(1, '/ws', 'login.mmd')
+        expect(session.createFile).toHaveBeenNthCalledWith(2, '/ws', 'notes.markdown')
+        session.suggestName.mockImplementation((_parent, name) => name)
+    })
+
+    it('passes the text it is given on to the new file, made from the final name when it is a function', async () => {
+        promptName.mockResolvedValueOnce('flow').mockResolvedValueOnce('Q3 plan')
+        const { result } = renderHook(() => useCreateNewItem())
+
+        await act(async () => {
+            await result.current('new-diagram', '/ws', { name: 'sequence.mmd', content: 'sequenceDiagram\n    A->>B: Hi\n' })
+            await result.current('new-document', '/ws/docs', { name: 'brief.md', content: (fileName) => `# ${fileName}\n` })
+        })
+
+        expect(session.createFile).toHaveBeenNthCalledWith(1, '/ws', 'flow.mmd', 'sequenceDiagram\n    A->>B: Hi\n')
+        expect(session.createFile).toHaveBeenNthCalledWith(2, '/ws/docs', 'Q3 plan.md', '# Q3 plan.md\n')
+    })
+
+    it('makes nothing when the prompt with a given name and text is cancelled', async () => {
+        promptName.mockResolvedValueOnce(null)
+        const content = vi.fn(() => 'text')
+        const { result } = renderHook(() => useCreateNewItem())
+
+        await expect(result.current('new-document', '/ws', { name: 'brief.md', content })).resolves.toBe(false)
+
+        expect(content).not.toHaveBeenCalled()
+        expect(session.createFile).not.toHaveBeenCalled()
+    })
+
+    it('words the prompt from the subject it is given, adding the folder', async () => {
+        promptName.mockResolvedValueOnce(null)
+        const { result } = renderHook(() => useCreateNewItem())
+        const subject = { kind: 'new-from-template', template: { title: 'Meeting notes', extension: '.md' } } as const
+
+        await act(async () => {
+            await result.current('new-document', '/ws/docs', { name: 'meeting-notes.md', subject, content: '# {{title}}' })
+        })
+
+        expect(promptName.mock.calls[0]![0]).toMatchObject({ ...subject, folder: '/ws/docs', defaultValue: 'meeting-notes.md' })
+    })
+
+    it('refuses a name for the other kind of file when it is given the text, and says what the template makes', async () => {
+        promptName.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+        const { result } = renderHook(() => useCreateNewItem())
+        const template = (extension: string) => ({ kind: 'new-from-template', template: { title: 'Flow', extension } }) as const
+
+        await act(async () => {
+            await result.current('new-diagram', '/ws', { name: 'flow.mmd', subject: template('.mmd'), content: 'flowchart TD' })
+            await result.current('new-document', '/ws', { name: 'notes.md', subject: template('.md'), content: '# Notes' })
+            await result.current('new-diagram', '/ws', { name: 'sequence.mmd', content: 'sequenceDiagram' })
+        })
+
+        const [diagram, document, starter] = promptName.mock.calls.map(([options]) => options.validate!)
+        expect(diagram!('flow.md')).toBe('This template makes a diagram, so the name must end with .mmd or .mermaid.')
+        expect(diagram!('flow.markdown')).toBe('This template makes a diagram, so the name must end with .mmd or .mermaid.')
+        expect(diagram!('flow.mermaid')).toBeNull()
+        expect(diagram!('flow')).toBeNull()
+        expect(document!('notes.mmd')).toBe('This template makes a document, so the name must end with .md or .markdown.')
+        expect(document!('notes.markdown')).toBeNull()
+        expect(starter!('seq.md')).toBe('This file is a diagram, so the name must end with .mmd or .mermaid.')
+        // Other problems are left to the usual check, which is still asked.
+        session.getNameError.mockReturnValueOnce('A file named "flow.mmd" already exists here.')
+        expect(diagram!('flow')).toBe('A file named "flow.mmd" already exists here.')
+        expect(session.getNameError).toHaveBeenLastCalledWith('/ws', 'flow.mmd', 'file')
+    })
+
+    it('lets New Document make any kind of document, as before', async () => {
+        promptName.mockResolvedValueOnce(null)
+        const { result } = renderHook(() => useCreateNewItem())
+
+        await act(async () => {
+            await result.current('new-document', '/ws')
+        })
+
+        expect(promptName.mock.calls[0]![0].validate!('flow.mmd')).toBeNull()
+    })
+})
+
+describe('useCreateFromTemplate', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.useFakeTimers({ toFake: ['Date'] })
+        vi.setSystemTime(new Date(2026, 10, 19, 8, 4))
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    const meetingNotes: ChosenTemplate = {
+        title: 'Meeting notes',
+        fileName: 'meeting-notes.md',
+        kind: 'markdown',
+        text: '# {{title}}\n\n{{ date }} {{time}} {{author}}\n',
+    }
+
+    it('asks for a template, then a name starting from its file name, then makes the file with the template filled in', async () => {
+        chooseTemplate.mockResolvedValueOnce(meetingNotes)
+        promptName.mockResolvedValueOnce('team-sync')
+        const { result } = renderHook(() => useCreateFromTemplate())
+
+        await expect(result.current('/ws/docs')).resolves.toBe(true)
+
+        expect(promptName.mock.calls[0]![0]).toMatchObject({
+            kind: 'new-from-template',
+            folder: '/ws/docs',
+            template: { title: 'Meeting notes', extension: '.md' },
+            defaultValue: 'meeting-notes.md',
+        })
+        expect(session.createFile).toHaveBeenCalledExactlyOnceWith('/ws/docs', 'team-sync.md', '# Team sync\n\n2026-11-19 08:04 {{author}}\n')
+    })
+
+    it("keeps a diagram template's hexagons and its own extension", async () => {
+        chooseTemplate.mockResolvedValueOnce({
+            title: 'Release flow',
+            fileName: 'release-flow.mermaid',
+            kind: 'mermaid',
+            text: '---\ntitle: "{{title}}"\n---\nflowchart TD\n    A{{Decide}} --> B["{{date}}"]\n',
+        })
+        promptName.mockResolvedValueOnce('Q3 [draft] #2 (v1); 50%')
+        const { result } = renderHook(() => useCreateFromTemplate())
+
+        await result.current('/ws')
+
+        expect(promptName.mock.calls[0]![0]).toMatchObject({ kind: 'new-from-template', template: { title: 'Release flow', extension: '.mermaid' } })
+        expect(session.createFile).toHaveBeenCalledWith(
+            '/ws',
+            'Q3 [draft] #2 (v1); 50%.mermaid',
+            '---\ntitle: "Q3 [draft] #2 (v1); 50%"\n---\nflowchart TD\n    A{{Decide}} --> B["2026-11-19"]\n'
+        )
+    })
+
+    it('makes nothing when the picker or the name prompt is cancelled', async () => {
+        chooseTemplate.mockResolvedValueOnce(null).mockResolvedValueOnce(meetingNotes)
+        promptName.mockResolvedValueOnce(null)
+        const { result } = renderHook(() => useCreateFromTemplate())
+
+        await expect(result.current('/ws')).resolves.toBe(false)
+        expect(promptName).not.toHaveBeenCalled()
+        await expect(result.current('/ws')).resolves.toBe(false)
+        expect(session.createFile).not.toHaveBeenCalled()
+    })
+
+    it("is the explorer menus' New from Template, in their folder", async () => {
+        chooseTemplate.mockResolvedValueOnce(meetingNotes)
+        promptName.mockResolvedValueOnce('notes')
+        const { result } = renderHook(() => useFileTreeActions('/ws/drafts'))
+
+        await act(async () => {
+            await result.current.createFromTemplateInParent()
+        })
+
+        expect(session.createFile).toHaveBeenCalledWith('/ws/drafts', 'notes.md', expect.stringContaining('# Notes'))
     })
 })
 

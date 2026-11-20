@@ -57,6 +57,7 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'workspace.newDiagram': [chord('n', altMod)],
         'workspace.newDocument': [chord('n', mod)],
         'workspace.newFolder': [],
+        'workspace.newFromTemplate': [],
         'tabs.close': [chord('w', mod)],
         // Ctrl+Tab on macOS too, as browsers there use it: Cmd+Tab switches apps.
         'tabs.next': [chord('Tab', { ctrl: true }), chord('PageDown', mod)],

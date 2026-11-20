@@ -141,6 +141,7 @@ export function StudioMenuBar() {
                             {item('new-diagram')}
                             {item('new-document')}
                             {item('new-folder')}
+                            {item('new-from-template')}
                         </MenuGroup>
                         <MenuSeparator />
                         <MenuGroup>

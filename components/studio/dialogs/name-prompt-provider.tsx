@@ -7,7 +7,7 @@ import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { getBaseName } from '@/lib/tauri/fs'
 import { cn } from '@/lib/utils'
-import { documentExtension } from '@/lib/workspace/file-types'
+import { documentExtension, isMermaidFile } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
 /**
@@ -19,6 +19,13 @@ export type NamePromptSubject =
           kind: 'new-diagram' | 'new-document' | 'new-folder'
           /** The folder the new item goes in. */
           folder: string
+      }
+    | {
+          kind: 'new-from-template'
+          /** The folder the new file goes in. */
+          folder: string
+          /** The template picked, and the extension of its file, which says what it makes (`.md` a document, `.mmd` a diagram). */
+          template: { title: string; extension: string }
       }
     | {
           kind: 'rename'
@@ -45,6 +52,16 @@ export function namePromptText(subject: NamePromptSubject): NamePromptText {
             description: `Choose a new name for this ${kind === 'directory' ? 'folder' : 'file'}.`,
             placeholder: name,
             submitLabel: 'Rename',
+        }
+    }
+    if (subject.kind === 'new-from-template') {
+        const { title, extension } = subject.template
+        const what = isMermaidFile(extension) ? 'diagram' : 'document'
+        return {
+            title: `New ${what} from "${title}"`,
+            description: `Creates the ${what} in "${getBaseName(subject.folder)}".`,
+            placeholder: `${what}${extension}`,
+            submitLabel: 'Create',
         }
     }
     const { what, placeholder } = NEW_ITEM_TEXT[subject.kind]
