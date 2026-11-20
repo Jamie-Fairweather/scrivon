@@ -28,9 +28,13 @@ const CODE_EDITOR = '[data-slot="code-editor"]'
 /** Said when focus mode turns on. */
 export const FOCUS_MODE_ANNOUNCEMENT = 'Focus mode on. Press Escape to leave.'
 
-/** True when `el` can no longer hold keyboard focus: it is gone from the page or inside the hidden editor. */
+/**
+ * True when `el` can no longer hold keyboard focus: it is gone from the page or inside the hidden editor, or it
+ * is the editor panel itself, which only takes focus in focus mode.
+ */
 function cannotHoldFocus(el: Element | null, editorHidden: boolean): boolean {
     if (!el || el === document.body || !el.isConnected) return true
+    if (el.matches(CODE_EDITOR) && !el.hasAttribute('tabindex')) return true
     return editorHidden && el.closest(CODE_EDITOR) !== null
 }
 

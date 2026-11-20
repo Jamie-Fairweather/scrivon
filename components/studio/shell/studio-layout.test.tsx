@@ -519,6 +519,21 @@ describe('StudioLayout keeps keyboard focus', () => {
         await waitFor(() => expect(region).toHaveFocus())
     })
 
+    it('moves focus to the tab bar when focus mode ends while the empty editor region has it', async () => {
+        tabs = []
+        activeTabId = null
+        focusMode = true
+        layout = FOCUS_LAYOUT
+        const view = render(<StudioLayout />)
+        focus(document.querySelector<HTMLElement>('[data-pane="editor"]')!)
+
+        focusMode = false
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true }
+        view.rerender(<StudioLayout />)
+
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Toggle explorer' })).toHaveFocus())
+    })
+
     it('moves focus to the editor when focus mode hides the pane that had it', async () => {
         layout = { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen: true }
         const view = render(<StudioLayout />)
