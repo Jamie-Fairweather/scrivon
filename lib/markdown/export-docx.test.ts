@@ -2737,7 +2737,7 @@ describe('renderExportDocx: GitHub alerts and math', () => {
 
     it('writes inline math as a Word equation inside its line, and leaves prices as text', async () => {
         const { parts } = await render(['Inline $E = mc^2$ here. Costs $5 and $10 today.'].join('\n'))
-        const body = parts['word/document.xml']!
+        const body = withoutMathRunProperties(parts['word/document.xml']!)
         const paragraph = paragraphsOf(body).find((p) => p.includes('<m:oMath>'))!
         expect(paragraph).toContain('>Inline </w:t>')
         expect(paragraph).toContain('<m:oMath><m:r><m:t>E=m</m:t></m:r><m:sSup>')
@@ -2810,7 +2810,7 @@ describe('renderExportDocx: GitHub alerts and math', () => {
         const { parts } = await render(
             ['Before.', '', '$$', '\\frac{1}{3}', '$$', '', fence('math', '\\sqrt{x}'), '', '- item', '', '  $$', '  x^2', '  $$'].join('\n')
         )
-        const body = parts['word/document.xml']!
+        const body = withoutMathRunProperties(parts['word/document.xml']!)
         const display = paragraphsOf(body).filter((p) => p.includes('<m:oMath>'))
         expect(display).toHaveLength(3)
         for (const paragraph of display) {
@@ -2827,10 +2827,76 @@ describe('renderExportDocx: GitHub alerts and math', () => {
         expect(highlightFencedCodeTokens).not.toHaveBeenCalledWith('\\sqrt{x}', expect.anything(), expect.anything())
     })
 
+    it("sets an equation in the size and colour of the text around it, a link's in its colour and underline", async () => {
+        const { parts } = await render(
+            [
+                '# Energy $q_{head}$',
+                '',
+                'Body $q_{body}$ text.',
+                '',
+                'See [$q_{web}$](https://a.example), [$q_{inner}$](#energy-qhead) or [the site](https://b.example).',
+                '',
+                '> Quoted $q_{quote}$',
+                '',
+                '~~Struck $q_{struck}$~~ and **bold $q_{bold}$**.',
+                '',
+                '$$',
+                'q_{display}',
+                '$$',
+                '',
+                'Words[^n].',
+                '',
+                '[^n]: Foot $q_{foot}$.',
+                '',
+                '    $$',
+                '    q_{footdisplay}',
+                '    $$',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const notes = parts['word/footnotes.xml']!
+        const size = (run: string) => /<w:sz w:val="(\d+)"\/>/.exec(run)?.[1]
+        const color = (run: string) => /<w:color w:val="([0-9A-F]+)"\/>/.exec(run)?.[1]
+        // As the words beside each equation: the heading's size and accent colour, the body's size, the quote's grey.
+        for (const [text, words, xml] of [
+            ['head', 'Energy ', body],
+            ['body', 'Body ', body],
+            ['quote', 'Quoted ', body],
+            ['foot', 'Foot ', notes],
+        ] as const) {
+            expect(size(mathRunWith(xml, text))).toBe(size(runWith(xml, words)))
+            expect(color(mathRunWith(xml, text))).toBe(color(runWith(xml, words)))
+        }
+        expect(size(mathRunWith(body, 'head'))).not.toBe(size(mathRunWith(body, 'body')))
+        expect(color(mathRunWith(body, 'head'))).toBeDefined()
+        expect(color(mathRunWith(body, 'quote'))).toBe('525252')
+        expect(size(mathRunWith(notes, 'foot'))).not.toBe(size(mathRunWith(body, 'body')))
+        // A link's equation looks like a link, in its colour and underline, as the link's text would be.
+        const link = runWith(body, 'the site')
+        expect(color(link)).toBeDefined()
+        const underline = /<w:u [^>]*\/>/.exec(link)?.[0]
+        expect(underline).toMatch(/^<w:u w:val="single"/)
+        for (const text of ['web', 'inner']) {
+            expect(color(mathRunWith(body, text))).toBe(color(link))
+            expect(mathRunWith(body, text)).toContain(underline)
+        }
+        expect(mathRunWith(body, 'struck')).toContain('<w:strike/>')
+        expect(mathRunWith(body, 'body')).not.toContain('<w:u ')
+        // Bold is left to Word's math font, as the PDF leaves it to KaTeX's.
+        expect(mathRunWith(body, 'bold')).not.toContain('<w:b/>')
+        expect(size(mathRunWith(body, 'display'))).toBe(size(runWith(body, 'Body ')))
+        // Display math in a footnote is set in the footnote's style, size and spacing, still centred.
+        const footDisplay = mathWith(notes, 'footdisplay')
+        expect(footDisplay).toContain('<w:pStyle w:val="FootnoteText"/>')
+        expect(footDisplay).toContain('<w:spacing w:after="60"/>')
+        expect(footDisplay).toContain('<w:jc w:val="center"/>')
+        expect(size(mathRunWith(notes, 'footdisplay'))).toBe(size(runWith(notes, 'Foot ')))
+    })
+
     it('falls back to the TeX source in the code font for math Word equations cannot hold, and writes the rest', async () => {
         const { parts } = await render(
             [
-                'Bad $\\frac{1}{$ and unknown $\\foo$ but good $x^2$.',
+                'Bad $\\frac{1}{$ and unknown $\\foo$ and empty $\\text{}$ but good $x^2$.',
                 '',
                 '$$',
                 '\\bar{x} \\unknown',
@@ -2847,6 +2913,9 @@ describe('renderExportDocx: GitHub alerts and math', () => {
         expect(runWith(body, '\\frac{1}{')).toContain('w:ascii="Consolas"')
         expect(runWith(body, '\\foo')).toContain('w:ascii="Consolas"')
         expect(runWith(body, '\\frac{1}{')).toContain('<w:shd')
+        // Math that reads but holds nothing keeps its TeX too, rather than becoming an empty equation.
+        expect(runWith(body, '\\text{}')).toContain('w:ascii="Consolas"')
+        expect(body).not.toContain('<m:oMath/>')
         // Display math and the fence come out as latex code blocks, as before.
         expect(highlightFencedCodeTokens).toHaveBeenCalledWith('\\bar{x} \\unknown', 'latex', expect.anything())
         expect(highlightFencedCodeTokens).toHaveBeenCalledWith('\\begin{nope}x\\end{nope}', 'latex', expect.anything())
@@ -2874,8 +2943,8 @@ describe('renderExportDocx: GitHub alerts and math', () => {
             ].join('\n')
         )
         // readDocx parses every part, so getting here means Word can open it.
-        const body = parts['word/document.xml']!
-        assertWellFormed('word/document.xml', body)
+        assertWellFormed('word/document.xml', parts['word/document.xml']!)
+        const body = withoutMathRunProperties(parts['word/document.xml']!)
         // On a line of its own, `$$…$$` is inline math, as in the preview. As a block, it is display math.
         const equation =
             '<m:oMath><m:r><m:t>a&lt;b</m:t></m:r><m:r><m:rPr><m:lit m:val="1"/></m:rPr><m:t>&amp;</m:t></m:r><m:r><m:t>c&gt;d</m:t></m:r></m:oMath>'
@@ -2943,6 +3012,17 @@ describe('renderExportDocx: GitHub alerts and math', () => {
         expect(await end(times(25, display('\\begin{pmatrix} a \\\\ b \\\\ c \\end{pmatrix}')))).toBe(4)
         expect(await end(times(25, display('x = \\begin{cases} a \\\\ b \\\\ c \\\\ \\end{cases}')))).toBe(4)
         expect(await end(times(25, display('\\begin{aligned} a &= 1 \\\\ b &= 2 \\\\ c &= 3 \\end{aligned}')))).toBe(4)
+        // And for every other environment docx writes as rows, and rows with none around them.
+        for (const environment of ['align*', 'align', 'gather*', 'multline', 'eqnarray*', 'flalign']) {
+            expect(await end(times(24, display(`\\begin{${environment}} a &= 1 \\\\ b &= 2 \\\\ c &= 3 \\end{${environment}}`)))).toBe(3)
+            expect(await end(times(25, display(`\\begin{${environment}} a &= 1 \\\\ b &= 2 \\\\ c &= 3 \\end{${environment}}`)))).toBe(4)
+        }
+        expect(await end(times(25, display('\\begin{alignat*}{2} a &= 1 \\\\ b &= 2 \\\\ c &= 3 \\end{alignat*}')))).toBe(4)
+        expect(await end(times(24, display('a \\\\ b \\\\ c \\\\')))).toBe(3)
+        expect(await end(times(25, display('a \\\\ b \\\\ c \\\\')))).toBe(4)
+        // The tallest set of rows counts, not the rows of a matrix inside one row.
+        expect(await end(times(25, display('x \\\\ \\begin{pmatrix} a \\\\ b \\end{pmatrix} \\\\ y')))).toBe(4)
+        expect(await end(times(24, display('x \\\\ \\begin{pmatrix} a \\\\ b \\end{pmatrix} \\\\ y')))).toBe(3)
         // Inline math counts by its TeX's length, as text does: this wraps to two lines.
         const long = `$${'x+'.repeat(60)}x$`
         expect(await end(times(20, `Text ${long}`))).toBe(3)
@@ -2953,6 +3033,18 @@ describe('renderExportDocx: GitHub alerts and math', () => {
 /** The `<w:p>` paragraphs of a part, each in full. */
 function paragraphsOf(xml: string): string[] {
     return [...xml.matchAll(/<w:p>[\s\S]*?<\/w:p>/g)].map((match) => match[0])
+}
+
+/** Equation markup without the run properties of its letters (`<w:rPr>` in each `<m:r>`), to check its structure. */
+function withoutMathRunProperties(xml: string): string {
+    return xml.replace(/<w:rPr>(?:(?!<\/?w:rPr>)[\s\S])*<\/w:rPr>(?=<m:t[ >])/g, '')
+}
+
+/** The equation run `<m:r>` whose subscript is `text`, as `q_{text}` writes it, up to its letters. */
+function mathRunWith(xml: string, text: string): string {
+    const end = xml.indexOf(`<m:t>${text}</m:t>`)
+    if (end < 0) return ''
+    return xml.slice(xml.lastIndexOf('<m:r>', end), end)
 }
 
 /** The `<w:p>` (or, with `tag`, other element) holding the equation run `<m:t>text</m:t>`, from its start up to that run. */

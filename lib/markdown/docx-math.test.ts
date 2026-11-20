@@ -121,5 +121,21 @@ describe('texToWordMath', () => {
         expect(texToWordMath('\\begin{foo}x\\end{foo}')).toBeNull()
         expect(texToWordMath('')).toBeNull()
         expect(texToWordMath(' \n ')).toBeNull()
+        // TeX that reads but holds nothing: an empty equation would show nothing, and lose the TeX.
+        for (const tex of ['\\text{}', '\\mathbb{}', '\\mathrm{}', '{}', '\\limits', '\\label{eq:1}']) expect(texToWordMath(tex)).toBeNull()
+        expect(texToWordMath('x\\label{eq:1}')).not.toBeNull()
+    })
+
+    it('gives every run of letters the run properties asked for, after its math properties and before its text', async () => {
+        const math = texToWordMath('\\frac{\\text{a}}{\\mathbb{R}_2}', { size: 30, color: '0969DA' })
+        const doc = new Document({ sections: [{ children: [new Paragraph({ children: [math!] })] }] })
+        const xml = documentXml(new Uint8Array(await Packer.toBuffer(doc)))
+        const run = '<w:rPr><w:color w:val="0969DA"/><w:sz w:val="30"/><w:szCs w:val="30"/></w:rPr>'
+        expect(xml).toContain(`<m:r><m:rPr><m:nor m:val="1"/></m:rPr>${run}<m:t>a</m:t></m:r>`)
+        expect(xml).toContain(`<m:r><m:rPr><m:scr m:val="double-struck"/><m:sty m:val="p"/></m:rPr>${run}<m:t>R</m:t></m:r>`)
+        expect(xml).toContain(`<m:r>${run}<m:t>2</m:t></m:r>`)
+        expect(xml.split(run)).toHaveLength(4)
+        // Without them, the letters have none of their own.
+        expect(await equation('x')).toBe('<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>')
     })
 })

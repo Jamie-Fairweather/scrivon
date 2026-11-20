@@ -43,6 +43,7 @@ import {
     WidthType,
     convertMillimetersToTwip,
     type ILevelsOptions,
+    type IRunPropertiesOptions,
     type ISectionOptions,
     type Math as WordMath,
     type ParagraphChild,
@@ -1021,8 +1022,11 @@ function bidi(text: string): true | undefined {
     return isRtl(text) || undefined
 }
 
-/** The Word equation each piece of math is written as. Math Word can't hold is code by then (see {@link prepareMath}). */
-type Equations = Map<MdMath | InlineMath, WordMath>
+/**
+ * Makes the Word equation each piece of math is written as, its letters with the run properties given. Math Word
+ * can't hold is code by then (see {@link prepareMath}).
+ */
+type Equations = Map<MdMath | InlineMath, (run: IRunPropertiesOptions) => WordMath>
 
 type RenderState = {
     document: ExportDocument
@@ -1288,8 +1292,7 @@ function footnoteHalfPoints(state: RenderState): number {
 
 function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
     const heading = marks.headingSize
-    const color = marks.color ?? (marks.link ? state.link : marks.quote ? '525252' : heading !== undefined ? state.accent : undefined)
-    const size = heading ?? (state.inFootnote ? footnoteHalfPoints(state) : state.bodyHalfPoints)
+    const size = runHalfPoints(state, marks)
     return new TextRun({
         text,
         bold: marks.bold || heading !== undefined,
@@ -1298,11 +1301,35 @@ function textRun(state: RenderState, text: string, marks: Marks = {}): TextRun {
         font: marks.code ? state.monoFont : heading !== undefined ? state.headingFont : state.bodyFont,
         // Code is 0.85em of the text around it, as in the PDF, so it scales up in a heading.
         size: marks.code ? Math.max(16, Math.round(size * 0.85)) : size,
-        color,
+        color: runColor(state, marks),
         shading: marks.code ? { type: ShadingType.CLEAR, fill: 'F5F5F5' } : undefined,
         underline: marks.link ? { type: UnderlineType.SINGLE, color: state.link } : undefined,
         rightToLeft: runIsRtl(text) || undefined,
     })
+}
+
+/** The size of text with these marks, in half-points: a heading's, the footnote size in a footnote, or the body's. */
+function runHalfPoints(state: RenderState, marks: Marks): number {
+    return marks.headingSize ?? (state.inFootnote ? footnoteHalfPoints(state) : state.bodyHalfPoints)
+}
+
+/** The colour of text with these marks, as hex: its own, a link's, the quote grey or a heading's accent. */
+function runColor(state: RenderState, marks: Marks): string | undefined {
+    return marks.color ?? (marks.link ? state.link : marks.quote ? '525252' : marks.headingSize !== undefined ? state.accent : undefined)
+}
+
+/**
+ * The size, colour, underline and strike of text with these marks (see {@link textRun}), for an equation in it, so a
+ * link's equation still looks like a link and one in a heading or footnote is set at its size. Word sets equations in
+ * its math font, upright or italic as the TeX says, so the font, bold and italics are left to it, as the PDF's are.
+ */
+function mathRunProperties(state: RenderState, marks: Marks): IRunPropertiesOptions {
+    return {
+        size: runHalfPoints(state, marks),
+        color: runColor(state, marks),
+        strike: marks.strike,
+        underline: marks.link ? { type: UnderlineType.SINGLE, color: state.link } : undefined,
+    }
 }
 
 type InlineChild = TextRun | ImageRun | ExternalHyperlink | InternalHyperlink | FootnoteReferenceRun | Bookmark | WordMath
@@ -1326,8 +1353,8 @@ function renderInlines(state: RenderState, nodes: PhrasingContent[], marks: Mark
         } else if (node.type === 'inlineCode') {
             children.push(textRun(state, node.value, { ...marks, code: true }))
         } else if (node.type === 'inlineMath') {
-            // An equation in the line. Word sets it in its math font, at the size of the text around it.
-            children.push(state.equations.get(node)!)
+            // An equation in the line, at the size and in the colour of the text around it.
+            children.push(state.equations.get(node)!(mathRunProperties(state, marks)))
         } else if (node.type === 'break') {
             children.push(new TextRun({ break: 1 }))
         } else if (node.type === 'link' || node.type === 'linkReference') {
@@ -1911,12 +1938,18 @@ function renderPrepared(state: RenderState, prepared: PreparedCode): Block[] {
     return renderCodeLines(state, prepared.lines.length > 0 ? prepared.lines : [[{ text: '' }]])
 }
 
-/** Display math: its equation alone in a centred paragraph, which Word shows in display style, as the PDF centres it. */
+/**
+ * Display math: its equation alone in a centred paragraph, which Word shows in display style, as the PDF centres it.
+ * In a footnote it is set in the footnote's size and spacing, as the footnote's text is.
+ */
 function renderDisplayMath(state: RenderState, node: MdMath): Paragraph {
+    const equation = state.equations.get(node)!(mathRunProperties(state, quoteMarks(state)))
+    if (state.inFootnote)
+        return new Paragraph({ style: 'FootnoteText', spacing: { after: 60 }, alignment: AlignmentType.CENTER, children: [equation] })
     return new Paragraph({
         ...paragraphOptions(state),
         alignment: AlignmentType.CENTER,
-        children: [...takePendingAnchors(state), state.equations.get(node)!],
+        children: [...takePendingAnchors(state), equation],
     })
 }
 
@@ -2506,29 +2539,25 @@ function codeTwip(state: RenderState, node: Code, width: number): number {
 
 /** A fraction, or a sum, integral or limit with limits under or over it, which make an equation about two lines tall. */
 const TALL_MATH = /\\d?frac(?![a-zA-Z])|\\(?:sum|int|lim)(?![a-zA-Z])\s*(?:\\(?:no)?limits(?![a-zA-Z])\s*)?[_^]/
-/** The environments whose rows `\\` splits, each row a line: matrices, cases and aligned equations. */
-const ROW_ENVIRONMENTS = /^(?:[pbBvV]?matrix|smallmatrix|array|d?cases|aligned|alignedat|gathered|split)\*?$/
 /** An environment's start or end, or a `\\` between rows. */
-const MATH_ROW_TOKEN = /\\(begin|end)\{([^}]*)\}|\\\\/g
+const MATH_ROW_TOKEN = /\\(begin|end)\{[^}]*\}|\\\\/g
 
 /**
  * About how many body lines a display equation takes: one, two with a fraction or a sum, integral or limit with
- * limits, and a line a row for the tallest matrix, `cases` or `aligned` in it. A `\\` after the last row starts none.
+ * limits, and a line a row for the tallest set of rows in it. Every environment docx's TeX reader knows splits its
+ * rows at `\\` (matrices, `cases`, `aligned`, `align*`, `gather` and the rest; TeX with one it doesn't know stays
+ * code), and so does the equation itself outside any. A `\\` after the last row starts none.
  */
 function displayMathLines(tex: string): number {
     let rows = 1
-    const open: { rows: number; counted: boolean }[] = []
-    for (const [, edge, name] of tex.replace(/\\\\\s*(?=\\end\{)/g, '').matchAll(MATH_ROW_TOKEN)) {
-        if (edge === 'begin') {
-            open.push({ rows: 1, counted: ROW_ENVIRONMENTS.test(name!.trim()) })
-        } else if (edge === 'end') {
-            const environment = open.pop()
-            if (environment?.counted) rows = Math.max(rows, environment.rows)
-        } else if (open.length > 0) {
-            open[open.length - 1]!.rows += 1
-        }
+    // The equation itself, then each environment open inside it, with how many rows each has so far.
+    const open = [1]
+    for (const [, edge] of tex.replace(/\\\\\s*(?=\\end\{|$)/g, '').matchAll(MATH_ROW_TOKEN)) {
+        if (edge === 'begin') open.push(1)
+        else if (edge === 'end') rows = Math.max(rows, open.length > 1 ? open.pop()! : 1)
+        else open[open.length - 1]! += 1
     }
-    return Math.max(TALL_MATH.test(tex) ? 2 : 1, rows)
+    return Math.max(TALL_MATH.test(tex) ? 2 : 1, rows, open[0]!)
 }
 
 function measureFlow(
@@ -2905,15 +2934,15 @@ async function prepareMath(tree: Root): Promise<Equations> {
     visit(tree, (node, index, parent) => {
         if (!isMath(node) || !parent || index === undefined) return
         const children = parent.children as RootContent[]
-        const equation = texToWordMath(node.value)
-        if (!equation) {
+        if (!texToWordMath(node.value)) {
             children[index] =
                 node.type === 'inlineMath' ? { type: 'inlineCode', value: node.value } : { type: 'code', lang: 'latex', value: node.value }
             return
         }
         const math: MdMath | InlineMath = node.type === 'code' ? { type: 'math', value: node.value } : node
         children[index] = math
-        equations.set(math, equation)
+        // Made again where it is written, with the run properties of the text around it.
+        equations.set(math, (run) => texToWordMath(math.value, run)!)
     })
     return equations
 }
