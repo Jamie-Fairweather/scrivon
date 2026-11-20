@@ -2735,9 +2735,321 @@ describe('renderExportDocx: GitHub alerts and math', () => {
         expect(runWith(xml, 'inner-quote')).toContain('<w:i/>')
     })
 
-    it('writes math as its TeX source in the code font', async () => {
-        const { xml } = await render(['Inline $E = mc^2$ here.', '', '$$', '\\frac{1}{3}', '$$'].join('\n'))
-        expect(runWith(xml, 'E = mc^2')).toContain('w:ascii="Consolas"')
-        expect(runWith(xml, '\\frac{1}{3}')).toContain('w:ascii="Consolas"')
+    it('writes inline math as a Word equation inside its line, and leaves prices as text', async () => {
+        const { parts } = await render(['Inline $E = mc^2$ here. Costs $5 and $10 today.'].join('\n'))
+        const body = withoutMathRunProperties(parts['word/document.xml']!)
+        const paragraph = paragraphsOf(body).find((p) => p.includes('<m:oMath>'))!
+        expect(paragraph).toContain('>Inline </w:t>')
+        expect(paragraph).toContain('<m:oMath><m:r><m:t>E=m</m:t></m:r><m:sSup>')
+        expect(paragraph).toContain('<m:sup><m:r><m:t>2</m:t></m:r></m:sup>')
+        // The text after it stays in the same paragraph, after the equation.
+        expect(paragraph.indexOf('</m:oMath>')).toBeLessThan(paragraph.indexOf('here. Costs $5 and $10 today.</w:t>'))
+        expect(body.match(/<m:oMath>/g)).toHaveLength(1)
+        expect(body).not.toContain('E = mc^2')
+    })
+
+    it('writes inline math in lists, tables, quotes, alerts, footnotes and link text as Word equations', async () => {
+        const { parts } = await render(
+            [
+                '- item $q_{list}$',
+                '',
+                '| head |',
+                '| --- |',
+                '| cell $q_{cell}$ |',
+                '',
+                '> quoted $q_{quote}$',
+                '',
+                '> [!NOTE]',
+                '> noted $q_{alert}$',
+                '',
+                'See [the $q_{link}$ page](https://example.com) and [here $q_{inner}$](#top).',
+                '',
+                'Words[^n].',
+                '',
+                '[^n]: Footnote $q_{foot}$.',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        for (const name of ['list', 'cell', 'quote', 'alert', 'link', 'inner']) expect(mathWith(body, name)).toContain('<m:oMath><m:sSub>')
+        expect(mathWith(body, 'list')).toContain('<w:numPr>')
+        expect(mathWith(body, 'cell', '<w:tc>')).toContain('<w:tcPr>')
+        expect(mathWith(body, 'quote')).toContain('<w:left w:val="single" w:color="262626"')
+        expect(mathWith(body, 'alert')).toContain('<w:left w:val="single" w:color="0969DA"')
+        // Inside the link itself, so clicking the equation follows it.
+        expect(mathWith(body, 'link', '<w:hyperlink')).not.toContain('</w:hyperlink>')
+        expect(mathWith(body, 'link', '<w:hyperlink')).toContain('r:id=')
+        expect(mathWith(body, 'inner', '<w:hyperlink')).not.toContain('</w:hyperlink>')
+        expect(mathWith(parts['word/footnotes.xml']!, 'foot')).toContain('<m:oMath><m:sSub>')
+    })
+
+    it('writes a heading with math as an equation in its bookmark, and its TeX as plain text on the contents page', async () => {
+        const { parts } = await render(['# Energy $E=mc^2$', '', 'Back to [the top](#energy-emc2).'].join('\n'), (draft) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        })
+        const body = parts['word/document.xml']!
+        const [bookmark] = bookmarks(body)
+        expect(bookmark).toBeDefined()
+        const heading = paragraphsOf(body).find((p) => p.includes('<w:pStyle w:val="Heading1"/>'))!
+        // The equation is inside the heading's bookmark, so the contents and #anchor links go to it.
+        const start = heading.indexOf(`<w:bookmarkStart w:name="${bookmark!.name}"`)
+        expect(start).toBeGreaterThan(-1)
+        expect(heading.indexOf('<m:oMath>')).toBeGreaterThan(start)
+        expect(heading.indexOf(`<w:bookmarkEnd w:id="${bookmark!.id}"/>`)).toBeGreaterThan(heading.indexOf('</m:oMath>'))
+        expect(heading).toContain('>Energy </w:t>')
+        // The link in the body and the contents row both go to that bookmark.
+        const anchors = [...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1])
+        expect(anchors).toEqual([bookmark!.name, bookmark!.name])
+        // On the contents page, the TeX as plain text.
+        expect(runWith(body, 'Energy E=mc^2')).toContain('<w:rFonts w:ascii="Segoe UI"')
+        expect(body.indexOf('>Energy E=mc^2</w:t>')).toBeLessThan(body.indexOf('<m:oMath>'))
+        expect(tocPage(body, 'Energy E=mc^2')).toBe(2)
+    })
+
+    it('writes display math and math fences as a centred paragraph holding one equation', async () => {
+        const { parts } = await render(
+            ['Before.', '', '$$', '\\frac{1}{3}', '$$', '', fence('math', '\\sqrt{x}'), '', '- item', '', '  $$', '  x^2', '  $$'].join('\n')
+        )
+        const body = withoutMathRunProperties(parts['word/document.xml']!)
+        const display = paragraphsOf(body).filter((p) => p.includes('<m:oMath>'))
+        expect(display).toHaveLength(3)
+        for (const paragraph of display) {
+            expect(paragraph).toContain('<w:jc w:val="center"/>')
+            // One equation and nothing else.
+            expect(paragraph.match(/<m:oMath>/g)).toHaveLength(1)
+            expect(paragraph).not.toContain('<w:r>')
+        }
+        expect(display[0]).toContain('<m:f><m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>3</m:t></m:r></m:den></m:f>')
+        expect(display[1]).toContain('<m:rad>')
+        // In a list item, it lines up with the item's text.
+        expect(display[2]).toContain('<w:ind w:left="360"/>')
+        // The fence isn't printed as code.
+        expect(highlightFencedCodeTokens).not.toHaveBeenCalledWith('\\sqrt{x}', expect.anything(), expect.anything())
+    })
+
+    it("sets an equation in the size and colour of the text around it, a link's in its colour and underline", async () => {
+        const { parts } = await render(
+            [
+                '# Energy $q_{head}$',
+                '',
+                'Body $q_{body}$ text.',
+                '',
+                'See [$q_{web}$](https://a.example), [$q_{inner}$](#energy-qhead) or [the site](https://b.example).',
+                '',
+                '> Quoted $q_{quote}$',
+                '',
+                '~~Struck $q_{struck}$~~ and **bold $q_{bold}$**.',
+                '',
+                '$$',
+                'q_{display}',
+                '$$',
+                '',
+                'Words[^n].',
+                '',
+                '[^n]: Foot $q_{foot}$.',
+                '',
+                '    $$',
+                '    q_{footdisplay}',
+                '    $$',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        const notes = parts['word/footnotes.xml']!
+        const size = (run: string) => /<w:sz w:val="(\d+)"\/>/.exec(run)?.[1]
+        const color = (run: string) => /<w:color w:val="([0-9A-F]+)"\/>/.exec(run)?.[1]
+        // As the words beside each equation: the heading's size and accent colour, the body's size, the quote's grey.
+        for (const [text, words, xml] of [
+            ['head', 'Energy ', body],
+            ['body', 'Body ', body],
+            ['quote', 'Quoted ', body],
+            ['foot', 'Foot ', notes],
+        ] as const) {
+            expect(size(mathRunWith(xml, text))).toBe(size(runWith(xml, words)))
+            expect(color(mathRunWith(xml, text))).toBe(color(runWith(xml, words)))
+        }
+        expect(size(mathRunWith(body, 'head'))).not.toBe(size(mathRunWith(body, 'body')))
+        expect(color(mathRunWith(body, 'head'))).toBeDefined()
+        expect(color(mathRunWith(body, 'quote'))).toBe('525252')
+        expect(size(mathRunWith(notes, 'foot'))).not.toBe(size(mathRunWith(body, 'body')))
+        // A link's equation looks like a link, in its colour and underline, as the link's text would be.
+        const link = runWith(body, 'the site')
+        expect(color(link)).toBeDefined()
+        const underline = /<w:u [^>]*\/>/.exec(link)?.[0]
+        expect(underline).toMatch(/^<w:u w:val="single"/)
+        for (const text of ['web', 'inner']) {
+            expect(color(mathRunWith(body, text))).toBe(color(link))
+            expect(mathRunWith(body, text)).toContain(underline)
+        }
+        expect(mathRunWith(body, 'struck')).toContain('<w:strike/>')
+        expect(mathRunWith(body, 'body')).not.toContain('<w:u ')
+        // Bold is left to Word's math font, as the PDF leaves it to KaTeX's.
+        expect(mathRunWith(body, 'bold')).not.toContain('<w:b/>')
+        expect(size(mathRunWith(body, 'display'))).toBe(size(runWith(body, 'Body ')))
+        // Display math in a footnote is set in the footnote's style, size and spacing, still centred.
+        const footDisplay = mathWith(notes, 'footdisplay')
+        expect(footDisplay).toContain('<w:pStyle w:val="FootnoteText"/>')
+        expect(footDisplay).toContain('<w:spacing w:after="60"/>')
+        expect(footDisplay).toContain('<w:jc w:val="center"/>')
+        expect(size(mathRunWith(notes, 'footdisplay'))).toBe(size(runWith(notes, 'Foot ')))
+    })
+
+    it('falls back to the TeX source in the code font for math Word equations cannot hold, and writes the rest', async () => {
+        const { parts } = await render(
+            [
+                'Bad $\\frac{1}{$ and unknown $\\foo$ and empty $\\text{}$ but good $x^2$.',
+                '',
+                '$$',
+                '\\bar{x} \\unknown',
+                '$$',
+                '',
+                fence('math', '\\begin{nope}x\\end{nope}'),
+                '',
+                '$$',
+                'y_1',
+                '$$',
+            ].join('\n')
+        )
+        const body = parts['word/document.xml']!
+        expect(runWith(body, '\\frac{1}{')).toContain('w:ascii="Consolas"')
+        expect(runWith(body, '\\foo')).toContain('w:ascii="Consolas"')
+        expect(runWith(body, '\\frac{1}{')).toContain('<w:shd')
+        // Math that reads but holds nothing keeps its TeX too, rather than becoming an empty equation.
+        expect(runWith(body, '\\text{}')).toContain('w:ascii="Consolas"')
+        expect(body).not.toContain('<m:oMath/>')
+        // Display math and the fence come out as latex code blocks, as before.
+        expect(highlightFencedCodeTokens).toHaveBeenCalledWith('\\bar{x} \\unknown', 'latex', expect.anything())
+        expect(highlightFencedCodeTokens).toHaveBeenCalledWith('\\begin{nope}x\\end{nope}', 'latex', expect.anything())
+        expect(runWith(body, '\\begin{nope}x\\end{nope}')).toContain('w:ascii="Consolas"')
+        // The good ones are still equations.
+        expect(body.match(/<m:oMath>/g)).toHaveLength(2)
+        expect(body).toContain('<m:sSup>')
+        expect(body).toContain('<m:sSub>')
+    })
+
+    it('writes well-formed XML for math with markup characters and control characters in it', async () => {
+        const { parts } = await render(
+            [
+                '# Less $a<b$',
+                '',
+                '$$a < b \\& c > d$$',
+                '',
+                '$$',
+                'a < b \\& c > d \u0007',
+                '$$',
+                '',
+                'Inline $x\u0001 < y\u0007$ and $\\text{"q" & \u000b}$ here[^m].',
+                '',
+                '[^m]: $p > q$',
+            ].join('\n')
+        )
+        // readDocx parses every part, so getting here means Word can open it.
+        assertWellFormed('word/document.xml', parts['word/document.xml']!)
+        const body = withoutMathRunProperties(parts['word/document.xml']!)
+        // On a line of its own, `$$…$$` is inline math, as in the preview. As a block, it is display math.
+        const equation =
+            '<m:oMath><m:r><m:t>a&lt;b</m:t></m:r><m:r><m:rPr><m:lit m:val="1"/></m:rPr><m:t>&amp;</m:t></m:r><m:r><m:t>c&gt;d</m:t></m:r></m:oMath>'
+        expect(body.split(equation)).toHaveLength(3)
+        expect(body).toContain(`<w:jc w:val="center"/></w:pPr>${equation}</w:p>`)
+        expect(body).toContain('<m:t>x&lt;y</m:t>')
+        expect(body).toContain('<m:nor m:val="1"/></m:rPr><m:t xml:space="preserve">&quot;q&quot; &amp; </m:t>')
+        expect(parts['word/footnotes.xml']).toContain('<m:t>p&gt;q</m:t>')
+    })
+
+    it('loads the TeX reader only for a document with math in it, and leaves other documents as they were', async () => {
+        const loaded = vi.fn()
+        const watchLoading = () => {
+            // A fresh module registry, so the export and docx's TeX reader load again, and the mock sees it.
+            vi.resetModules()
+            loaded.mockClear()
+            vi.doMock('docx/math', async (importOriginal) => {
+                loaded()
+                return await importOriginal()
+            })
+        }
+        try {
+            watchLoading()
+            const plain = await render(['# Plain', '', 'Costs $5 and $10.', '', fence('latex', '\\frac{1}{2}')].join('\n'))
+            expect(loaded).not.toHaveBeenCalled()
+            expect(plain.parts['word/document.xml']).not.toContain('<m:oMath')
+            await render('Some $x$.')
+            expect(loaded).toHaveBeenCalledTimes(1)
+            watchLoading()
+            await render(fence('math', 'x'))
+            expect(loaded).toHaveBeenCalledTimes(1)
+            watchLoading()
+            await render('$$\nx\n$$')
+            expect(loaded).toHaveBeenCalledTimes(1)
+        } finally {
+            vi.doUnmock('docx/math')
+        }
+    })
+
+    it('counts math in the contents page numbers', async () => {
+        const toc = (draft: PdfExportProfile) => {
+            draft.frontMatter.toc = true
+            draft.frontMatter.tocExcludeH1 = false
+        }
+        const end = async (blocks: string[]) =>
+            tocPage((await render(['# Start', '', ...blocks.flatMap((block) => [block, '']), '# End'].join('\n'), toc)).xml, 'End')
+        const times = (count: number, block: string) => Array.from({ length: count }, () => block)
+        const display = (tex: string) => `$$\n${tex}\n$$`
+        // One body line and 120 twips each: 472 twips at 11pt, as a one-line paragraph is. 29 of them fit under the
+        // Start heading on page 2, and 33 on page 3. (Counted as code, 436 twips each, 63 would end on page 3.)
+        expect(await end(times(40, display('x = 1')))).toBe(3)
+        expect(await end(times(62, display('x = 1')))).toBe(3)
+        expect(await end(times(63, display('x = 1')))).toBe(4)
+        expect(await end(times(63, 'Text.'))).toBe(4)
+        // Two lines with a fraction, or a sum, integral or limit with limits: 824 twips, so 17, then 19 to a page.
+        expect(await end(times(36, display('\\frac{1}{2}')))).toBe(3)
+        expect(await end(times(37, display('\\frac{1}{2}')))).toBe(4)
+        expect(await end(times(37, display('\\sum_{i=1}^n i')))).toBe(4)
+        expect(await end(times(37, display('\\int_0^1 f')))).toBe(4)
+        expect(await end(times(37, display('\\lim_{x \\to 0} f')))).toBe(4)
+        expect(await end(times(37, display('\\sum i')))).toBe(3)
+        // A line a row for matrices, cases and aligned, a \\ after the last row starting none: 1176 twips for
+        // three rows, so 11, then 13 to a page.
+        expect(await end(times(24, display('\\begin{pmatrix} a \\\\ b \\\\ c \\end{pmatrix}')))).toBe(3)
+        expect(await end(times(25, display('\\begin{pmatrix} a \\\\ b \\\\ c \\end{pmatrix}')))).toBe(4)
+        expect(await end(times(25, display('x = \\begin{cases} a \\\\ b \\\\ c \\\\ \\end{cases}')))).toBe(4)
+        expect(await end(times(25, display('\\begin{aligned} a &= 1 \\\\ b &= 2 \\\\ c &= 3 \\end{aligned}')))).toBe(4)
+        // And for every other environment docx writes as rows, and rows with none around them.
+        for (const environment of ['align*', 'align', 'gather*', 'multline', 'eqnarray*', 'flalign']) {
+            expect(await end(times(24, display(`\\begin{${environment}} a &= 1 \\\\ b &= 2 \\\\ c &= 3 \\end{${environment}}`)))).toBe(3)
+            expect(await end(times(25, display(`\\begin{${environment}} a &= 1 \\\\ b &= 2 \\\\ c &= 3 \\end{${environment}}`)))).toBe(4)
+        }
+        expect(await end(times(25, display('\\begin{alignat*}{2} a &= 1 \\\\ b &= 2 \\\\ c &= 3 \\end{alignat*}')))).toBe(4)
+        expect(await end(times(24, display('a \\\\ b \\\\ c \\\\')))).toBe(3)
+        expect(await end(times(25, display('a \\\\ b \\\\ c \\\\')))).toBe(4)
+        // The tallest set of rows counts, not the rows of a matrix inside one row.
+        expect(await end(times(25, display('x \\\\ \\begin{pmatrix} a \\\\ b \\end{pmatrix} \\\\ y')))).toBe(4)
+        expect(await end(times(24, display('x \\\\ \\begin{pmatrix} a \\\\ b \\end{pmatrix} \\\\ y')))).toBe(3)
+        // Inline math counts by its TeX's length, as text does: this wraps to two lines.
+        const long = `$${'x+'.repeat(60)}x$`
+        expect(await end(times(20, `Text ${long}`))).toBe(3)
+        expect(await end(times(20, 'Text $x$'))).toBe(2)
     })
 })
+
+/** The `<w:p>` paragraphs of a part, each in full. */
+function paragraphsOf(xml: string): string[] {
+    return [...xml.matchAll(/<w:p>[\s\S]*?<\/w:p>/g)].map((match) => match[0])
+}
+
+/** Equation markup without the run properties of its letters (`<w:rPr>` in each `<m:r>`), to check its structure. */
+function withoutMathRunProperties(xml: string): string {
+    return xml.replace(/<w:rPr>(?:(?!<\/?w:rPr>)[\s\S])*<\/w:rPr>(?=<m:t[ >])/g, '')
+}
+
+/** The equation run `<m:r>` whose subscript is `text`, as `q_{text}` writes it, up to its letters. */
+function mathRunWith(xml: string, text: string): string {
+    const end = xml.indexOf(`<m:t>${text}</m:t>`)
+    if (end < 0) return ''
+    return xml.slice(xml.lastIndexOf('<m:r>', end), end)
+}
+
+/** The `<w:p>` (or, with `tag`, other element) holding the equation run `<m:t>text</m:t>`, from its start up to that run. */
+function mathWith(xml: string, text: string, tag = '<w:p>'): string {
+    const end = xml.indexOf(`<m:t>${text}</m:t>`)
+    if (end < 0) return ''
+    return xml.slice(xml.lastIndexOf(tag, end), end)
+}

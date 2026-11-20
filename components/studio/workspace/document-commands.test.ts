@@ -19,6 +19,10 @@ function context(overrides: Partial<DocumentCommandsContext> = {}): DocumentComm
         hasSavedTabs: true,
         closeSavedTabs: vi.fn(async () => {}),
         switchTab: vi.fn(async () => {}),
+        activeTabIndex: 1,
+        canMoveTabLeft: true,
+        canMoveTabRight: true,
+        moveTab: vi.fn(),
         canReopenClosedTab: true,
         reopenClosedTab: vi.fn(async () => {}),
         revertTab: vi.fn(async () => {}),
@@ -97,6 +101,37 @@ describe('buildDocumentCommands tabs', () => {
     it('turns Next and Previous Tab off with fewer than two tabs, and says why', () => {
         expect(find(context({ tabCount: 1 }), 'next-tab')).toMatchObject({ disabled: true, disabledReason: 'Only one tab open' })
         expect(find(context({ tabCount: 0, activeTabId: null }), 'previous-tab')).toMatchObject({ disabled: true, disabledReason: 'No tabs open' })
+    })
+
+    it('moves the open tab one place left or right on its app shortcuts', () => {
+        const ctx = context({ tabCount: 3, activeTabIndex: 1 })
+        expect(find(ctx, 'move-tab-left')).toMatchObject({ label: 'Move Tab Left', keybind: 'tabs.moveLeft', disabled: false })
+        expect(find(ctx, 'move-tab-right')).toMatchObject({ label: 'Move Tab Right', keybind: 'tabs.moveRight', disabled: false })
+
+        void find(ctx, 'move-tab-left')!.run()
+        void find(ctx, 'move-tab-right')!.run()
+        expect(ctx.moveTab).toHaveBeenNthCalledWith(1, '/ws/a.md', 0)
+        expect(ctx.moveTab).toHaveBeenNthCalledWith(2, '/ws/a.md', 2)
+    })
+
+    it('turns Move Tab Left and Right off when the tab cannot go that way, and says why', () => {
+        const noTab = context({ tabCount: 0, activeTabId: null, activeTabIndex: -1, canMoveTabLeft: false, canMoveTabRight: false })
+        expect(find(noTab, 'move-tab-left')).toMatchObject({ disabled: true, disabledReason: 'No tab open' })
+        expect(find(noTab, 'move-tab-right')).toMatchObject({ disabled: true, disabledReason: 'No tab open' })
+        // Tabs only show with a folder open.
+        expect(find(context({ hasWorkspace: false }), 'move-tab-left')).toMatchObject({ disabled: true, disabledReason: 'No tab open' })
+
+        const onlyOne = context({ tabCount: 1, activeTabIndex: 0, canMoveTabLeft: false, canMoveTabRight: false })
+        expect(find(onlyOne, 'move-tab-left')).toMatchObject({ disabled: true, disabledReason: 'Only one tab open' })
+        expect(find(onlyOne, 'move-tab-right')).toMatchObject({ disabled: true, disabledReason: 'Only one tab open' })
+
+        const first = context({ tabCount: 3, activeTabIndex: 0, canMoveTabLeft: false })
+        expect(find(first, 'move-tab-left')).toMatchObject({ disabled: true, disabledReason: 'Already the first tab' })
+        expect(find(first, 'move-tab-right')?.disabled).toBe(false)
+
+        const last = context({ tabCount: 3, activeTabIndex: 2, canMoveTabRight: false })
+        expect(find(last, 'move-tab-right')).toMatchObject({ disabled: true, disabledReason: 'Already the last tab' })
+        expect(find(last, 'move-tab-left')?.disabled).toBe(false)
     })
 
     it('reopens the last closed tab on its app shortcut, when there is one', () => {

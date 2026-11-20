@@ -14,6 +14,7 @@ const { tabs, session } = vi.hoisted(() => ({
         workspaceRoot: '/ws',
         tree: [] as FileNode[],
         folderToggles: new Map<string, boolean>(),
+        gitChanges: { files: new Map(), folders: new Set(), untrackedFolders: new Set(), key: '' },
         setFolderExpanded: vi.fn(),
         openFile: vi.fn(async () => undefined),
         renameEntry: vi.fn<(oldPath: string, newName: string, isDirectory: boolean) => Promise<void>>(async () => undefined),

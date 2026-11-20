@@ -17,7 +17,7 @@ function SaveExampleCopyItem({ exampleId }: { exampleId: string }) {
 }
 
 export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; children: React.ReactNode }) {
-    const { tabs, closeTab, closeOtherTabs, closeTabsToRight, closeSavedTabs, closeAllTabs, revertTab } = useDocumentTabs()
+    const { tabs, closeTab, closeOtherTabs, closeTabsToRight, closeSavedTabs, closeAllTabs, revertTab, moveTab } = useDocumentTabs()
     const { open, anchor, openAt, onOpenChange } = useContextMenuAtPoint()
     const { showFileHistory } = useFileHistory()
 
@@ -32,7 +32,8 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
     )
 
     const canCloseOthers = tabs.length > 1
-    const tab = tabs.find((t) => t.id === tabId)
+    const index = tabs.findIndex((t) => t.id === tabId)
+    const tab = tabs[index]
     const hasTabsToRight = anyTabsToRight(tabs, tabId)
     const hasSavedTabs = anySavedTabs(tabs)
     const exampleId = exampleIdFromTabId(tabId)
@@ -55,7 +56,18 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
                 <MenuItem disabled={tabs.length === 0} onClick={() => void closeAllTabs()}>
                     Close All
                 </MenuItem>
-                {tab && <MenuSeparator />}
+                {tab && (
+                    <>
+                        <MenuSeparator />
+                        <MenuItem disabled={index === 0} onClick={() => moveTab(tabId, index - 1)}>
+                            Move Left
+                        </MenuItem>
+                        <MenuItem disabled={index === tabs.length - 1} onClick={() => moveTab(tabId, index + 1)}>
+                            Move Right
+                        </MenuItem>
+                        <MenuSeparator />
+                    </>
+                )}
                 {/* Examples have no file on disk, but can be saved as one. */}
                 {tab && exampleId !== null && <SaveExampleCopyItem exampleId={exampleId} />}
                 {tab && exampleId === null && (

@@ -71,6 +71,8 @@ export type WorkspaceCoordinatorRefs = {
      * `paths`, only the files at those paths, or inside those folders, are looked at.
      */
     reloadChangedTabs: MutableRefObject<(paths?: readonly string[]) => Promise<void>>
+    /** A tab's file was just saved: the explorer's git changes are read again. */
+    fileSaved: MutableRefObject<(path: string) => void>
     persistWorkspaceTabSession: MutableRefObject<() => Promise<void>>
     /**
      * Whether the open tabs may be saved as `root`'s tab list: only once it is the open folder and its saved
@@ -121,6 +123,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         setTabsFromWorkspace: { current: () => [] },
         reloadTabFromDisk: { current: async () => {} },
         reloadChangedTabs: { current: async () => {} },
+        fileSaved: { current: () => {} },
         persistWorkspaceTabSession: { current: async () => {} },
         canPersistTabSession: { current: () => true },
         openFile: { current: async () => {} },

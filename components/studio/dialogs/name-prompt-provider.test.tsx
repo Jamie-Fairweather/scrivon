@@ -140,6 +140,34 @@ describe('NamePromptProvider', () => {
         expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument()
     })
 
+    it("names the template on a new file from one, and says whether it makes a document or a diagram from the template's extension", async () => {
+        const { input } = await openPrompt({
+            kind: 'new-from-template',
+            folder: '/work/docs',
+            template: { title: 'Meeting notes', extension: '.md' },
+            defaultValue: 'meeting-notes.md',
+        })
+
+        expect(screen.getByRole('dialog', { name: 'New document from "Meeting notes"' })).toBeInTheDocument()
+        expect(screen.getByText('Creates the document in "docs".')).toBeInTheDocument()
+        expect(input).toHaveAttribute('placeholder', 'document.md')
+        expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument()
+        // The extension is left unselected, as for a new document.
+        fireEvent.focus(input)
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'meeting-notes'.length])
+    })
+
+    it.each([
+        ['.mmd', 'diagram', 'diagram.mmd'],
+        ['.mermaid', 'diagram', 'diagram.mermaid'],
+        ['.markdown', 'document', 'document.markdown'],
+    ])('says a template with %s makes a %s', async (extension, what, placeholder) => {
+        const { input } = await openPrompt({ kind: 'new-from-template', folder: '/ws', template: { title: 'Release flow', extension } })
+
+        expect(screen.getByRole('dialog', { name: `New ${what} from "Release flow"` })).toBeInTheDocument()
+        expect(input).toHaveAttribute('placeholder', placeholder)
+    })
+
     it('says Rename on a rename, whatever the names are', async () => {
         const { input } = await openPrompt({ kind: 'rename', entry: { name: 'New folder', kind: 'directory' }, defaultValue: 'New folder' })
 

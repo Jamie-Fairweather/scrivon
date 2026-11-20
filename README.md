@@ -20,7 +20,9 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 
 - **Folder workspaces** — Open any directory on disk; your files never leave your machine
 - **File explorer** — Create, rename, duplicate, and delete `.md`, `.markdown`, `.mmd`, `.mermaid` files and folders from the sidebar
-- **Multi-tab editing** — Work across several documents in one session; tab state is restored per workspace
+- **New from template** — **File → New from Template…**, the explorer's New menus or the command palette start a file from a template: meeting notes, a decision record, a project brief or a titled process flowchart. Add your own by putting `.md`, `.markdown`, `.mmd` or `.mermaid` files in a `.scrivon/templates` folder at the top of the open folder, so they travel with it (in git, say). `{{title}}` (from the new file's name), `{{date}}` and `{{time}}` are filled in
+- **Git changes** — In a git repository, the explorer marks the files you have changed since the last commit (**M** modified, **A** added, **U** untracked, **R** renamed, **C** conflicted), and puts a dot on folders with changes inside. It uses your own Git for Windows, only reads the repository, and can be turned off in **Settings → General**
+- **Multi-tab editing** — Work across several documents in one session; tab state is restored per workspace. Drag a tab to reorder it, or move the active tab with **Ctrl+Shift+PageUp** / **Ctrl+Shift+PageDown**, and the order is kept for the folder
 - **Recent folders** — Quick access from the welcome screen and **File → Open Recent**
 - **File history** — Each save keeps a copy of that version in Scrivon's own data folder, never next to your document (up to 50 versions per file, for 30 days). **File → Show File History…** (also in the F1 palette and the tab's right-click menu) compares a version with the text in the editor and puts it back as one change that **Ctrl+Z** undoes. Turn it off, or delete it all, in **Settings → General**
 - **Open from File Explorer** — Double-click a `.md`, `.markdown`, `.mmd` or `.mermaid` file, or use **Open with**, to open it in a tab with its folder. If Scrivon is already open, that window opens it. Paths given on the command line work the same way, and so does dropping a file onto the window when no folder is open
@@ -32,13 +34,15 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Mermaid highlighting and starters** — Keywords, arrows, node labels and `%%` comments are coloured in diagram files and in `mermaid` blocks in Markdown. Press **Ctrl+Space** in a diagram file for a starter for each diagram type
 - **Canvas tools** — Pan and zoom the preview, fit diagram to screen, or switch to preview-only layout
 - **Diagram export** — Save the active diagram as SVG or PNG (1×, 2×, or 4×), or copy it to the clipboard. Pick a light or dark diagram theme and a transparent background in the export menu
+- **Export every diagram in a folder** — **File → Export → All Diagrams in Folder…**, the command palette, or **Export Diagrams…** on a folder in the explorer saves every `.mmd` and `.mermaid` file as SVG or PNG into a folder you choose, keeping the subfolders if you like. Files already there are never replaced: you choose Keep Both or Skip, and a summary lists what was saved, skipped and failed
 
 ### Markdown documents
 
 - **Live Markdown preview** — [GFM](https://github.github.com/gfm/)-style rendering beside the editor (tables, task lists, strikethrough, and more)
 - **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
 - **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
-- **PDF, Word and HTML export** — Save the rendered document as PDF (native export on Windows via WebView2), Word (.docx) or a standalone HTML page, styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**. Export from **File → Export**, the command palette, or **Ctrl/Cmd+Shift+X**
+- **Present as slides** — **View → Present** (or **F5**) shows the open document full screen, one slide at a time, with a new slide at each top-level `---`. Move with the arrow keys, Page Up/Down, Space, Home and End, and leave with **Esc**. The slides follow your edits as you make them
+- **PDF, Word and HTML export** — Save the rendered document as PDF (native export on Windows via WebView2), Word (.docx) or a standalone HTML page, styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**. In Word, math (`$…$`, `$$` blocks and ` ```math ` blocks) comes out as Word equations you can click into and edit, and any math Word can't hold keeps its TeX source. Export from **File → Export**, the command palette, or **Ctrl/Cmd+Shift+X**
 
 ### General
 
@@ -47,6 +51,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Autosave** — Optional autosave to disk; **Ctrl/Cmd+S** saves immediately
 - **Settings** — **Ctrl/Cmd+,** opens preferences for theme, autosave, editor, and configurable keyboard shortcuts
 - **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace. Type `:` to go to a line, `@` to jump to a heading, or `?` to see these
+- **Find in Workspace** — **Ctrl/Cmd+Shift+F** searches the text of every file, with Match Case (**Alt+C**), Match Whole Word (**Alt+W**) and Use Regular Expression (**Alt+R**; **Cmd+Option** on macOS). The options are remembered, and a regular expression that runs too long is stopped instead of freezing the window
 - **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows
 - **Auto-updates** — Updates install in-app; **Help → Check for Updates…** looks for one at any time (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
 

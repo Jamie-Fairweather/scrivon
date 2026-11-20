@@ -276,6 +276,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                     disk.conflict = undefined
                 }
                 if (saveErrors.current.delete(id)) dismissNotification(saveErrorToastId(id))
+                coordinator.fileSaved.current(tab.path)
                 // Anything typed while the write was running is not on disk yet, so keep the tab dirty.
                 const markSaved = (t: DocumentTab) =>
                     t.id === id ? { ...t, isDirty: t.content !== content, isSaving: false, saveError: undefined } : t

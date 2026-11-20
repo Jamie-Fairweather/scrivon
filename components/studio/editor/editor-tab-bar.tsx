@@ -1,15 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, type CSSProperties, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type KeyboardEvent } from 'react'
 import { CircleAlert, Focus, Loader2, Lock, X } from 'lucide-react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { DocumentExportMenu } from '@/components/studio/editor/document-export-menu'
 import { LayoutToggleButtons } from '@/components/studio/editor/layout-toggle-buttons'
 import { EditorTabRowContextMenu } from '@/components/studio/editor/editor-tab-context-menu'
 import { getTabFolderHints } from '@/components/studio/editor/tab-labels'
+import { useTabDrag } from '@/components/studio/editor/use-tab-drag'
 import { useMarkdownExpand } from '@/components/studio/markdown/markdown-expand-context'
 import { useDocumentTabs, useStudioLayout } from '@/components/studio/workspace/workspace-provider'
 import { displayPath } from '@/lib/workspace/display-path'
+import { tabMovedMessage } from '@/lib/workspace/document-tab'
 import { documentKind } from '@/lib/workspace/file-types'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { Button } from '@/components/ui/button'
@@ -33,6 +35,26 @@ function tabStatusText(tab: TabState): string {
     if (tab.isSaving) parts.push('saving')
     if (tab.saveError) parts.push(`save failed: ${tab.saveError}`)
     return parts.join(', ')
+}
+
+/** The tab's name, with the folder that tells it apart from another open file of the same name. */
+function tabLabel(name: string, folderHint: string | undefined): string {
+    return folderHint ? `${name} in ${folderHint}` : name
+}
+
+/** Where a dragged tab will land: a line down the edge of the tab it goes before, or after the last one. */
+function DropLine({ edge }: { edge: 'start' | 'end' }) {
+    return (
+        <span
+            aria-hidden
+            data-drop-line={edge}
+            className={cn(
+                // Contrast themes keep system colours, so the line shows there in the highlight colour.
+                'pointer-events-none absolute inset-y-1 z-10 w-0.5 rounded-full bg-ring forced-colors:bg-[Highlight]',
+                edge === 'start' ? 'left-0' : 'right-0'
+            )}
+        />
+    )
 }
 
 function TabCloseButton({ tab, label, isActive, onClose }: { tab: TabState; label: string; isActive: boolean; onClose: () => void }) {
@@ -70,7 +92,7 @@ function TabCloseButton({ tab, label, isActive, onClose }: { tab: TabState; labe
 }
 
 export function EditorTabBar({ className, style }: EditorTabBarProps) {
-    const { tabs, activeTabId, setActiveTab, closeTab, activeTab } = useDocumentTabs()
+    const { tabs, activeTabId, setActiveTab, closeTab, activeTab, moveTab, lastTabMove } = useDocumentTabs()
     const { canFitToView, fitToView } = useCanvasControls()
     const { expanded } = useMarkdownExpand()
     const { layout } = useStudioLayout()
@@ -90,9 +112,13 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
 
     const stripRef = useRef<HTMLDivElement>(null)
     const tabRefs = useRef(new Map<string, HTMLButtonElement>())
+    // Each tab with its close button, whose middle decides which side of it a dragged tab lands.
+    const rowRefs = useRef(new Map<string, HTMLDivElement>())
     // True when the keyboard was last in the strip. Closing the focused tab drops focus to the page
     // without it landing anywhere else, so this stays true and the tab shown next can take it.
     const stripHadFocus = useRef(false)
+    // Says where a moved tab went. Written straight into, so it only speaks when a tab moves.
+    const liveRef = useRef<HTMLSpanElement>(null)
     // The tab reachable with Tab: the active one, or the first if none is active.
     const focusableTabId = tabs.some((t) => t.id === activeTabId) ? activeTabId : (tabs[0]?.id ?? null)
     // Same-named files (README.md in two folders) also show the folder that tells them apart.
@@ -118,6 +144,24 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
         const lostWithClosedTab = stripHadFocus.current && (focused === null || focused === document.body)
         if (onOtherTab || lostWithClosedTab) shown.focus()
     }, [activeTabId])
+
+    const tabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
+    const tabElement = useCallback((id: string) => rowRefs.current.get(id), [])
+    const { drag, startDrag } = useTabDrag({ stripRef, tabIds, tabElement, onMove: moveTab })
+
+    // A tab moved (dragged, Move Tab Left or Right, its menu). Once for each move, not again as the tabs change.
+    const handledMove = useRef(lastTabMove)
+    useLayoutEffect(() => {
+        if (!lastTabMove || handledMove.current === lastTabMove) return
+        handledMove.current = lastTabMove
+        const index = tabs.findIndex((t) => t.id === lastTabMove.id)
+        if (index === -1) return
+        if (liveRef.current) {
+            liveRef.current.textContent = tabMovedMessage(tabLabel(tabs[index]!.name, folderHints.get(lastTabMove.id)), index, tabs.length)
+        }
+        // The keyboard stays where it was: React puts it back on a focused tab it moves, and the editor isn't touched.
+        tabRefs.current.get(lastTabMove.id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    }, [lastTabMove, tabs, folderHints])
 
     // The strip has no visible scrollbar (it would squash the tabs), so the mouse wheel scrolls it sideways.
     useEffect(() => {
@@ -170,14 +214,22 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                     className="flex min-w-0 flex-1 [scrollbar-width:none] items-stretch overflow-x-auto"
                     onKeyDown={onTabListKeyDown}
                 >
-                    {tabs.map((tab) => {
+                    {tabs.map((tab, index) => {
                         const isActive = tab.id === activeTabId
                         const status = tabStatusText(tab)
                         const folderHint = folderHints.get(tab.id)
+                        const isDragged = drag?.id === tab.id
                         return (
                             <EditorTabRowContextMenu key={tab.id} tabId={tab.id}>
                                 <div
+                                    ref={(el) => {
+                                        if (el) rowRefs.current.set(tab.id, el)
+                                        else rowRefs.current.delete(tab.id)
+                                    }}
                                     role="presentation"
+                                    data-dragging={isDragged || undefined}
+                                    // Dragging a tab along the strip puts it somewhere else; a press that doesn't move far is a click.
+                                    onPointerDown={(e) => startDrag(tab.id, e)}
                                     // A middle-click closes the tab, as in browsers. Stopping its mousedown keeps the
                                     // web view from starting to scroll.
                                     onMouseDown={(e) => {
@@ -190,16 +242,22 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                                     }}
                                     className={cn(
                                         // Tabs keep a readable width; when they don't all fit, the strip scrolls.
-                                        'group/tab flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',
+                                        'group/tab relative flex max-w-[200px] min-w-[100px] shrink-0 items-center border-r border-border',
                                         // Outlined while its right-click menu is open, since that doesn't switch to it.
                                         'in-data-[menu-open]:ring-1 in-data-[menu-open]:ring-ring/60 in-data-[menu-open]:ring-inset',
                                         // The open tab: full-strength text and an accent line along its bottom edge
                                         // (the ring colour, at least 3:1 on the background). The others are muted.
                                         isActive
                                             ? 'bg-background text-foreground shadow-[inset_0_-2px_0_var(--ring)]'
-                                            : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                                            : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                                        // The tab being dragged. Contrast themes drop the fill, so it gets a dashed outline there.
+                                        isDragged &&
+                                            `bg-muted text-foreground opacity-70 forced-colors:outline-1 forced-colors:-outline-offset-1
+                                            forced-colors:outline-[color:Highlight] forced-colors:outline-dashed`
                                     )}
                                 >
+                                    {drag?.dropIndex === index && <DropLine edge="start" />}
+                                    {drag?.dropIndex === tabs.length && index === tabs.length - 1 && <DropLine edge="end" />}
                                     <button
                                         ref={(el) => {
                                             if (el) tabRefs.current.set(tab.id, el)
@@ -229,7 +287,7 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                                     </button>
                                     <TabCloseButton
                                         tab={tab}
-                                        label={folderHint ? `${tab.name} in ${folderHint}` : tab.name}
+                                        label={tabLabel(tab.name, folderHint)}
                                         isActive={isActive}
                                         onClose={() => void closeTab(tab.id)}
                                     />
@@ -238,6 +296,7 @@ export function EditorTabBar({ className, style }: EditorTabBarProps) {
                         )
                     })}
                 </div>
+                <span ref={liveRef} role="status" aria-live="polite" className="sr-only" />
                 <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1">
                     <DocumentExportMenu />
                     {/* aria-disabled rather than disabled, so it can still be focused or hovered to say why. */}

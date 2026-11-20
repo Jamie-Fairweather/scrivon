@@ -252,6 +252,8 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             maxRecentFolders: readWholeNumber(source.workspace?.maxRecentFolders, defaults.workspace.maxRecentFolders, 1, 50),
             reopenLastFolder:
                 typeof source.workspace?.reopenLastFolder === 'boolean' ? source.workspace.reopenLastFolder : defaults.workspace.reopenLastFolder,
+            showGitChanges:
+                typeof source.workspace?.showGitChanges === 'boolean' ? source.workspace.showGitChanges : defaults.workspace.showGitChanges,
         },
         updates: {
             checkOnLaunch: typeof source.updates?.checkOnLaunch === 'boolean' ? source.updates.checkOnLaunch : defaults.updates.checkOnLaunch,
@@ -262,6 +264,12 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
         pdfExport: normalizePdfExportSettings(source.pdfExport),
         diagramExport: normalizeDiagramExport(source.diagramExport, defaults.diagramExport),
         spellcheck: normalizeSpellcheckSettings(source.spellcheck, defaults.spellcheck),
+        // Saved before these options existed, or damaged: each one reads as off.
+        workspaceSearch: {
+            matchCase: source.workspaceSearch?.matchCase === true,
+            wholeWord: source.workspaceSearch?.wholeWord === true,
+            useRegex: source.workspaceSearch?.useRegex === true,
+        },
         keybinds: normalizeKeybinds(source.keybinds, defaults.keybinds, createFormerDefaultKeybinds(isMac)),
     }
 }

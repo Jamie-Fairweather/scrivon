@@ -1,91 +1,56 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { GeneralSettings } from '@/components/studio/settings/sections/general-settings'
+import { SettingsProvider } from '@/components/studio/settings/settings-provider'
+import { SETTINGS_STORAGE_KEY, type AppSettings } from '@/lib/settings/types'
+import { isTauri } from '@/lib/tauri/platform'
 
-const settings = vi.hoisted(() => ({
-    value: { autosave: { enabled: true, delayMs: 400 }, fileHistory: { enabled: true } },
-    setFileHistoryEnabled: vi.fn(),
-}))
+vi.mock('@/lib/tauri/platform', () => ({ isTauri: vi.fn(() => true) }))
 
-vi.mock('@/components/studio/settings/settings-provider', () => ({
-    useAppSettings: () => ({
-        settings: settings.value,
-        setAutosaveEnabled: vi.fn(),
-        setAutosaveDelayMs: vi.fn(),
-        setFileHistoryEnabled: settings.setFileHistoryEnabled,
-    }),
-}))
-vi.mock('@/lib/tauri/file-history', () => ({ deleteAllFileHistory: vi.fn(async () => {}) }))
-vi.mock('@/lib/notify', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@/lib/notify')>()),
-    notifyError: vi.fn(),
-    notifySuccess: vi.fn(),
-}))
+describe('GeneralSettings', () => {
+    let store: Map<string, string>
 
-const { GeneralSettings } = await import('./general-settings')
-const { deleteAllFileHistory } = await import('@/lib/tauri/file-history')
-const { notifyError, notifySuccess } = await import('@/lib/notify')
-const { isTauri } = await import('@/lib/tauri/platform')
-
-/** Lets the confirm finish opening or closing. */
-const settle = () =>
-    act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50))
+    beforeEach(() => {
+        store = new Map<string, string>()
+        vi.stubGlobal('localStorage', {
+            getItem: (key: string) => store.get(key) ?? null,
+            setItem: (key: string, value: unknown) => {
+                store.set(key, String(value))
+            },
+        })
     })
 
-beforeEach(() => {
-    vi.clearAllMocks()
-    vi.mocked(isTauri).mockReturnValue(true)
-    settings.value = { autosave: { enabled: true, delayMs: 400 }, fileHistory: { enabled: true } }
-})
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        vi.mocked(isTauri).mockReturnValue(true)
+    })
 
-describe('GeneralSettings file history', () => {
-    it('turns file history on and off', () => {
-        render(<GeneralSettings />)
-        const toggle = screen.getByRole('switch', { name: 'File history' })
+    function renderSection() {
+        render(
+            <SettingsProvider>
+                <GeneralSettings />
+            </SettingsProvider>
+        )
+    }
+
+    it('shows git changes in the explorer unless the user turns it off, and back on', () => {
+        renderSection()
+        const toggle = screen.getByRole('switch', { name: 'Show git changes in the explorer' })
         expect(toggle).toBeChecked()
 
         fireEvent.click(toggle)
+        expect(toggle).not.toBeChecked()
+        expect((JSON.parse(store.get(SETTINGS_STORAGE_KEY)!) as AppSettings).workspace.showGitChanges).toBe(false)
 
-        expect(settings.setFileHistoryEnabled).toHaveBeenCalledWith(false)
+        fireEvent.click(toggle)
+        expect(toggle).toBeChecked()
     })
 
-    it('deletes all file history only once the user confirms', async () => {
-        render(<GeneralSettings />)
-
-        fireEvent.click(screen.getByRole('button', { name: 'Delete All File History…' }))
-        await settle()
-        let confirm = screen.getByRole('alertdialog', { name: 'Delete all file history?' })
-        fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }))
-        await settle()
-        expect(deleteAllFileHistory).not.toHaveBeenCalled()
-
-        fireEvent.click(screen.getByRole('button', { name: 'Delete All File History…' }))
-        await settle()
-        confirm = screen.getByRole('alertdialog', { name: 'Delete all file history?' })
-        fireEvent.click(within(confirm).getByRole('button', { name: 'Delete All' }))
-        await settle()
-
-        expect(deleteAllFileHistory).toHaveBeenCalledTimes(1)
-        expect(notifySuccess).toHaveBeenCalledWith('File history deleted')
-    })
-
-    it('says when the history could not be deleted', async () => {
-        vi.mocked(deleteAllFileHistory).mockRejectedValueOnce(new Error('in use'))
-        render(<GeneralSettings />)
-
-        fireEvent.click(screen.getByRole('button', { name: 'Delete All File History…' }))
-        await settle()
-        fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete All' }))
-        await settle()
-
-        expect(notifyError).toHaveBeenCalledWith("Couldn't delete the file history", expect.any(Error))
-    })
-
-    it('is only shown in the desktop app, which keeps the history', () => {
+    it('leaves git changes out in a browser, where there is no git to ask', () => {
         vi.mocked(isTauri).mockReturnValue(false)
-        render(<GeneralSettings />)
+        renderSection()
 
-        expect(screen.queryByRole('switch', { name: 'File history' })).not.toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Delete All File History…' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('switch', { name: 'Show git changes in the explorer' })).not.toBeInTheDocument()
+        expect(screen.getByRole('switch', { name: 'Autosave' })).toBeInTheDocument()
     })
 })

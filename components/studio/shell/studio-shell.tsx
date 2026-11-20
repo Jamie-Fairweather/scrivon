@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { AppUpdateProvider } from '@/components/studio/app-update-provider'
+import { BatchExportWithoutFolder } from '@/components/studio/batch-export/batch-export-provider'
 import { CommandPaletteProvider } from '@/components/studio/command-palette/command-palette-provider'
 import { CommandRegistryProvider } from '@/components/studio/commands/command-registry'
 import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
@@ -9,6 +10,8 @@ import { FileHistoryProvider } from '@/components/studio/dialogs/file-history-pr
 import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { MoveToProvider } from '@/components/studio/dialogs/move-to-provider'
 import { NamePromptProvider } from '@/components/studio/dialogs/name-prompt-provider'
+import { TemplatePickerProvider } from '@/components/studio/dialogs/template-picker-provider'
+import { PresentModeProvider } from '@/components/studio/present/present-mode-provider'
 import { GlobalKeybindsProvider } from '@/components/studio/settings/global-keybinds-provider'
 import { StudioCommands } from '@/components/studio/shell/studio-commands'
 import { StudioErrorBoundary, StudioReloadFallback } from '@/components/studio/shell/studio-error-boundary'
@@ -31,6 +34,8 @@ function StudioRouter() {
     if (!workspaceRoot) {
         return (
             <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
+                {/* The studio layout registers the folder export once a folder is open; until then it is greyed out. */}
+                <BatchExportWithoutFolder />
                 <StudioMenuBar />
                 <WelcomeScreen />
             </div>
@@ -70,20 +75,24 @@ export function StudioShell() {
                             <DeleteConfirmProvider>
                                 <MoveToProvider>
                                     <FileHistoryProvider>
-                                        <AppUpdateProvider>
-                                            {/* Below the providers above, so a command can use their dialogs and updates. */}
-                                            <StudioPalette>
-                                                {/* First, so these commands lead the palette's list. */}
-                                                <StudioCommands />
-                                                <HelpCommands />
-                                                <NativeWindowTitle />
-                                                <WindowFileDrop />
-                                                {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
-                                                <TooltipProvider delay={400}>
-                                                    <StudioRouter />
-                                                </TooltipProvider>
-                                            </StudioPalette>
-                                        </AppUpdateProvider>
+                                        <TemplatePickerProvider>
+                                            <AppUpdateProvider>
+                                                {/* Below the providers above, so a command can use their dialogs and updates. */}
+                                                <PresentModeProvider>
+                                                    <StudioPalette>
+                                                        {/* First, so these commands lead the palette's list. */}
+                                                        <StudioCommands />
+                                                        <HelpCommands />
+                                                        <NativeWindowTitle />
+                                                        <WindowFileDrop />
+                                                        {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
+                                                        <TooltipProvider delay={400}>
+                                                            <StudioRouter />
+                                                        </TooltipProvider>
+                                                    </StudioPalette>
+                                                </PresentModeProvider>
+                                            </AppUpdateProvider>
+                                        </TemplatePickerProvider>
                                     </FileHistoryProvider>
                                 </MoveToProvider>
                             </DeleteConfirmProvider>

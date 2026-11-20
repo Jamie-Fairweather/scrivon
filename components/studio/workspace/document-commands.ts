@@ -30,6 +30,13 @@ export type DocumentCommandsContext = {
     hasSavedTabs: boolean
     closeSavedTabs: () => Promise<void>
     switchTab: (step: 1 | -1) => Promise<void>
+    /** Where the open tab is in the strip, or -1 with none open. */
+    activeTabIndex: number
+    /** True when the open tab isn't the first one. */
+    canMoveTabLeft: boolean
+    /** True when the open tab isn't the last one. */
+    canMoveTabRight: boolean
+    moveTab: (id: string, toIndex: number) => void
     canReopenClosedTab: boolean
     reopenClosedTab: () => Promise<void>
     revertTab: (id: string) => Promise<void>
@@ -48,6 +55,7 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
     const activeExampleId = hasActiveTab ? exampleIdFromTabId(activeTabId) : null
     const canSwitchTabs = hasWorkspace && ctx.tabCount > 1
     const switchOffReason = hasWorkspace && ctx.tabCount === 1 ? 'Only one tab open' : 'No tabs open'
+    const moveOffReason = (atEnd: string) => (!hasActiveTab ? 'No tab open' : ctx.tabCount < 2 ? 'Only one tab open' : atEnd)
 
     const commands: AppCommand[] = [
         {
@@ -147,6 +155,28 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
             run: () => void ctx.switchTab(-1),
         },
         {
+            id: 'move-tab-left',
+            label: 'Move Tab Left',
+            keywords: 'move reorder tab left earlier',
+            keybind: 'tabs.moveLeft',
+            disabled: !hasActiveTab || !ctx.canMoveTabLeft,
+            disabledReason: moveOffReason('Already the first tab'),
+            run: () => {
+                if (activeTabId) ctx.moveTab(activeTabId, ctx.activeTabIndex - 1)
+            },
+        },
+        {
+            id: 'move-tab-right',
+            label: 'Move Tab Right',
+            keywords: 'move reorder tab right later',
+            keybind: 'tabs.moveRight',
+            disabled: !hasActiveTab || !ctx.canMoveTabRight,
+            disabledReason: moveOffReason('Already the last tab'),
+            run: () => {
+                if (activeTabId) ctx.moveTab(activeTabId, ctx.activeTabIndex + 1)
+            },
+        },
+        {
             id: 'close-other-tabs',
             label: 'Close Other Tabs',
             keywords: 'close other tabs',
@@ -212,6 +242,7 @@ export function useDocumentCommands(): void {
         closeTabsToRight,
         closeSavedTabs,
         switchTab,
+        moveTab,
         reopenClosedTab,
         revertTab,
     } = useDocumentTabs()
@@ -225,6 +256,9 @@ export function useDocumentCommands(): void {
     const hasDirtyTabs = tabs.some((t) => t.isDirty && !isExampleTabId(t.id))
     const hasSavedTabs = anySavedTabs(tabs)
     const hasTabsToRight = anyTabsToRight(tabs, activeTabId)
+    const activeTabIndex = tabs.findIndex((t) => t.id === activeTabId)
+    const canMoveTabLeft = activeTabIndex > 0
+    const canMoveTabRight = hasTabsToRight
 
     const commands = useMemo(
         () =>
@@ -245,6 +279,10 @@ export function useDocumentCommands(): void {
                 hasSavedTabs,
                 closeSavedTabs,
                 switchTab,
+                activeTabIndex,
+                canMoveTabLeft,
+                canMoveTabRight,
+                moveTab,
                 canReopenClosedTab,
                 reopenClosedTab,
                 revertTab,
@@ -269,6 +307,10 @@ export function useDocumentCommands(): void {
             hasSavedTabs,
             closeSavedTabs,
             switchTab,
+            activeTabIndex,
+            canMoveTabLeft,
+            canMoveTabRight,
+            moveTab,
             canReopenClosedTab,
             reopenClosedTab,
             revertTab,

@@ -246,18 +246,36 @@ export async function confirmKeptChangesWithoutFolder(folderName: string, fileNa
 
 export type NameClashChoice = 'keep-both' | 'skip' | 'cancel'
 
+/** The question for diagrams being exported to `folderName` whose file names are taken (`names`, from that folder: `sub\flow.svg`). */
+function exportClashBody(names: string[], folderName: string, canSkip: boolean): string {
+    const one = names.length === 1
+    const taken = one ? `${folderName} already has a file named ${names[0]}.` : `${folderName} already has files named:\n\n${listFiles(names)}`
+    const keepBoth = one
+        ? 'Keep Both saves the diagram with a number added to its name.'
+        : 'Keep Both saves these diagrams with a number added to their names.'
+    const skip = canSkip ? (one ? ' Skip leaves it out.' : ' Skip leaves them out.') : ''
+    return `${taken}\n\n${keepBoth}${skip} Nothing in the folder is replaced.`
+}
+
 /**
- * Asks what to do when entries being moved or copied into `folderName` have the names of entries already there
- * (`names`). Nothing is ever replaced: Keep Both gives each a new name (`notes 2.md`), and Skip, offered when
+ * Asks what to do when entries being moved, copied or exported into `folderName` have the names of entries already
+ * there (`names`). Nothing is ever replaced: Keep Both gives each a new name (`notes 2.md`), and Skip, offered when
  * other entries go too (`canSkip`), leaves those out.
  */
-export async function confirmNameClash(names: string[], folderName: string, action: 'move' | 'copy', canSkip: boolean): Promise<NameClashChoice> {
+export async function confirmNameClash(
+    names: string[],
+    folderName: string,
+    action: 'move' | 'copy' | 'export',
+    canSkip: boolean
+): Promise<NameClashChoice> {
     const one = names.length === 1
     const doing = action === 'move' ? "you're moving" : "you're copying in"
     const title = 'Name already used'
     const body =
-        (one ? `${folderName} already has something named ${names[0]}.` : `${folderName} already has things named:\n\n${listFiles(names)}`) +
-        `\n\nKeep Both adds a number to the ${one ? 'name of the one' : 'names of the ones'} ${doing}.`
+        action === 'export'
+            ? exportClashBody(names, folderName, canSkip)
+            : (one ? `${folderName} already has something named ${names[0]}.` : `${folderName} already has things named:\n\n${listFiles(names)}`) +
+              `\n\nKeep Both adds a number to the ${one ? 'name of the one' : 'names of the ones'} ${doing}.`
 
     if (!isTauri()) {
         if (typeof window === 'undefined' || typeof window.confirm !== 'function') return 'cancel'

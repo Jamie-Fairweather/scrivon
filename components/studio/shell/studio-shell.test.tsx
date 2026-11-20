@@ -39,9 +39,10 @@ function PaletteProvider({ children }: { children: ReactNode }) {
     )
 }
 
+const session = vi.hoisted(() => ({ hydrated: false, workspaceRoot: null as string | null }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     WorkspaceProvider: ({ children }: { children: ReactNode }) => children,
-    useWorkspaceSession: () => ({ hydrated: false, workspaceRoot: null }),
+    useWorkspaceSession: () => session,
     useDocumentSave: () => ({ flushAllSaves: async () => true }),
     useWorkspaceCoordinator: () => ({}),
 }))
@@ -53,7 +54,10 @@ vi.mock('@/components/studio/shell/studio-commands', () => ({ StudioCommands: ()
 vi.mock('@/components/studio/dialogs/help-commands', () => ({ HelpCommands: () => null }))
 vi.mock('@/components/studio/hooks/use-window-close', () => ({ useWindowCloseHandler: vi.fn() }))
 vi.mock('@/components/studio/shell/use-native-window-title', () => ({ NativeWindowTitle: () => null }))
-vi.mock('@/components/studio/shell/studio-layout', () => ({ StudioLayout: () => null }))
+vi.mock('@/components/studio/shell/studio-layout', () => ({ StudioLayout: () => <p>Studio layout</p> }))
+vi.mock('@/components/studio/batch-export/batch-export-provider', () => ({
+    BatchExportWithoutFolder: () => <p>Folder export, greyed out</p>,
+}))
 vi.mock('@/components/studio/shell/studio-menu-bar', () => ({ StudioMenuBar: () => null }))
 vi.mock('@/components/studio/shell/welcome-screen', () => ({ WelcomeScreen: () => null }))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ NamePromptProvider: providerWithDialog('name-prompt') }))
@@ -63,6 +67,8 @@ vi.mock('@/components/studio/app-update-provider', () => ({ AppUpdateProvider: p
 
 beforeEach(() => {
     crash.in = null
+    session.hydrated = false
+    session.workspaceRoot = null
     vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -87,4 +93,18 @@ describe('StudioShell', () => {
             expect(screen.getByRole('button', { name: 'Save and reload' })).toBeInTheDocument()
         }
     )
+
+    it('lists the folder export, greyed out, on the welcome screen, where the studio layout that has it is not there', () => {
+        session.hydrated = true
+        const view = render(<StudioShell />)
+        expect(screen.getByText('Folder export, greyed out')).toBeInTheDocument()
+        expect(screen.queryByText('Studio layout')).not.toBeInTheDocument()
+        view.unmount()
+
+        // With a folder open, the layout's own provider registers it instead.
+        session.workspaceRoot = 'C:\\work'
+        render(<StudioShell />)
+        expect(screen.getByText('Studio layout')).toBeInTheDocument()
+        expect(screen.queryByText('Folder export, greyed out')).not.toBeInTheDocument()
+    })
 })

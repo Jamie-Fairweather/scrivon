@@ -23,6 +23,10 @@ These are the things automated tests can't cover, so they need a person using th
 - [ ] On the welcome screen, click a big recent folder and then quickly a small one. The small one stays open, and the "Opening..." notice goes away.
 - [ ] Click a recent folder that was deleted or moved. A notice offers Remove from Recent. Removing it and choosing it again with Open Folder still works.
 - [ ] Open a drive root such as `D:\` as a folder. It opens, hides System Volume Information, and is named `D:\`. A folder you can't read shows as empty with a warning.
+- [ ] Drag a tab along the strip in a light and a dark theme. A line shows where it will land, and letting go puts it there without switching tabs. A short press still switches, and middle-click, X and right-click work as before.
+- [ ] Drag a tab, then press Escape, or let go above or below the tab bar. The tab goes back where it was. Letting go after the last tab puts it at the end.
+- [ ] Type in the editor, then drag a tab in the background somewhere else. Typing still goes into the editor. With more tabs than fit, let go over the Export and Fit buttons: the tab lands where the line was drawn, at the strip's edge.
+- [ ] Type in the editor and press Ctrl+Shift+PageUp / PageDown, also held down. The open tab moves along, and the cursor and selection stay. Close and reopen the folder and the app: the order is the same.
 
 ## File explorer
 
@@ -60,6 +64,15 @@ These are the things automated tests can't cover, so they need a person using th
 - [ ] Type in a long `.md` file (about 1,500 lines). Typing stays smooth, the preview catches up after you stop, and dragging the splitter is smooth.
 - [ ] Press Tab to an Expand button and Enter: focus goes to Back, and Esc closes it and returns focus. Edit the diagram while it's open and the view follows. Deleting its block closes it.
 - [ ] Create an empty `.md` file. A centred message shows and goes away when you type.
+
+## Present mode
+
+- [ ] With the window maximised, press F5 in a `.md` file with a few `---` breaks. The window goes full screen and covers the title bar and taskbar. Press Esc: it is maximised again. Do the same with a smaller, restored window: it comes back at the same size and place. Try the Close button and closing the tab too.
+- [ ] Present from the View menu and from the F1 palette, then press Esc. Focus is back in the editor each time, and typing goes into the file.
+- [ ] On a slide with a web link and a code block, click the link, come back, and press Right twice. Tab to the Copy button and press Right. Click the "2 / 5" counter and press End. Each time the slides move.
+- [ ] Present a slide with a wide flowchart, and one with a heading above a tall sequence diagram, at 100% and 150% Windows scaling and a larger Preview text size. Each diagram shows whole, with no edge cut off, and the slide doesn't scroll.
+- [ ] With an unsaved change and autosave off, press Alt+F4 while presenting. The window leaves full screen and asks first. Cancel goes back to the editor, as the window was before presenting.
+- [ ] Maximise the window (or move it to another screen), press F5 at once, then Alt+F4 with nothing unsaved. Start Scrivon again: it opens maximised (or on the other screen), never at the size of the whole screen.
 
 ## PDF export
 
@@ -111,7 +124,9 @@ These are the things automated tests can't cover, so they need a person using th
 - [ ] Slow or network drive: type with autosave on, then switch or close the folder. The last characters are in the file, and a big file from the old folder never shows in the new one.
 - [ ] Kill Scrivon with unsaved edits, relaunch and click the file at once. The tab shows the recovered text, and typing early keeps a "(recovered)" copy.
 - [ ] Windows High Contrast (Night sky, Desert): focus rings, menu highlights, switches, pressed toggles and the read-only bar all show.
+- [ ] Windows High Contrast (Night sky, Desert): drag a tab. The drop line and the dragged tab's dashed outline show in the highlight colour.
 - [ ] Narrator or NVDA: the editor, tabs, tree rows, toggles, palette, Settings, diagrams and dimmed buttons read with sensible names and states.
+- [ ] Narrator or NVDA: move a tab with Ctrl+Shift+PageDown, from the editor and from the tab strip. You hear where it went, such as "notes.md moved to position 2 of 4", and the keyboard stays where it was.
 - [ ] Two monitors or different scaling: move and maximise the window. Layout and the resize handle still work.
 - [ ] Release build, network off: editor, preview, diagrams, exports and licences all work with no blocked-feature errors.
 - [ ] Update from an older install: one Scrivon in Apps, the Start menu opens the new one, and "Updated to version X" shows once.

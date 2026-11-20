@@ -177,6 +177,14 @@ describe('mergeStoredSettings', () => {
         expect(migrateLegacySettings(() => null, false).workspace.reopenLastFolder).toBe(true)
     })
 
+    it('shows git changes in the explorer by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).workspace.showGitChanges).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ workspace: { reopenLastFolder: false } }, false).workspace.showGitChanges).toBe(true)
+        expect(mergeStoredSettings({ workspace: { showGitChanges: false } }, false).workspace.showGitChanges).toBe(false)
+        expect(mergeStoredSettings({ workspace: { showGitChanges: 'off' } }, false).workspace.showGitChanges).toBe(true)
+    })
+
     it('keeps file history by default, and reads a saved choice', () => {
         expect(createDefaultSettings(false).fileHistory.enabled).toBe(true)
         // Settings saved before file history existed.
@@ -208,6 +216,24 @@ describe('mergeStoredSettings', () => {
             theme: 'app',
             transparent: false,
         })
+    })
+
+    it("keeps Find in Workspace's options, reading missing or damaged ones as off", () => {
+        const off = { matchCase: false, wholeWord: false, useRegex: false }
+        expect(createDefaultSettings(false).workspaceSearch).toEqual(off)
+        // Settings saved before the options existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).workspaceSearch).toEqual(off)
+        expect(mergeStoredSettings({ workspaceSearch: { matchCase: true, wholeWord: true, useRegex: true } }, false).workspaceSearch).toEqual({
+            matchCase: true,
+            wholeWord: true,
+            useRegex: true,
+        })
+        expect(mergeStoredSettings({ workspaceSearch: { matchCase: 'yes', wholeWord: 1, useRegex: true } }, false).workspaceSearch).toEqual({
+            ...off,
+            useRegex: true,
+        })
+        expect(mergeStoredSettings({ workspaceSearch: 'on' }, false).workspaceSearch).toEqual(off)
+        expect(mergeStoredSettings({ workspaceSearch: null }, false).workspaceSearch).toEqual(off)
     })
 
     it('wraps at column 80 unless another wrap column was saved, kept between 20 and 200', () => {
