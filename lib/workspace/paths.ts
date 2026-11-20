@@ -153,7 +153,13 @@ export function isTreeTruncated(nodes: FileNode[]): boolean {
 
 function keepUnchangedNode(old: FileNode, node: FileNode): FileNode {
     if (old.kind === 'file' || node.kind === 'file') return old.kind === node.kind && old.name === node.name ? old : node
-    if (old.name !== node.name || old.unreadable !== node.unreadable || old.linksOutside !== node.linksOutside || old.truncated !== node.truncated) {
+    if (
+        old.name !== node.name ||
+        old.unreadable !== node.unreadable ||
+        old.linksOutside !== node.linksOutside ||
+        old.truncated !== node.truncated ||
+        old.linked !== node.linked
+    ) {
         return node
     }
     const children = keepUnchangedNodes(old.children, node.children)

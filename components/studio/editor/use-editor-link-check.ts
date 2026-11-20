@@ -24,9 +24,6 @@ export function useEditorLinkCheck(activeTab: DocumentTab | null, modelUri: stri
     const { tree, workspaceRoot } = useWorkspaceSession()
     const { tabs } = useDocumentTabs()
 
-    // Built once each time the tree changes, so checking a link is a lookup, never a walk of the tree.
-    const index = useMemo(() => (workspaceRoot ? buildLinkIndex(workspaceRoot, tree ?? []) : null), [workspaceRoot, tree])
-
     // The tabs' text changes with every key, so it is read when a check needs it rather than starting a check.
     const tabsRef = useRef(tabs)
     useEffect(() => {
@@ -37,6 +34,9 @@ export function useEditorLinkCheck(activeTab: DocumentTab | null, modelUri: stri
     const checkable =
         enabled && activeTab !== null && !activeTab.readOnly && !isExampleTabId(activeTab.id) && documentKind(activeTab.name) === 'markdown'
     const documentPath = activeTab?.path ?? null
+    // Built once each time the tree changes while links are checked, so checking a link is a lookup, never a walk
+    // of the tree; and not at all while nothing is checked (a diagram showing, or the setting off).
+    const index = useMemo(() => (checkable && workspaceRoot ? buildLinkIndex(workspaceRoot, tree ?? []) : null), [checkable, workspaceRoot, tree])
     const config = useMemo<LinkCheckConfig | null>(
         () => (checkable && modelUri ? { modelUri, documentPath, workspaceRoot, index, openText } : null),
         [checkable, modelUri, documentPath, workspaceRoot, index, openText]

@@ -3,6 +3,7 @@ import { documentLinks } from '@/lib/markdown/document-links'
 import { findBrokenLinks, MAX_LINK_MARKS, type LinkCheckContext } from '@/lib/workspace/broken-links'
 import { buildLinkIndex, lookupLinkTarget } from '@/lib/workspace/link-index'
 import { checkLinkTarget, forgetLinkTargets, subscribeLinkTargets } from '@/lib/workspace/link-target-cache'
+import { MAX_PARALLEL_READS } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 
 const ROOT = 'C:\\notes'
@@ -71,6 +72,20 @@ describe('lookupLinkTarget', () => {
         expect(lookupLinkTarget(index, 'C:\\notes\\node_modules\\x\\readme.md')).toEqual({ kind: 'unknown' })
         expect(lookupLinkTarget(index, 'C:\\notes\\dist\\a.md')).toEqual({ kind: 'unknown' })
         expect(lookupLinkTarget(buildLinkIndex(ROOT, [file(DOC)]), 'C:\\notes\\dist\\a.md')).toEqual({ kind: 'missing' })
+    })
+
+    it('says unknown for a name missing under a folder read through a link, whose own links the tree leaves out', () => {
+        // `notes` is a junction; the junction `notes\img` and the symlink `notes\spec.md` inside it aren't listed.
+        const linked = buildLinkIndex(ROOT, [
+            folder('C:\\notes\\notes', [file('C:\\notes\\notes\\a.md'), folder('C:\\notes\\notes\\deep', [])], { linked: true }),
+            folder('C:\\notes\\plain', []),
+            file(DOC),
+        ])
+        expect(lookupLinkTarget(linked, 'C:\\notes\\notes\\a.md')).toMatchObject({ kind: 'found' })
+        expect(lookupLinkTarget(linked, 'C:\\notes\\notes\\img\\a.png')).toEqual({ kind: 'unknown' })
+        expect(lookupLinkTarget(linked, 'C:\\notes\\notes\\spec.md')).toEqual({ kind: 'unknown' })
+        expect(lookupLinkTarget(linked, 'C:\\notes\\notes\\deep\\x.md')).toEqual({ kind: 'unknown' })
+        expect(lookupLinkTarget(linked, 'C:\\notes\\plain\\x.md')).toEqual({ kind: 'missing' })
     })
 })
 
@@ -171,14 +186,64 @@ describe('findBrokenLinks', () => {
                 Array.from({ length: 999 }, (_, j) => file(`C:\\notes\\f${i}\\n${j}.md`))
             )
         )
-        const index = buildLinkIndex(ROOT, many.map(counted))
-        expect(index.list).toHaveLength(50_000)
+        const built = buildLinkIndex(ROOT, many.map(counted))
+        expect(built.list).toHaveLength(50_000)
         walks = 0
+        // The index's list, which a scan would go through, and its map, which a lookup reads a few times.
+        let listReads = 0
+        let lookups = 0
+        const list = new Proxy(built.list, {
+            get(target, key, receiver) {
+                listReads += 1
+                return Reflect.get(target, key, receiver)
+            },
+        })
+        const entries = new Proxy(built.entries, {
+            get(target, key) {
+                if (key === 'get') {
+                    return (path: string) => {
+                        lookups += 1
+                        return target.get(path)
+                    }
+                }
+                const value = Reflect.get(target, key, target)
+                return typeof value === 'function' ? value.bind(target) : value
+            },
+        })
+        const index = { ...built, list, entries }
         const checkOnDisk = vi.fn(async () => 'file' as const)
         const source = Array.from({ length: 1000 }, (_, k) => `[x](f${k % 50}/n${k % 20}.md)`).join('\n')
         expect(await broken(source, { index, checkOnDisk })).toEqual([])
         expect(walks).toBe(0)
+        expect(listReads).toBe(0)
+        // One map read for each link that is listed.
+        expect(lookups).toBe(1000)
         expect(checkOnDisk).not.toHaveBeenCalled()
+    })
+
+    it('walks only the missing path’s own names to tell missing from unknown, never the whole list', async () => {
+        const built = buildLinkIndex(ROOT, TREE)
+        let lookups = 0
+        const entries = new Proxy(built.entries, {
+            get(target, key) {
+                if (key === 'get') {
+                    return (path: string) => {
+                        lookups += 1
+                        return target.get(path)
+                    }
+                }
+                const value = Reflect.get(target, key, target)
+                return typeof value === 'function' ? value.bind(target) : value
+            },
+        })
+        const list = new Proxy(built.list, {
+            get() {
+                throw new Error('the list was read')
+            },
+        })
+        expect(lookupLinkTarget({ ...built, entries, list }, 'C:\\notes\\docs\\sub\\deeper\\gone.md')).toEqual({ kind: 'missing' })
+        // The whole path, the root, then docs, sub and deeper: a few reads, however big the tree.
+        expect(lookups).toBeLessThanOrEqual(6)
     })
 
     it('splits an escaped \\# where the preview does, so the message and the fix are about what the link leads to', async () => {
@@ -224,6 +289,23 @@ describe('checkLinkTarget', () => {
         expect(await checkLinkTarget('C:\\notes\\.hidden\\new.md', readKind)).toBe('file')
         expect(readKind).toHaveBeenCalledTimes(2)
         stop()
+    })
+
+    it('asks the disk about a few paths at a time, however many links a page has', async () => {
+        let running = 0
+        let most = 0
+        const readKind = vi.fn(async () => {
+            running += 1
+            most = Math.max(most, running)
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            running -= 1
+            return 'file' as const
+        })
+        const checkOnDisk = (path: string) => checkLinkTarget(path, readKind)
+        const source = Array.from({ length: 200 }, (_, k) => `[x](.cache/page-${k}.md)`).join('\n')
+        expect(await broken(source, { checkOnDisk })).toEqual([])
+        expect(readKind).toHaveBeenCalledTimes(200)
+        expect(most).toBe(MAX_PARALLEL_READS)
     })
 
     it('forgets the answers inside a changed folder only, and says unknown when the disk fails another way', async () => {

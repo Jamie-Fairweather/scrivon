@@ -19,6 +19,10 @@ vi.mock('@/lib/monaco/link-check', () => ({
     },
 }))
 vi.mock('@/lib/markdown/links-reader', () => ({ getLinksReader: () => ({}) }))
+vi.mock('@/lib/workspace/link-index', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/workspace/link-index')>()
+    return { ...actual, buildLinkIndex: vi.fn(actual.buildLinkIndex) }
+})
 
 const workspace = vi.hoisted(() => ({
     tree: [] as FileNode[],
@@ -30,6 +34,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 
 const { useEditorLinkCheck } = await import('./use-editor-link-check')
+const { buildLinkIndex } = await import('@/lib/workspace/link-index')
 
 const URI = 'inmemory://scrivon/document-1'
 
@@ -43,7 +48,10 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function setup(initialTab: DocumentTab | null) {
     const view = renderHook(
-        ({ activeTab }: { activeTab: DocumentTab | null }) => ({ attach: useEditorLinkCheck(activeTab, activeTab ? URI : undefined), app: useAppSettings() }),
+        ({ activeTab }: { activeTab: DocumentTab | null }) => ({
+            attach: useEditorLinkCheck(activeTab, activeTab ? URI : undefined),
+            app: useAppSettings(),
+        }),
         { wrapper, initialProps: { activeTab: initialTab } }
     )
     view.result.current.attach({} as editor.IStandaloneCodeEditor, {} as Monaco)
@@ -108,5 +116,25 @@ describe('useEditorLinkCheck', () => {
         view.rerender({ activeTab: tab('notes.md') })
         expect(attached[0]!.config!.index).not.toBe(first)
         expect(attached[0]!.config!.index!.entries.has('c:\\notes\\b.md')).toBe(true)
+    })
+
+    it('builds no tree lookup while nothing is checked, and builds it once the check turns on', () => {
+        const build = vi.mocked(buildLinkIndex)
+        build.mockClear()
+        const view = setup(tab('flow.mmd'))
+        workspace.tree = [...workspace.tree, { kind: 'file', name: 'b.md', path: 'C:\\notes\\b.md' }]
+        view.rerender({ activeTab: tab('flow.mmd') })
+        expect(build).not.toHaveBeenCalled()
+
+        view.rerender({ activeTab: tab('notes.md') })
+        expect(build).toHaveBeenCalledTimes(1)
+        view.rerender({ activeTab: tab('other.md') })
+        expect(build).toHaveBeenCalledTimes(1)
+
+        act(() => view.result.current.app.updateSettings((s) => ({ ...s, editor: { ...s.editor, checkLinks: false } })))
+        workspace.tree = [...workspace.tree, { kind: 'file', name: 'c.md', path: 'C:\\notes\\c.md' }]
+        view.rerender({ activeTab: tab('other.md') })
+        expect(build).toHaveBeenCalledTimes(1)
+        expect(attached[0]!.config).toBeNull()
     })
 })

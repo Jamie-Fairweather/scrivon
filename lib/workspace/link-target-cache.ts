@@ -1,4 +1,4 @@
-import { comparablePath, isFileMissingError, isPathInside, readEntryKind } from '@/lib/tauri/fs'
+import { comparablePath, createLimit, isFileMissingError, isPathInside, MAX_PARALLEL_READS, readEntryKind } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
 
 /**
@@ -13,6 +13,11 @@ type ReadKind = (path: string) => Promise<FileNode['kind']>
 /** Answers by comparablePath. A pending one is its promise, so a path is asked about once however many links name it. */
 const answers = new Map<string, Promise<DiskAnswer> | DiskAnswer>()
 const listeners = new Set<() => void>()
+/**
+ * Each question is a round trip to the app, and an index page in a folder the tree didn't read can name hundreds of
+ * paths, asked again after every tab switch and focus: only a few are asked at a time, as the tree's own reads are.
+ */
+const diskLimit = createLimit(MAX_PARALLEL_READS)
 
 /**
  * Asks the disk once whether `path` is there, and keeps the answer until it is forgotten. The watcher can't keep it
@@ -26,7 +31,7 @@ export function checkLinkTarget(path: string, readKind: ReadKind = readEntryKind
     if (fresh) answers.delete(key)
     const known = answers.get(key)
     if (known !== undefined) return Promise.resolve(known)
-    const asked = readKind(path).then(
+    const asked = diskLimit(() => readKind(path)).then(
         (kind): DiskAnswer => kind,
         (err: unknown): DiskAnswer => (isFileMissingError(err) ? 'missing' : 'unknown')
     )

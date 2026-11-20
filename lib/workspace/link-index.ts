@@ -10,6 +10,11 @@ export type LinkIndexEntry = {
     unread?: true
     /** A read folder's names, to tell a folder the tree leaves out (`.git`, `node_modules`) from one not there. */
     childNames?: readonly string[]
+    /**
+     * A folder read through a link (a symlinked or junctioned folder, or one inside it): the links in it aren't
+     * followed or listed, so a name missing from it may still be there.
+     */
+    throughLink?: true
 }
 
 /**
@@ -28,20 +33,26 @@ export function buildLinkIndex(root: string, tree: readonly FileNode[]): LinkInd
     const entries = new Map<string, LinkIndexEntry>()
     const list: LinkIndexEntry[] = []
     entries.set(comparablePath(root), { kind: 'directory', path: root, childNames: tree.map((node) => node.name) })
-    const walk = (nodes: readonly FileNode[]) => {
+    const walk = (nodes: readonly FileNode[], insideLink: boolean) => {
         for (const node of nodes) {
+            const throughLink = node.kind === 'directory' && (insideLink || node.linked === true)
             const entry: LinkIndexEntry =
                 node.kind === 'file'
                     ? { kind: 'file', path: node.path }
                     : node.unreadable || node.truncated
                       ? { kind: 'directory', path: node.path, unread: true }
-                      : { kind: 'directory', path: node.path, childNames: node.children.map((child) => child.name) }
+                      : {
+                            kind: 'directory',
+                            path: node.path,
+                            childNames: node.children.map((child) => child.name),
+                            ...(throughLink ? { throughLink: true as const } : {}),
+                        }
             entries.set(comparablePath(node.path), entry)
             list.push(entry)
-            if (node.kind === 'directory') walk(node.children)
+            if (node.kind === 'directory') walk(node.children, throughLink)
         }
     }
-    walk(tree)
+    walk(tree, false)
     return { root, entries, list }
 }
 
@@ -50,7 +61,8 @@ export function buildLinkIndex(root: string, tree: readonly FileNode[]): LinkInd
  * - `found`: listed, as this file or folder.
  * - `missing`: its folder was read and it isn't there.
  * - `unknown`: the tree can't say. It is in a folder the tree leaves out (`.git`), couldn't read, or didn't read
- *   because the folder is too big (`truncated`). Ask the disk (once: see checkLinkTarget).
+ *   because the folder is too big (`truncated`), or under a folder read through a link, whose own links the tree
+ *   doesn't list. Ask the disk (once: see checkLinkTarget).
  */
 export type IndexAnswer = { kind: 'found'; entry: LinkIndexEntry } | { kind: 'missing' } | { kind: 'unknown' }
 
@@ -71,7 +83,7 @@ export function lookupLinkTarget(index: LinkIndex, path: string): IndexAnswer {
             continue
         }
         if (folder.kind === 'file') return { kind: 'missing' }
-        if (folder.unread) return { kind: 'unknown' }
+        if (folder.unread || folder.throughLink) return { kind: 'unknown' }
         return isHiddenFolder(name, folder.childNames ?? []) ? { kind: 'unknown' } : { kind: 'missing' }
     }
     return { kind: 'found', entry: folder }
