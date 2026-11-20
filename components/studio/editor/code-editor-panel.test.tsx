@@ -444,6 +444,7 @@ const coordinatorHandlers: {
     getEditorSelectedText?: () => string | null
     replaceEditorText?: (tabId: string, text: string) => void
     applyTabEdits?: (tabId: string, edits: readonly TextEdit[]) => boolean
+    hasTabBuffer?: (tabId: string) => boolean
 } = {}
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({
     registerCoordinatorRefs: (_refs: unknown, handlers: typeof coordinatorHandlers) => Object.assign(coordinatorHandlers, handlers),
@@ -923,6 +924,24 @@ describe('CodeEditorPanel applyTabEdits', () => {
 
         expect(applied).toBe(true)
         expect(updateTabContent).toHaveBeenCalledExactlyOnceWith(c, 'line one\r\nline 2')
+    })
+
+    it('says which tabs have a buffer to edit, so a just-opened one can wait for it', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        const c = '/w/c.md'
+        tabsState = { tabs: [tab(a, 'A'), tab(b, 'B'), tab(c, 'C')], activeTabId: b }
+        const { view } = await mountEditor()
+        // b.md shown, then a.md: both have buffers. c.md has never been shown.
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B'), tab(c, 'C')], activeTabId: a })
+
+        expect(coordinatorHandlers.hasTabBuffer!(a)).toBe(true)
+        expect(coordinatorHandlers.hasTabBuffer!(b)).toBe(true)
+        expect(coordinatorHandlers.hasTabBuffer!(c)).toBe(false)
+        expect(coordinatorHandlers.hasTabBuffer!('/w/gone.md')).toBe(false)
+        // A background buffer behind its tab's text (reloaded from disk) isn't the one applyTabEdits edits.
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'Reloaded'), tab(c, 'C')], activeTabId: a })
+        expect(coordinatorHandlers.hasTabBuffer!(b)).toBe(false)
     })
 
     it('changes nothing in a read-only tab, or one that is not open', async () => {

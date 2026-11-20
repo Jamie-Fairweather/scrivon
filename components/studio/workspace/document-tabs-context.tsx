@@ -877,8 +877,8 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
     )
 
     useEffect(() => {
-        registerCoordinatorRefs(coordinator, { openFile })
-    }, [coordinator, openFile])
+        registerCoordinatorRefs(coordinator, { openFile, getTabs: () => tabsRef.current })
+    }, [coordinator, openFile, tabsRef])
 
     const actions = useMemo<DocumentTabActions>(
         () => ({

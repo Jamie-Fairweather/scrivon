@@ -35,6 +35,10 @@ export function GlobalKeybindsProvider({ children }: GlobalKeybindsProviderProps
                 openMode('text' satisfies PaletteMode)
                 return true
             },
+            'palette.openReplace': () => {
+                openMode('text' satisfies PaletteMode, { replace: true })
+                return true
+            },
             'palette.openFiles': () => {
                 openMode('files' satisfies PaletteMode)
                 return true

@@ -8,7 +8,8 @@ import {
     searchWorkspaceContent,
     textHitToPaletteItem,
 } from '@/components/studio/command-palette/search-content'
-import type { MatchFile, MatchFileResult } from '@/components/studio/command-palette/regex-match-client'
+import type { MatchFile, MatchFileResult, ReplaceFile } from '@/components/studio/command-palette/regex-match-client'
+import { findReplacements } from '@/components/studio/command-palette/replace-text'
 import {
     compileTextQuery,
     matchText,
@@ -699,6 +700,73 @@ describe('searchWorkspaceContent options', () => {
         })
         expect(signals[0]!.aborted).toBe(true)
         expect(result.hits).toEqual([])
+    })
+})
+
+describe('searchWorkspaceContent for Replace in Workspace', () => {
+    const workerReplaceFile = vi.fn<ReplaceFile>(async (text, query, options, replacement, { maxHits }) => {
+        const compiled = compileTextQuery(query, options)
+        if (!compiled.ok) return { type: 'invalid', error: compiled.error }
+        return { type: 'replacements', ...findReplacements(text, compiled.matcher, replacement, maxHits) }
+    })
+
+    it('says what each match becomes, literally in a plain search', async () => {
+        const result = await searchWorkspaceContent({
+            matcher: plain('cat'),
+            paths: [],
+            openBuffers: new Map([['/a.md', 'a cat']]),
+            readFile: async () => '',
+            signal: new AbortController().signal,
+            replacement: '$1 dog',
+        })
+        expect(result.hits.map((hit) => hit.newText)).toEqual(['$1 dog'])
+    })
+
+    it('fills in groups in the worker in regex mode', async () => {
+        workerReplaceFile.mockClear()
+        const result = await searchWorkspaceContent({
+            matcher: plain('(\\w+)@', { useRegex: true }),
+            paths: ['/b.md'],
+            openBuffers: new Map(),
+            readFile: async () => 'mail jo@',
+            signal: new AbortController().signal,
+            replacement: '<$1>',
+            replaceFile: workerReplaceFile,
+        })
+        expect(workerReplaceFile).toHaveBeenCalledTimes(1)
+        expect(result.hits.map(({ column, newText }) => ({ column, newText }))).toEqual([{ column: 6, newText: '<jo>' }])
+    })
+
+    it('names the files whose matches were cut short by the per-file limit or the overall one', async () => {
+        const result = await searchWorkspaceContent({
+            matcher: plain('x'),
+            paths: [],
+            openBuffers: new Map([
+                ['/many.md', 'x x x x'],
+                ['/few.md', 'x'],
+                ['/cut.md', 'x x x'],
+            ]),
+            readFile: async () => '',
+            signal: new AbortController().signal,
+            maxHitsPerFile: 3,
+            maxHits: 5,
+        })
+        expect(result.hits.map((hit) => hit.path)).toEqual(['/many.md', '/many.md', '/many.md', '/few.md', '/cut.md'])
+        expect(result.truncatedPaths).toEqual(['/many.md', '/cut.md'])
+        expect(result.truncatedFiles).toBe(1)
+    })
+
+    it('searches an open file only in its tab, however the folder listing spells its path', async () => {
+        const readFile = vi.fn(async () => 'needle on disk')
+        const result = await searchWorkspaceContent({
+            matcher: plain('needle'),
+            paths: ['c:/notes/a.md'],
+            openBuffers: new Map([['C:\\Notes\\A.md', 'needle in tab']]),
+            readFile,
+            signal: new AbortController().signal,
+        })
+        expect(readFile).not.toHaveBeenCalled()
+        expect(result.hits.map((hit) => ({ path: hit.path, source: hit.source }))).toEqual([{ path: 'C:\\Notes\\A.md', source: 'buffer' }])
     })
 })
 

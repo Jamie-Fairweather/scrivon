@@ -122,7 +122,8 @@ export function tokensToSemanticVars(tokens: ResolvedThemeTokens): SemanticTheme
         // A destructive menu item (the explorer's Delete) keeps its red on the highlighted row.
         '--destructive-foreground': statusTextColor(tokens, kind, 'destructive', [accent]),
         '--info-foreground': statusTextColor(tokens, kind, 'info'),
-        '--success-foreground': statusTextColor(tokens, kind, 'success'),
+        // Replace in Workspace's new text keeps its green on the highlighted row, as the old text keeps its red.
+        '--success-foreground': statusTextColor(tokens, kind, 'success', [accent]),
     }
 }
 

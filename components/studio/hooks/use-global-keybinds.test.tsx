@@ -116,6 +116,25 @@ describe('useGlobalKeybinds', () => {
         expect(event.defaultPrevented).toBe(false)
     })
 
+    it("leaves Replace in Workspace's keys to the palette while its Replace box shows, whatever has them", () => {
+        const openFiles = vi.fn()
+        // Put in the settings file by hand: Keyboard settings refuses Ctrl+Shift+1 for a palette action.
+        renderHook(() =>
+            useGlobalKeybinds({ ...bindings, 'palette.openFiles': [{ key: '!', ctrl: true, shift: true }] }, { 'palette.openFiles': openFiles })
+        )
+        const palette = addElement({ role: 'dialog', 'data-open': '', 'data-slot': 'command-dialog-popup' })
+        const input = document.createElement('input')
+        palette.appendChild(input)
+
+        press('!', { ctrlKey: true, shiftKey: true, code: 'Digit1' }, input)
+        expect(openFiles).toHaveBeenCalledTimes(1)
+
+        palette.setAttribute('data-replace-keys', '')
+        const event = press('!', { ctrlKey: true, shiftKey: true, code: 'Digit1' }, input)
+        expect(openFiles).toHaveBeenCalledTimes(1)
+        expect(event.defaultPrevented).toBe(false)
+    })
+
     it('still skips palette shortcuts in a text field outside the palette', () => {
         const openText = vi.fn()
         renderHook(() => useGlobalKeybinds(bindings, { 'palette.openText': openText }))

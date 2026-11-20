@@ -47,18 +47,33 @@ export function wholeTextRange(text: string): TextRange {
 
 /** The range from offset `start` to offset `end` in `text`. */
 export function rangeOfOffsets(text: string, start: number, end: number): TextRange {
+    return rangesOfOffsets(text, [{ start, end }])[0]!
+}
+
+/**
+ * The range from each `start` to its `end` in `text`, as rangeOfOffsets gives it, with the text's lines
+ * worked out once: for many edits to one long file, such as replacing every match in it.
+ */
+export function rangesOfOffsets(text: string, offsets: ReadonlyArray<{ start: number; end: number }>): TextRange[] {
     const spans = lineSpans(text)
     const at = (offset: number) => {
         const clamped = Math.min(Math.max(0, offset), text.length)
         // The last line starting at or before it. An offset inside a line break is the end of its line.
-        let line = 0
-        while (line + 1 < spans.length && spans[line + 1]!.start <= clamped) line++
-        const span = spans[line]!
-        return { line: line + 1, column: Math.min(clamped, span.end) - span.start + 1 }
+        let low = 0
+        let high = spans.length - 1
+        while (low < high) {
+            const mid = (low + high + 1) >> 1
+            if (spans[mid]!.start <= clamped) low = mid
+            else high = mid - 1
+        }
+        const span = spans[low]!
+        return { line: low + 1, column: Math.min(clamped, span.end) - span.start + 1 }
     }
-    const from = at(start)
-    const to = at(Math.max(start, end))
-    return { startLineNumber: from.line, startColumn: from.column, endLineNumber: to.line, endColumn: to.column }
+    return offsets.map(({ start, end }) => {
+        const from = at(start)
+        const to = at(Math.max(start, end))
+        return { startLineNumber: from.line, startColumn: from.column, endLineNumber: to.line, endColumn: to.column }
+    })
 }
 
 /**

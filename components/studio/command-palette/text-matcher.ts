@@ -151,12 +151,36 @@ function withoutCarriageReturn(line: string): string {
 
 /**
  * Finds the matches in one line, in the original line's positions, up to `maxMatches`. Never an empty
- * match. With Match Whole Word, a match must start and end on word boundaries; when one doesn't, the
+ * match, and never two that overlap. With Match Whole Word, a match must start and end on word boundaries; when one doesn't, the
  * search goes on from the next character, so 'aa' still finds the second pair in 'aaa aa'.
  */
 export function matchLine(line: string, matcher: TextMatcher, maxMatches = Number.POSITIVE_INFINITY): LineSpan[] {
     const spans: LineSpan[] = []
-    if (maxMatches <= 0) return spans
+    forEachLineMatch(line, matcher, maxMatches, (span) => spans.push(span))
+    return spans
+}
+
+/** What a match was found in: the line without its '\r', and that line as it was searched (folded or normalised). */
+export type LineMatchContext = {
+    /** The line without the '\r' a CRLF file leaves at its end. Spans are positions in it. */
+    text: string
+    /** The line as the query was looked for in it, with the map back to `text`. */
+    mapped: FoldedLine
+    /** In regex mode, what the pattern's exec gave for this match (positions in `mapped.folded`); null otherwise. */
+    found: RegExpExecArray | null
+}
+
+/**
+ * Calls `visit` for each match in one line, in order, as matchLine finds them (the same rules, the same
+ * limit). For Replace, which needs a regex match's groups as well as where it is.
+ */
+export function forEachLineMatch(
+    line: string,
+    matcher: TextMatcher,
+    maxMatches: number,
+    visit: (span: LineSpan, context: LineMatchContext) => void
+): void {
+    if (maxMatches <= 0) return
     const text = withoutCarriageReturn(line)
     const { options } = matcher
     const mapped: FoldedLine = options.useRegex || options.matchCase ? normalizeLine(text) : foldLine(text)
@@ -166,12 +190,23 @@ export function matchLine(line: string, matcher: TextMatcher, maxMatches = Numbe
         boundaries ??= wordBoundaries(text, matcher.segmenter)
         return boundaries(span.start) && boundaries(span.start + span.length)
     }
+    let count = 0
+    // Where the last match taken ends in the line. A character the search sees as more than one ('ß' folds to
+    // 'ss', U+095B normalises to two code points) maps each of them back to the whole character, so two matches
+    // can be one span of the line. Only the first is taken: no two matches overlap, and none is replaced twice.
+    let lastEnd = 0
+    const take = (span: LineSpan, found: RegExpExecArray | null) => {
+        if (span.start < lastEnd) return
+        lastEnd = span.start + span.length
+        count++
+        visit(span, { text, mapped, found })
+    }
 
     if (matcher.regex) {
         const regex = matcher.regex
         // The 'g' flag keeps its place in lastIndex; each line starts again from 0.
         regex.lastIndex = 0
-        while (spans.length < maxMatches && regex.lastIndex <= haystack.length) {
+        while (count < maxMatches && regex.lastIndex <= haystack.length) {
             const found = regex.exec(haystack)
             if (!found) break
             const index = found.index
@@ -179,7 +214,7 @@ export function matchLine(line: string, matcher: TextMatcher, maxMatches = Numbe
             if (length > 0) {
                 const span = originalSpan(mapped, index, length)
                 if (!options.wholeWord || isWholeWord(span)) {
-                    spans.push(span)
+                    take(span, found)
                     regex.lastIndex = index + length
                     continue
                 }
@@ -187,24 +222,28 @@ export function matchLine(line: string, matcher: TextMatcher, maxMatches = Numbe
             // An empty match (from '^' or 'x*'), or one that isn't a whole word: go on from the next character.
             regex.lastIndex = index + codePointLength(haystack, index)
         }
-        return spans
+        return
     }
 
     const needle = matcher.needle
-    if (!needle) return spans
+    if (!needle) return
     let from = 0
-    while (spans.length < maxMatches) {
+    while (count < maxMatches) {
         const index = haystack.indexOf(needle, from)
         if (index === -1) break
         const span = originalSpan(mapped, index, needle.length)
         if (!options.wholeWord || isWholeWord(span)) {
-            spans.push(span)
+            take(span, null)
             from = index + needle.length
         } else {
             from = index + codePointLength(haystack, index)
         }
     }
-    return spans
+}
+
+/** Whether `line` is one a regex search leaves out for being longer than REGEX_MAX_LINE_LENGTH. */
+export function isLongLineForRegex(line: string, matcher: TextMatcher): boolean {
+    return matcher.options.useRegex && withoutCarriageReturn(line).length > REGEX_MAX_LINE_LENGTH
 }
 
 export type MatchTextResult = {
@@ -220,7 +259,7 @@ export function matchText(text: string, matcher: TextMatcher, maxMatches = Numbe
     const lines = text.split('\n')
     for (let lineIndex = 0; lineIndex < lines.length && matches.length < maxMatches; lineIndex++) {
         const line = lines[lineIndex]!
-        if (matcher.options.useRegex && withoutCarriageReturn(line).length > REGEX_MAX_LINE_LENGTH) {
+        if (isLongLineForRegex(line, matcher)) {
             longLinesSkipped++
             continue
         }

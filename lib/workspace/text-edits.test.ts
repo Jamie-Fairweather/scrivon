@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyTextEdits, rangeOfOffsets, wholeTextRange, type TextRange } from './text-edits'
+import { applyTextEdits, rangeOfOffsets, rangesOfOffsets, wholeTextRange, type TextRange } from './text-edits'
 
 const range = (startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number): TextRange => ({
     startLineNumber,
@@ -64,5 +64,25 @@ describe('rangeOfOffsets', () => {
         // Inside a \r\n is the end of its line.
         expect(rangeOfOffsets(text, 3, 3)).toEqual(range(1, 3, 1, 3))
         expect(applyTextEdits(text, [{ range: rangeOfOffsets(text, 1, 5), text: '_' }])).toBe('a_d\nef')
+    })
+})
+
+describe('rangesOfOffsets', () => {
+    it('gives the ranges rangeOfOffsets would, for many offsets at once', () => {
+        const text = 'ab\r\ncd\nef\rgh'
+        const offsets = [
+            { start: 0, end: 2 },
+            { start: 4, end: 8 },
+            { start: 3, end: 3 },
+            { start: 10, end: 12 },
+            { start: 9, end: 99 },
+        ]
+        expect(rangesOfOffsets(text, offsets)).toEqual([
+            range(1, 1, 1, 3),
+            range(2, 1, 3, 2),
+            range(1, 3, 1, 3),
+            range(4, 1, 4, 3),
+            range(3, 3, 4, 3),
+        ])
     })
 })

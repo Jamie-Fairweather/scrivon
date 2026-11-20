@@ -2,6 +2,7 @@ import { chordKey, chordsEqual, isAllowedChord, isMacPlatform, isReservedKey, is
 import { formatChord } from '@/lib/settings/format-keybind'
 import { canShareKeys, getKeybindActionMeta, isEditorAction, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
+import { isWorkspaceReplaceChord } from '@/lib/settings/workspace-replace-keys'
 import { isWorkspaceSearchOptionChord } from '@/lib/settings/workspace-search-keys'
 
 export type KeybindConflict = {
@@ -126,6 +127,9 @@ export function describeEditorChordClash(chord: KeybindChord, isMac = isMacPlatf
     if (usesReservedChord(MENU_BAR_CHORDS, chord)) return `${formatChord(chord, isMac)} is used by the menu bar`
     if (actionId !== undefined && getKeybindActionMeta(actionId)?.allowInPalette && isWorkspaceSearchOptionChord(chord, isMac)) {
         return `${formatChord(chord, isMac)} is used by Find in Workspace`
+    }
+    if (actionId !== undefined && getKeybindActionMeta(actionId)?.allowInPalette && isWorkspaceReplaceChord(chord, isMac)) {
+        return `${formatChord(chord, isMac)} is used by Replace in Workspace`
     }
     if (!editorAction && usesReservedChord(EXPLORER_CHORDS, chord)) return `${formatChord(chord, isMac)} is used by the explorer`
     return usesEditorChord(chord, editorAction) ? `${formatChord(chord, isMac)} is used by the editor` : null

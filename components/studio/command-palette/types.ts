@@ -2,6 +2,9 @@ import type { DocumentKind } from '@/lib/workspace/file-types'
 
 export type PaletteMode = 'all' | 'files' | 'text'
 
+/** How the palette opens. `replace` shows Replace in Workspace's box (Text mode only). */
+export type PaletteOpenOptions = { replace?: boolean }
+
 export type ActionPaletteItem = {
     kind: 'action'
     value: string
@@ -55,6 +58,8 @@ export type TextPaletteItem = {
     /** How much of the match `preview` shows: less than `length` for a match longer than the preview. */
     previewMatchLength: number
     source: 'buffer' | 'disk'
+    /** In Replace in Workspace, what the match becomes. */
+    newText?: string
     /** Set on the last search's hits while a new search runs, so they stay in place but can't be opened. */
     disabled?: boolean
 }
@@ -130,6 +135,21 @@ export type PaletteGroup = {
     id: string
     label: string
     items: PaletteItem[]
+    /** Set for one file's matches in Replace in Workspace, whose heading names the file and can replace in it. */
+    file?: PaletteGroupFile
+}
+
+export type PaletteGroupFile = {
+    path: string
+    name: string
+    /** The folder it is in, relative to the workspace ('' at the top). */
+    folder: string
+    /** How many matches the group lists. */
+    matchCount: number
+    /** True when the file has more matches than listed: its heading says '10+'. */
+    capped: boolean
+    /** Set while the matches are from the last search and a new one runs, so they can't be replaced. */
+    disabled?: boolean
 }
 
 export type TextSearchHit = {
@@ -143,4 +163,6 @@ export type TextSearchHit = {
     /** How much of the match `preview` shows: less than `length` for a match longer than the preview. */
     previewMatchLength: number
     source: 'buffer' | 'disk'
+    /** Set when the search was asked for replacements: what the match becomes. */
+    newText?: string
 }

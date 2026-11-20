@@ -193,6 +193,15 @@ describe('describeEditorChordClash', () => {
         expect(describeEditorChordClash({ key: 'r', alt: true }, true, 'palette.openFiles')).toBeNull()
     })
 
+    it("refuses Replace in Workspace's keys for actions that run inside the palette", () => {
+        expect(describeEditorChordClash({ key: '!', ctrl: true, shift: true }, false, 'palette.openReplace')).toBe(
+            'Ctrl+Shift+! is used by Replace in Workspace'
+        )
+        expect(describeEditorChordClash({ key: '1', meta: true, shift: true }, true, 'palette.open')).toBe('⇧⌘1 is used by Replace in Workspace')
+        // Only while the palette is open, so other actions may have them.
+        expect(describeEditorChordClash({ key: '1', ctrl: true, shift: true }, false, 'view.toggleEditor')).toBeNull()
+    })
+
     it('leaves F2 and F10 with other keys held free', () => {
         for (const chord of [
             { key: 'F2', alt: true },

@@ -1,5 +1,6 @@
-/** Runs Find in Workspace's regular expressions off the UI thread. Started by regex-match-client.ts. */
+/** Runs Find and Replace in Workspace's regular expressions off the UI thread. Started by regex-match-client.ts. */
 import type { RegexMatchRequest, RegexMatchResponse } from '@/components/studio/command-palette/regex-match-client'
+import { findReplacements } from '@/components/studio/command-palette/replace-text'
 import { compileTextQuery, matchText, type CompiledTextQuery } from '@/components/studio/command-palette/text-matcher'
 
 type WorkerScope = {
@@ -27,6 +28,11 @@ scope.addEventListener('message', (event) => {
     const compiled = compile(request)
     if (!compiled.ok) {
         scope.postMessage({ type: 'regex-invalid', id: request.id, error: compiled.error })
+        return
+    }
+    if (typeof request.replacement === 'string') {
+        const { replacements, longLinesSkipped } = findReplacements(request.text, compiled.matcher, request.replacement, request.maxHits ?? undefined)
+        scope.postMessage({ type: 'regex-replaced', id: request.id, replacements, longLinesSkipped })
         return
     }
     const { matches, longLinesSkipped } = matchText(request.text, compiled.matcher, request.maxHits ?? undefined)

@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { CommandPaletteDialog } from '@/components/studio/command-palette/command-palette-dialog'
 import { queryForMode, queryFromEditorSelection } from '@/components/studio/command-palette/parse-palette-query'
 import type { WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
-import type { PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
+import type { PaletteItem, PaletteMode, PaletteOpenOptions } from '@/components/studio/command-palette/types'
+import { usePaletteReplace } from '@/components/studio/command-palette/use-palette-replace'
 import { usePaletteSearch } from '@/components/studio/command-palette/use-palette-search'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -14,7 +15,8 @@ import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/wor
 
 type CommandPaletteContextValue = {
     open: () => void
-    openMode: (mode: PaletteMode) => void
+    /** Opens the palette in `mode`, or switches it there. `{ replace: true }` (Text mode) shows the Replace box too. */
+    openMode: (mode: PaletteMode, options?: PaletteOpenOptions) => void
 }
 
 const CommandPaletteContext = createContext<CommandPaletteContextValue | null>(null)
@@ -87,6 +89,10 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
         [updateSettings]
     )
 
+    // Replace in Workspace: whether its box is asked for, and what is typed in it (kept between openings).
+    const [replaceOpen, setReplaceOpen] = useState(false)
+    const [replacement, setReplacement] = useState('')
+
     const {
         query,
         setQuery,
@@ -103,7 +109,25 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
         runItem,
         hasWorkspace,
         emptyHint,
-    } = usePaletteSearch(mode, mounted, searchOptions)
+        replaceActive,
+        textMatcher,
+        textResolved,
+        refreshText,
+        filePaths,
+        showEditor,
+    } = usePaletteSearch(mode, mounted, searchOptions, replaceOpen ? replacement : null)
+
+    const replace = usePaletteReplace({
+        active: replaceActive,
+        matcher: textResolved ? textMatcher : null,
+        replacement,
+        filePaths,
+        refresh: refreshText,
+        queryKey: JSON.stringify([query, searchOptions]),
+        coordinator,
+        showEditor,
+        keepHistory: settings.fileHistory.enabled,
+    })
 
     // Keeps a Find in Workspace search for '@media' a search when the Text filter is removed, not a jump to a heading.
     const setMode = useCallback(
@@ -112,13 +136,17 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
             modeRef.current = nextMode
             setModeState(nextMode)
             setQuery((current) => queryForMode(current, from, nextMode))
+            // The Replace box belongs to Text mode: leaving it closes the box.
+            if (nextMode !== 'text') setReplaceOpen(false)
         },
         [setQuery]
     )
 
     const openPalette = useCallback(
-        (nextMode: PaletteMode = 'all') => {
+        (nextMode: PaletteMode = 'all', options: PaletteOpenOptions = {}) => {
             setMode(nextMode)
+            // Find in Workspace's key closes the Replace box; Replace in Workspace's opens it, even in an open palette.
+            setReplaceOpen(nextMode === 'text' && options.replace === true)
             // Already open (e.g. F1 pressed inside the palette): switch mode but keep what the user typed.
             if (openRef.current) return
 
@@ -205,6 +233,16 @@ export function CommandPaletteProvider({ children, coordinator }: CommandPalette
                     open={open}
                     query={query}
                     queryError={queryError}
+                    replace={
+                        replaceActive
+                            ? {
+                                  value: replacement,
+                                  onChange: setReplacement,
+                                  useRegex: searchOptions.useRegex,
+                                  ...replace,
+                              }
+                            : null
+                    }
                     searchOptions={searchOptions}
                     searchOptionsApply={searchOptionsApply}
                     textCapped={textCapped}

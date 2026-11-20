@@ -52,6 +52,11 @@ describe('plain search', () => {
     it('finds nothing for an empty query', () => {
         expect(found('abc', '')).toEqual([])
     })
+
+    it('lists one match for a character that composes into more than one, never two of the same text', () => {
+        expect(found('xé́́y', '́')).toEqual(['é́́'])
+        expect(found('aज़b', '[ऀ-ॿ]', { useRegex: true })).toEqual(['ज़'])
+    })
 })
 
 describe('Match Case', () => {

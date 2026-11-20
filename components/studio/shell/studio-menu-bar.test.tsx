@@ -767,6 +767,7 @@ describe('StudioMenuBar Edit menu', () => {
             'FindCtrl+F',
             'ReplaceCtrl+H',
             'Find in Workspace…Ctrl+Shift+F',
+            'Replace in Workspace…Ctrl+Shift+H',
             'Go to Line…Ctrl+G',
             'Go to File…Ctrl+Shift+N',
             'BoldCtrl+B',
@@ -780,7 +781,7 @@ describe('StudioMenuBar Edit menu', () => {
     it('runs the command in the editor', async () => {
         render(<Studio editor="ready" />)
 
-        await userEvent.setup().click(within(await openMenu('Edit')).getByRole('menuitem', { name: /^Replace/ }))
+        await userEvent.setup().click(within(await openMenu('Edit')).getByRole('menuitem', { name: 'Replace Ctrl+H' }))
 
         expect(fakeEditor.focus).toHaveBeenCalled()
         expect(fakeEditor.trigger).toHaveBeenCalledWith('scrivon', 'editor.action.startFindReplaceAction', null)
@@ -806,11 +807,21 @@ describe('StudioMenuBar Edit menu', () => {
         expect(openPaletteMode).toHaveBeenCalledWith(mode)
     })
 
+    it('opens the palette with the Replace box from Replace in Workspace…', async () => {
+        render(<Studio editor="ready" />)
+
+        await userEvent.setup().click(within(await openMenu('Edit')).getByRole('menuitem', { name: 'Replace in Workspace… Ctrl+Shift+H' }))
+
+        expect(openPaletteMode).toHaveBeenCalledWith('text', { replace: true })
+    })
+
     it.each<EditorState>(['none', 'hidden'])('turns every editor item off when the editor is %s, but not the palette ones', async (state) => {
         render(<Studio editor={state} />)
 
         const menu = await openMenu('Edit')
-        const palette = ['Find in Workspace… Ctrl+Shift+F', 'Go to File… Ctrl+Shift+N'].map((name) => within(menu).getByRole('menuitem', { name }))
+        const palette = ['Find in Workspace… Ctrl+Shift+F', 'Replace in Workspace… Ctrl+Shift+H', 'Go to File… Ctrl+Shift+N'].map((name) =>
+            within(menu).getByRole('menuitem', { name })
+        )
         const editorItems = within(menu)
             .getAllByRole('menuitem')
             .filter((item) => !palette.includes(item))
@@ -935,7 +946,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(61)
+        expect(compared).toBe(62)
     })
 })
 
