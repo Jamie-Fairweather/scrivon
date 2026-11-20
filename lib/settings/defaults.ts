@@ -130,6 +130,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             tabMovesFocus: false,
             scrollSync: true,
             jumpFromPreview: true,
+            checkLinks: true,
             dimOtherParagraphs: false,
         },
         workspace: {

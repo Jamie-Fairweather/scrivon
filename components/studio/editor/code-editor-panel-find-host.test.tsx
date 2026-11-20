@@ -19,6 +19,7 @@ vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'test-them
 vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({
     useEditorSpellcheck: () => ({ attach: () => ({ dispose: () => {} }), misspeltWordAt: () => null }),
 }))
+vi.mock('@/components/studio/editor/use-editor-link-check', () => ({ useEditorLinkCheck: () => () => ({ dispose: () => {} }) }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { editor: { fontSize: 13, tabSize: 2, wordWrap: 'on', lineNumbers: 'on', minimap: false } } }),
 }))

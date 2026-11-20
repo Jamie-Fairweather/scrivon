@@ -250,6 +250,7 @@ export function mergeStoredSettings(raw: unknown, isMac = isMacPlatform()): AppS
             tabMovesFocus: typeof source.editor?.tabMovesFocus === 'boolean' ? source.editor.tabMovesFocus : defaults.editor.tabMovesFocus,
             scrollSync: typeof source.editor?.scrollSync === 'boolean' ? source.editor.scrollSync : defaults.editor.scrollSync,
             jumpFromPreview: typeof source.editor?.jumpFromPreview === 'boolean' ? source.editor.jumpFromPreview : defaults.editor.jumpFromPreview,
+            checkLinks: typeof source.editor?.checkLinks === 'boolean' ? source.editor.checkLinks : defaults.editor.checkLinks,
             dimOtherParagraphs:
                 typeof source.editor?.dimOtherParagraphs === 'boolean' ? source.editor.dimOtherParagraphs : defaults.editor.dimOtherParagraphs,
         },

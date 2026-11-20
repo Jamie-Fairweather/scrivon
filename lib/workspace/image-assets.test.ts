@@ -60,8 +60,17 @@ vi.mock('@tauri-apps/plugin-fs', () => disk.fs)
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@/lib/tauri/platform', () => ({ isTauri: () => true }))
 
-const { ImageTooBigError, MAX_IMAGE_BYTES, addDroppedImage, isImageFile, markdownImage, pastedImageName, saveImageInAssets } =
-    await import('./image-assets')
+const {
+    ImageTooBigError,
+    MAX_IMAGE_BYTES,
+    addDroppedImage,
+    documentLinkAddress,
+    encodeLinkText,
+    isImageFile,
+    markdownImage,
+    pastedImageName,
+    saveImageInAssets,
+} = await import('./image-assets')
 
 const DOC = 'C:\\notes\\guides\\setup.md'
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
@@ -90,6 +99,26 @@ describe('markdownImage', () => {
             '![My chart (v2) #1 100%](assets/My%20chart%20%28v2%29%20%231%20100%25.png)'
         )
         expect(markdownImage(DOC, 'C:\\notes\\guides\\[draft] é.png')).toBe('![\\[draft\\] é](%5Bdraft%5D%20é.png)')
+    })
+})
+
+describe('documentLinkAddress', () => {
+    it('is the way from the document’s folder, with / and .. between names', () => {
+        expect(documentLinkAddress(DOC, 'C:\\notes\\guides\\install.md')).toBe('install.md')
+        expect(documentLinkAddress(DOC, 'C:\\notes\\guides\\sub\\deep\\a.md')).toBe('sub/deep/a.md')
+        expect(documentLinkAddress(DOC, 'C:\\notes\\other\\b.md')).toBe('../other/b.md')
+        expect(documentLinkAddress('C:\\notes\\a\\b\\c.md', 'C:\\notes\\x.md')).toBe('../../x.md')
+        expect(documentLinkAddress('/home/me/notes/a.md', '/home/me/b.md')).toBe('../b.md')
+    })
+
+    it('ignores letter case where the paths meet on Windows, and keeps the target’s own spelling', () => {
+        expect(documentLinkAddress('c:\\NOTES\\Guides\\setup.md', 'C:\\notes\\guides\\Set-Up.md')).toBe('Set-Up.md')
+        expect(documentLinkAddress(DOC, 'C:\\Notes\\Img\\Logo.PNG')).toBe('../Img/Logo.PNG')
+    })
+
+    it('percent-encodes spaces, #, %, brackets and parentheses', () => {
+        expect(documentLinkAddress(DOC, 'C:\\notes\\guides\\my file #2 100% [x] (y).md')).toBe('my%20file%20%232%20100%25%20%5Bx%5D%20%28y%29.md')
+        expect(encodeLinkText('a b?<c>')).toBe('a%20b%3F%3Cc%3E')
     })
 })
 

@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest'
 import type { FileNode } from '@/lib/workspace/types'
 import {
     anchorKey,
+    anchorLeadsSomewhere,
+    findAnchorId,
     isPathInside,
     isSamePath,
+    isTopOfDocument,
     markdownUrlTransform,
     resolveMarkdownLink,
     workspaceFilePath,
@@ -25,6 +28,38 @@ describe('anchorKey', () => {
             expect(anchorKey(github!)).toBe(anchorKey(exported!))
         }
         expect(anchorKey('🚀')).toBe('')
+    })
+})
+
+describe('findAnchorId', () => {
+    const ids = ['install', 'foo-bar', 'Setup', 'fn-1', 'fnref-1', 'custom']
+
+    it('matches an exact id first, then letter case, then the id rules', () => {
+        expect(findAnchorId(ids, 'install')).toBe('install')
+        expect(findAnchorId(ids, 'INSTALL')).toBe('install')
+        expect(findAnchorId(ids, 'setup')).toBe('Setup')
+        expect(findAnchorId(ids, 'foo--bar')).toBe('foo-bar')
+        expect(findAnchorId(['a-b', 'A-B'], 'A-B')).toBe('A-B')
+        expect(findAnchorId(['x', 'Install', 'install'], 'install')).toBe('install')
+        expect(findAnchorId(ids, 'fn-1')).toBe('fn-1')
+        expect(findAnchorId(ids, 'fnref-1')).toBe('fnref-1')
+        expect(findAnchorId(ids, 'nowhere')).toBeNull()
+        expect(findAnchorId([], 'install')).toBeNull()
+    })
+
+    it('still matches a fragment written with the preview prefix', () => {
+        expect(findAnchorId(ids, 'user-content-install')).toBe('install')
+        expect(findAnchorId(ids, 'user-content-nowhere')).toBeNull()
+    })
+
+    it('counts a bare # and #top in any case as the top of the document', () => {
+        expect(isTopOfDocument('')).toBe(true)
+        expect(isTopOfDocument('Top')).toBe(true)
+        expect(isTopOfDocument('topic')).toBe(false)
+        expect(anchorLeadsSomewhere([], '')).toBe(true)
+        expect(anchorLeadsSomewhere([], 'TOP')).toBe(true)
+        expect(findAnchorId(['top'], 'TOP')).toBe('top')
+        expect(anchorLeadsSomewhere(ids, 'missing')).toBe(false)
     })
 })
 

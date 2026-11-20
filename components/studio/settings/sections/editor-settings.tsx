@@ -126,6 +126,13 @@ export function EditorSettings() {
                 onChange={(jumpFromPreview) => setEditor({ jumpFromPreview })}
             />
 
+            <SwitchSetting
+                label="Check links"
+                description="Underline links, images and #headings in Markdown files that lead to nothing in the open folder. Press Ctrl+. on one for the closest matches."
+                checked={settings.editor.checkLinks}
+                onChange={(checkLinks) => setEditor({ checkLinks })}
+            />
+
             <Field>
                 <FieldLabel>Editor width</FieldLabel>
                 <FieldDescription>

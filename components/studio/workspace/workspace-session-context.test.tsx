@@ -50,6 +50,7 @@ import {
 import type { FileNode } from '@/lib/workspace/types'
 import { gitRowMark, NO_GIT_CHANGES } from '@/lib/workspace/git-status'
 import { GIT_REFRESH_WAIT_MS } from '@/lib/workspace/git-status-refresh'
+import { forgetLinkTargets } from '@/lib/workspace/link-target-cache'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { DocumentSaveProvider } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
@@ -85,6 +86,7 @@ vi.mock('@/lib/tauri/store', () => ({
 }))
 
 vi.mock('@/lib/workspace/workspace-images', () => ({ forgetWorkspaceImages: vi.fn() }))
+vi.mock('@/lib/workspace/link-target-cache', () => ({ forgetLinkTargets: vi.fn() }))
 
 // Off in most tests (the setting is left out); see 'git changes in the explorer'.
 vi.mock('@/lib/tauri/git', () => ({ readGitStatus: vi.fn(async () => ({ state: 'none' })) }))
@@ -1964,6 +1966,25 @@ describe('changes made outside Scrivon', () => {
                 windowFocus.handler!({ payload: true })
             })
             expect(forgetWorkspaceImages).not.toHaveBeenCalled()
+        })
+
+        it('has the link check ask the disk again about links the tree can’t vouch for, on a change and on every focus', async () => {
+            const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+            await openWatched(result)
+            expect(forgetLinkTargets).toHaveBeenCalledWith()
+
+            vi.mocked(forgetLinkTargets).mockClear()
+            await act(async () => {
+                report!({ type: { create: { kind: 'file' } }, paths: ['C:\\ws\\docs\\new.md'], attrs: null })
+            })
+            await waitFor(() => expect(forgetLinkTargets).toHaveBeenCalledWith(expect.arrayContaining(['C:\\ws\\docs\\new.md'])))
+
+            // The watcher drops events in hidden folders, and some folders aren't watched, so focus forgets them all.
+            vi.mocked(forgetLinkTargets).mockClear()
+            await act(async () => {
+                windowFocus.handler!({ payload: true })
+            })
+            expect(forgetLinkTargets).toHaveBeenCalledExactlyOnceWith()
         })
 
         it('reads a folder’s images again when it is opened again, as nothing watched them while it was closed (F02)', async () => {

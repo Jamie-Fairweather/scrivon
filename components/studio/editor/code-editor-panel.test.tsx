@@ -495,6 +495,8 @@ vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({
         misspeltWordAt: (position: { column: number }) => (position.column <= 4 ? spellcheck.misspelt : null),
     }),
 }))
+// The link check has its own tests (lib/monaco/link-check.test.ts, and with the real Monaco in the quick fix test).
+vi.mock('@/components/studio/editor/use-editor-link-check', () => ({ useEditorLinkCheck: () => () => ({ dispose: () => {} }) }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
 const { CommandRegistryProvider, useCommands } = await import('@/components/studio/commands/command-registry')

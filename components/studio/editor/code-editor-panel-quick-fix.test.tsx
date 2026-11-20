@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { editor } from 'monaco-editor'
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
 import { tabFromExample } from '@/lib/examples/example-tab'
-import type { DocumentTab } from '@/lib/workspace/types'
+import { LINK_CHECK_MARKER_OWNER } from '@/lib/monaco/link-check'
+import { SPELLCHECK_MARKER_OWNER } from '@/lib/monaco/spellcheck'
+import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 
 // The real Monaco and @monaco-editor/react this time (code-editor-panel.test.tsx uses a stand-in), because
 // whether Ctrl+. works depends on the order in which they change the editor when the tab changes. Only the
@@ -40,7 +42,7 @@ const NOTE: DocumentTab = {
     id: '/w/note.md',
     path: '/w/note.md',
     name: 'note.md',
-    content: 'This is a helo world.\n',
+    content: 'This is a helo world. See [setup](<docs/setp.md> "Setup").\n',
     isDirty: false,
     isSaving: false,
 }
@@ -55,6 +57,9 @@ const CHART: DocumentTab = {
 /** Examples open read-only. */
 const DIAGRAM_EXAMPLE = tabFromExample(APP_EXAMPLES.find((example) => example.category !== 'markdown')!)
 const MISSPELT = 'helo'
+/** The link in NOTE that leads nowhere: the folder has docs/setup.md. */
+const BROKEN_LINK = 'docs/setp.md'
+const TREE: FileNode[] = [{ kind: 'directory', name: 'docs', path: '/w/docs', children: [{ kind: 'file', name: 'setup.md', path: '/w/docs/setup.md' }] }]
 
 let tabs: DocumentTab[] = [NOTE, CHART, DIAGRAM_EXAMPLE]
 let activeTabId = NOTE.id
@@ -67,7 +72,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     }),
     useDocumentTabActions: () => ({ makeTabEditable: () => {} }),
     useWorkspaceCoordinator: () => ({}),
-    useWorkspaceSession: () => ({ workspaceRoot: '/w' }),
+    useWorkspaceSession: () => ({ workspaceRoot: '/w', tree: TREE }),
 }))
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
 vi.mock('@/components/theme/app-theme-provider', () => ({ useAppTheme: () => ({ isLight: true, tokens: {} }) }))
@@ -75,7 +80,7 @@ vi.mock('@/lib/theme/monaco-theme', () => ({ MONACO_DIAGRAM_THEME_ID: 'vs', defi
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({
         settings: {
-            editor: { fontSize: 13, tabSize: 2, wordWrap: 'on', wordWrapColumn: 80, lineNumbers: 'on', minimap: false, tabMovesFocus: false },
+            editor: { fontSize: 13, tabSize: 2, wordWrap: 'on', wordWrapColumn: 80, lineNumbers: 'on', minimap: false, tabMovesFocus: false, checkLinks: true },
             spellcheck: { enabled: true, language: 'en-GB', words: [] },
         },
         updateSettings: () => {},
@@ -94,6 +99,11 @@ const spellcheckClient = {
     suggest: async () => ['hello'],
 }
 vi.mock('@/lib/spellcheck/spellcheck-client', () => ({ getSpellcheckClient: () => spellcheckClient }))
+// The links are read on this thread (the reader's own tests cover the worker).
+vi.mock('@/lib/markdown/links-reader', async () => {
+    const { readDocumentLinks } = await import('@/lib/markdown/document-links')
+    return { getLinksReader: () => ({ read: async (source: string) => readDocumentLinks(source), dispose: () => {} }) }
+})
 
 // Points the loader at the Monaco loaded above, so loader.init() below doesn't go to the CDN.
 await import('@/lib/monaco/setup-monaco')
@@ -119,12 +129,19 @@ async function show(view: ReturnType<typeof render>, codeEditor: editor.IStandal
     await waitFor(() => expect(codeEditor.getModel()?.getValue()).toBe(tab.content))
 }
 
-/** Puts the caret in the misspelt word, presses Ctrl+. and returns what the quick fix list offers. */
-async function pressQuickFixOnMisspeltWord(monaco: MonacoApi, codeEditor: editor.IStandaloneCodeEditor, when: string): Promise<string[]> {
+/**
+ * Puts the caret in `text` once `owner` has underlined it, presses Ctrl+. and returns what the quick fix list offers.
+ * With `choose`, picks the first fix (Enter) rather than closing the list.
+ */
+async function pressQuickFixOn(
+    monaco: MonacoApi,
+    codeEditor: editor.IStandaloneCodeEditor,
+    { text, owner, when, choose = false }: { text: string; owner: string; when: string; choose?: boolean }
+): Promise<string[]> {
     const model = codeEditor.getModel()!
-    // The word is underlined once the spell check has run.
-    await waitFor(() => expect(monaco.editor.getModelMarkers({ resource: model.uri })).toHaveLength(1))
-    const start = model.getPositionAt(model.getValue().indexOf(MISSPELT))
+    // Underlined once the check has run.
+    await waitFor(() => expect(monaco.editor.getModelMarkers({ resource: model.uri, owner })).toHaveLength(1))
+    const start = model.getPositionAt(model.getValue().indexOf(text))
     codeEditor.focus()
     codeEditor.setPosition({ lineNumber: start.lineNumber, column: start.column + 1 })
     const typingArea = codeEditor.getContainerDomNode().querySelector('textarea')!
@@ -138,10 +155,18 @@ async function pressQuickFixOnMisspeltWord(monaco: MonacoApi, codeEditor: editor
         offered = [...document.querySelectorAll('.action-widget [role="option"] .title')].map((title) => title.textContent ?? '')
         expect(offered, `the quick fix list ${when}`).not.toHaveLength(0)
     })
+    // Enter goes to the list, which has focus while it shows; Escape closes it from the editor too.
+    const target = choose ? (document.activeElement ?? typingArea) : typingArea
+    const key = choose ? { key: 'Enter', code: 'Enter', keyCode: 13 } : { key: 'Escape', code: 'Escape', keyCode: 27 }
     act(() => {
-        typingArea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true, cancelable: true }))
+        target.dispatchEvent(new KeyboardEvent('keydown', { ...key, bubbles: true, cancelable: true }))
     })
     return offered
+}
+
+/** Puts the caret in the misspelt word, presses Ctrl+. and returns what the quick fix list offers. */
+function pressQuickFixOnMisspeltWord(monaco: MonacoApi, codeEditor: editor.IStandaloneCodeEditor, when: string): Promise<string[]> {
+    return pressQuickFixOn(monaco, codeEditor, { text: MISSPELT, owner: SPELLCHECK_MARKER_OWNER, when })
 }
 
 describe('CodeEditorPanel quick fixes (Ctrl+.)', () => {
@@ -179,6 +204,33 @@ describe('CodeEditorPanel quick fixes (Ctrl+.)', () => {
         await waitFor(() => expect(codeEditor.getOption(monaco.editor.EditorOption.readOnly)).toBe(false))
         expect(codeEditor.getModel()).toBe(model)
         expect(await pressQuickFixOnMisspeltWord(monaco, codeEditor, 'after Edit as UTF-8 in place')).toContain('Change to “hello”')
+        view.unmount()
+    })
+
+    it('offers the link fixes on a broken link next to the spelling fixes, also after a read-only example, and undoes a fix in one step', async () => {
+        const view = render(<CodeEditorPanel width={600} onWidthChange={() => {}} />)
+        const { monaco, editor: codeEditor } = await mountedEditor()
+        const link = { text: BROKEN_LINK, owner: LINK_CHECK_MARKER_OWNER }
+
+        const linkFixes = await pressQuickFixOn(monaco, codeEditor, { ...link, when: 'on the link' })
+        expect(linkFixes).toEqual(['Change to docs/setup.md'])
+        const marker = monaco.editor.getModelMarkers({ resource: codeEditor.getModel()!.uri, owner: LINK_CHECK_MARKER_OWNER })[0]!
+        expect(marker).toMatchObject({ severity: monaco.MarkerSeverity.Warning, message: 'No file called docs/setp.md in this folder.' })
+        // Each answers only for its own marks.
+        const spelling = await pressQuickFixOnMisspeltWord(monaco, codeEditor, 'on the word')
+        expect(spelling).toContain('Change to “hello”')
+        expect(spelling).not.toContain('Change to docs/setup.md')
+
+        await show(view, codeEditor, DIAGRAM_EXAMPLE)
+        await show(view, codeEditor, NOTE)
+        expect(await pressQuickFixOn(monaco, codeEditor, { ...link, when: 'after the example', choose: true })).toEqual(['Change to docs/setup.md'])
+        const model = codeEditor.getModel()!
+        // Only the path changes: the angle brackets and the title stay.
+        await waitFor(() => expect(model.getValue()).toBe('This is a helo world. See [setup](<docs/setup.md> "Setup").\n'))
+        await waitFor(() => expect(monaco.editor.getModelMarkers({ resource: model.uri, owner: LINK_CHECK_MARKER_OWNER })).toHaveLength(0))
+
+        act(() => codeEditor.trigger('test', 'undo', null))
+        expect(model.getValue()).toBe(NOTE.content)
         view.unmount()
     })
 })

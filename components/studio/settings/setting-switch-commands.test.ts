@@ -28,6 +28,7 @@ describe('buildSettingSwitchCommands', () => {
             { id: 'toggle-spellcheck', label: 'Spell Check', checked: true },
             { id: 'toggle-scroll-sync', label: 'Scroll Editor with Preview', checked: false },
             { id: 'toggle-jump-from-preview', label: 'Jump to Editor on Double-Click', checked: true },
+            { id: 'toggle-check-links', label: 'Check Links', checked: true },
             { id: 'toggle-dim-other-paragraphs', label: 'Dim Other Paragraphs', checked: false },
         ])
     })
@@ -63,6 +64,8 @@ describe('buildSettingSwitchCommands', () => {
         const jump = runOn(settings, 'toggle-jump-from-preview')
         expect(jump.editor).toEqual({ ...settings.editor, jumpFromPreview: !settings.editor.jumpFromPreview })
 
+        const links = runOn(settings, 'toggle-check-links')
+        expect(links.editor).toEqual({ ...settings.editor, checkLinks: false })
         const dim = runOn(settings, 'toggle-dim-other-paragraphs')
         expect(dim.editor).toEqual({ ...settings.editor, dimOtherParagraphs: !settings.editor.dimOtherParagraphs })
     })

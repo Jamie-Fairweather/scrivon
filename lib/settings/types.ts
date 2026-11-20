@@ -130,6 +130,8 @@ export type AppSettings = {
         scrollSync: boolean
         /** Double-clicking the Markdown preview moves the editor's cursor to that line. */
         jumpFromPreview: boolean
+        /** Underlines links, images and `#anchors` in Markdown files that lead nowhere in the open folder. */
+        checkLinks: boolean
         /** Fades every line but the paragraph (or paragraphs) the cursor or selection is in. */
         dimOtherParagraphs: boolean
     }

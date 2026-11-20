@@ -72,16 +72,26 @@ function relativePath(folder: string, path: string): string {
     return [...from.slice(shared).map(() => '..'), ...to.slice(shared)].join('/')
 }
 
+/** `text` with what would end or break a link's address percent-encoded (`my file.png` is `my%20file.png`). */
+export function encodeLinkText(text: string): string {
+    return text.replace(LINK_UNSAFE, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`)
+}
+
+/**
+ * The address a link in the document at `documentPath` writes for `targetPath`: the way there from the document's
+ * folder, with `/` between names and what would break the link percent-encoded, as the preview reads it back
+ * (`../img/my%20chart.png`). Letter case is ignored where the paths meet on Windows; the target's own spelling is kept.
+ */
+export function documentLinkAddress(documentPath: string, targetPath: string): string {
+    return encodeLinkText(relativePath(getParentPath(documentPath), targetPath))
+}
+
 /** The Markdown that shows `imagePath` in the document at `documentPath`: `![chart](assets/chart.png)`. */
 export function markdownImage(documentPath: string, imagePath: string): string {
     const alt = getBaseName(imagePath)
         .replace(/\.[^.]*$/, '')
         .replace(/[[\]\\]/g, '\\$&')
-    const address = relativePath(getParentPath(documentPath), imagePath).replace(
-        LINK_UNSAFE,
-        (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
-    )
-    return `![${alt}](${address})`
+    return `![${alt}](${documentLinkAddress(documentPath, imagePath)})`
 }
 
 /** The folder next to a document that its pasted and dropped images go in. */

@@ -1,4 +1,4 @@
-import { documentKind, getBaseName, stampChanged } from '@/lib/tauri/fs'
+import { comparablePath, documentKind, getBaseName, stampChanged } from '@/lib/tauri/fs'
 import type { FileStamp } from '@/lib/workspace/types'
 import { matchFile as defaultMatchFile, REGEX_FILE_TIME_LIMIT_MS, type MatchFile } from '@/components/studio/command-palette/regex-match-client'
 import { relativePath } from '@/components/studio/command-palette/search-files'
@@ -148,6 +148,42 @@ function matchesToHits(content: string, matches: TextMatch[], path: string, sour
     })
 }
 
+/** An open tab's file and its text as the tab has it now, unsaved edits included. */
+export type OpenFileText = { path: string; content: string }
+
+/** The open tabs' texts, as tabs (`{ path, content }`) or as a map from path to text. */
+export type OpenFileTexts = Iterable<OpenFileText> | ReadonlyMap<string, string>
+
+function* eachOpenText(open: OpenFileTexts): Iterable<OpenFileText> {
+    if (open instanceof Map) {
+        for (const [path, content] of open as ReadonlyMap<string, string>) yield { path, content }
+    } else {
+        yield* open as Iterable<OpenFileText>
+    }
+}
+
+/**
+ * The text of `path` from the tab it is open in, however its path is written (`Docs\Other.MD` finds the tab opened
+ * as `docs/other.md`, see samePath), or undefined when no tab has it. Never reads the disk.
+ */
+export function openTabText(open: OpenFileTexts, path: string): string | undefined {
+    const key = comparablePath(path)
+    for (const tab of eachOpenText(open)) {
+        if (comparablePath(tab.path) === key) return tab.content
+    }
+    return undefined
+}
+
+/**
+ * A file's text: the open tab's when a tab has it (so unsaved edits win over what is on disk), otherwise what
+ * `readFile` reads from disk. Without a reader the disk is never read, and a file no tab has gives undefined.
+ */
+export async function fileText(path: string, open: OpenFileTexts, readFile?: (path: string) => Promise<string>): Promise<string | undefined> {
+    const inTab = openTabText(open, path)
+    if (inTab !== undefined || !readFile) return inTab
+    return readFile(path)
+}
+
 /** Why a regex search stopped before it had looked at every file. */
 export type SearchStop = { reason: 'timedOut'; path: string } | { reason: 'unavailable' }
 
@@ -239,7 +275,8 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
     } = opts
 
     const hits: TextSearchHit[] = []
-    const bufferPaths = new Set(openBuffers.keys())
+    // However each spells the path, so a file open in a tab is searched once, in the tab's text.
+    const bufferPaths = new Set([...openBuffers.keys()].map(comparablePath))
     let truncatedFiles = 0
     let longLinesSkipped = 0
     let stopped: SearchStop | null = null
@@ -293,7 +330,7 @@ export async function searchWorkspaceContent(opts: SearchWorkspaceContentOptions
         if (scan.signal.aborted) return signal.aborted ? NO_RESULT : finish(false, 0)
     }
 
-    const diskPaths = paths.filter((path) => !bufferPaths.has(path))
+    const diskPaths = paths.filter((path) => !bufferPaths.has(comparablePath(path)))
 
     let unreadableFiles = 0
 
