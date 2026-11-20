@@ -50,16 +50,37 @@ afterEach(() => {
 })
 
 describe('createLinksReader', () => {
-    it('reads in the worker and answers each read with its own result', async () => {
+    it('reads in the worker one text at a time and answers each read with its own result', async () => {
         const reader = await loadReader()
         const first = reader.read('# One')
         const second = reader.read('# Two')
         const worker = FakeWorker.instances[0]!
-        expect(worker.posted.map((request) => request.source)).toEqual(['# One', '# Two'])
-        worker.emit('message', { type: 'links-read', id: worker.posted[1]!.id, links: { links: [], anchors: ['two'] } })
+        expect(worker.posted.map((request) => request.source)).toEqual(['# One'])
         worker.emit('message', { type: 'links-read', id: worker.posted[0]!.id, links: FROM_WORKER })
         expect(await first).toEqual(FROM_WORKER)
+        expect(worker.posted.map((request) => request.source)).toEqual(['# One', '# Two'])
+        worker.emit('message', { type: 'links-read', id: worker.posted[1]!.id, links: { links: [], anchors: ['two'] } })
         expect(await second).toEqual({ links: [], anchors: ['two'] })
+    })
+
+    it('reads only the newest waiting text of a document, and rejects the ones it replaced', async () => {
+        const { createLinksReader, LinksReadSuperseded } = await import('@/lib/markdown/links-reader')
+        const reader = createLinksReader()
+        const running = reader.read('# Typing 1', 'doc')
+        const replaced = reader.read('# Typing 2', 'doc')
+        const otherTab = reader.read('# Other', 'other')
+        const newest = reader.read('# Typing 3', 'doc')
+        const worker = FakeWorker.instances[0]!
+        await expect(replaced).rejects.toBeInstanceOf(LinksReadSuperseded)
+
+        worker.emit('message', { type: 'links-read', id: worker.posted[0]!.id, links: FROM_WORKER })
+        expect(await running).toEqual(FROM_WORKER)
+        worker.emit('message', { type: 'links-read', id: worker.posted[1]!.id, links: { links: [], anchors: ['other'] } })
+        expect(await otherTab).toEqual({ links: [], anchors: ['other'] })
+        worker.emit('message', { type: 'links-read', id: worker.posted[2]!.id, links: { links: [], anchors: ['three'] } })
+        expect(await newest).toEqual({ links: [], anchors: ['three'] })
+        // The replaced text never reached the worker, and nothing waits on it.
+        expect(worker.posted.map((request) => request.source)).toEqual(['# Typing 1', '# Other', '# Typing 3'])
     })
 
     it('reads on the main thread when the worker cannot start', async () => {
@@ -70,19 +91,23 @@ describe('createLinksReader', () => {
 
     it('reads what the worker had not answered on the main thread when it fails, and everything after', async () => {
         const reader = await loadReader()
-        const waiting = reader.read('# Lost')
+        const running = reader.read('# Lost')
+        const waiting = reader.read('# Queued')
         const worker = FakeWorker.instances[0]!
         worker.emit('error')
         expect(worker.terminated).toBe(true)
-        expect((await waiting).anchors).toEqual(['lost'])
+        expect((await running).anchors).toEqual(['lost'])
+        expect((await waiting).anchors).toEqual(['queued'])
         expect((await reader.read('[a](b.md)')).links.map((link) => link.url)).toEqual(['b.md'])
         expect(FakeWorker.instances).toHaveLength(1)
     })
 
     it('answers waiting reads with nothing once disposed', async () => {
         const reader = await loadReader()
-        const waiting = reader.read('# Never')
+        const running = reader.read('# Never')
+        const waiting = reader.read('# Never either')
         reader.dispose()
+        expect(await running).toEqual({ links: [], anchors: [] })
         expect(await waiting).toEqual({ links: [], anchors: [] })
         expect(FakeWorker.instances[0]!.terminated).toBe(true)
     })

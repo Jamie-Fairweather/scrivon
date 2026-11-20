@@ -219,8 +219,11 @@ export function documentLinks(source: string): DocumentLinks {
     const imageReferences = new Set<string>()
     const linkReferences = new Set<string>()
     visit(tree, (node) => {
-        if (node.type === 'definition') definitions.set((node as Definition).identifier, (node as Definition).url)
-        else if (node.type === 'imageReference') imageReferences.add((node as ImageReference).identifier)
+        // The first definition of a label is the one links use, as in CommonMark and the preview.
+        if (node.type === 'definition') {
+            const { identifier, url } = node as Definition
+            if (!definitions.has(identifier)) definitions.set(identifier, url)
+        } else if (node.type === 'imageReference') imageReferences.add((node as ImageReference).identifier)
         else if (node.type === 'linkReference') linkReferences.add((node as LinkReference).identifier)
     })
 
@@ -304,15 +307,52 @@ export function readDocumentLinks(source: string): DocumentLinks {
     }
 }
 
+/** Whether a `#` or `?` (escaped or not) is at `i` in an address as written; how many characters it takes, or 0. */
+function delimiterAt(written: string, i: number, delimiters: string): number {
+    const c = written[i]
+    if (c !== undefined && delimiters.includes(c)) return 1
+    if (c === '\\' && written[i + 1] !== undefined && delimiters.includes(written[i + 1]!)) return 2
+    return 0
+}
+
 /**
- * Where the path ends in an address as written: before its `?query` or `#fragment`. An escaped `\#` or `\?` is part
- * of the path.
+ * Where the path ends in an address as written: before its `?query` or `#fragment`. An escaped `\#` or `\?` ends it
+ * too, as the parser's url has the escape undone and the preview splits it there (resolveMarkdownLink); an escaped
+ * backslash (`\\`) doesn't.
  */
 export function addressPathLength(written: string): number {
     for (let i = 0; i < written.length; i += 1) {
-        const c = written[i]
-        if (c === '\\') i += 1
-        else if (c === '#' || c === '?') return i
+        if (delimiterAt(written, i, '#?')) return i
+        if (written[i] === '\\') i += 1
     }
     return written.length
+}
+
+/** Where the path ends and the fragment (after its `#`) starts in an address as written. */
+export type AddressParts = { pathEnd: number; fragmentStart: number | null }
+
+/**
+ * The path and fragment of an address as written, split where the preview splits the parser's `url` (the first `#`,
+ * and a `?` before it). Null when the written parts don't read back as the url's (a `&#35;` written for the `#`, say),
+ * so nothing is changed in the wrong place.
+ */
+export function addressParts(written: string, url: string): AddressParts | null {
+    const pathEnd = addressPathLength(written)
+    const hash = url.indexOf('#')
+    const beforeHash = hash >= 0 ? url.slice(0, hash) : url
+    const query = beforeHash.indexOf('?')
+    if (readAddress(written.slice(0, pathEnd)) !== (query >= 0 ? beforeHash.slice(0, query) : beforeHash)) return null
+
+    let fragmentStart: number | null = null
+    for (let i = pathEnd; i < written.length; i += 1) {
+        const width = delimiterAt(written, i, '#')
+        if (width) {
+            fragmentStart = i + width
+            break
+        }
+        if (written[i] === '\\') i += 1
+    }
+    if (hash < 0) return fragmentStart === null ? { pathEnd, fragmentStart } : null
+    if (fragmentStart === null || readAddress(written.slice(fragmentStart)) !== url.slice(hash + 1)) return null
+    return { pathEnd, fragmentStart }
 }

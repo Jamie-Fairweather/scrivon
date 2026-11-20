@@ -181,6 +181,17 @@ describe('findBrokenLinks', () => {
         expect(checkOnDisk).not.toHaveBeenCalled()
     })
 
+    it('splits an escaped \\# where the preview does, so the message and the fix are about what the link leads to', async () => {
+        const source = '## X md\n\n[a](\\#x.md) [b](nope\\#sec.md)'
+        const found = await findBrokenLinks(source, documentLinks(source), context())
+        expect(found.map((link) => link.message)).toEqual(['This file has no heading for #x.md.', 'No file called nope in this folder.'])
+        expect(found.map((link) => source.slice(link.fix.span.start, link.fix.span.end))).toEqual(['x.md', 'nope'])
+    })
+
+    it('leaves a link alone when its written address cannot be split as the parsed one', async () => {
+        expect(await broken('[a](gone&#35;part.md)')).toEqual([])
+    })
+
     it('marks no more than the cap in one file', async () => {
         const source = Array.from({ length: MAX_LINK_MARKS + 50 }, (_, k) => `[x](gone-${k}.md)`).join('\n')
         expect(await broken(source)).toHaveLength(MAX_LINK_MARKS)

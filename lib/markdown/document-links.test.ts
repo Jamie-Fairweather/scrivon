@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addressPathLength, documentLinks, readDocumentLinks, type DocumentLink } from '@/lib/markdown/document-links'
+import { addressParts, addressPathLength, documentLinks, readDocumentLinks, type DocumentLink } from '@/lib/markdown/document-links'
 
 /** The text each link's address span covers. */
 function addresses(source: string): (string | null)[] {
@@ -39,6 +39,11 @@ describe('documentLinks', () => {
         expect(links.find((link) => link.kind === 'definition')).toMatchObject({ image: true })
         expect(links.find((link) => link.kind === 'reference')).toMatchObject({ image: true })
         expect(documentLinks('[a][x] ![b][x]\n\n[x]: x.md\n').links.find((link) => link.kind === 'definition')?.image).toBeUndefined()
+    })
+
+    it('gives a reference the first definition of its label, as the preview links it', () => {
+        const { links } = documentLinks('[a]: x.md\n[A]: y.md\n\n[a]')
+        expect(links.find((link) => link.kind === 'reference')).toMatchObject({ url: 'x.md', identifier: 'a' })
     })
 
     it('gives the exact address span inside angle brackets, escapes, nested parentheses and before a title', () => {
@@ -122,10 +127,31 @@ describe('documentLinks', () => {
 })
 
 describe('addressPathLength', () => {
-    it('ends the path before the query or fragment, not at an escaped one', () => {
+    it('ends the path before the query or fragment, escaped or not, as the preview splits the parsed url', () => {
         expect(addressPathLength('docs/a.md#part')).toBe(9)
         expect(addressPathLength('docs/a.md?x=1#part')).toBe(9)
-        expect(addressPathLength('a\\#b.md')).toBe(7)
+        // `\#` is `#` once the parser has read it, and the preview takes it as the start of the fragment.
+        expect(addressPathLength('a\\#b.md')).toBe(1)
+        expect(addressPathLength('a\\?b.md')).toBe(1)
+        // An escaped backslash doesn't escape the `#` after it.
+        expect(addressPathLength('a\\\\#b')).toBe(3)
         expect(addressPathLength('#only')).toBe(0)
+    })
+})
+
+describe('addressParts', () => {
+    it('splits the written address where the parsed url splits', () => {
+        expect(addressParts('docs/a.md#part', 'docs/a.md#part')).toEqual({ pathEnd: 9, fragmentStart: 10 })
+        expect(addressParts('docs/a.md?x=1#part', 'docs/a.md?x=1#part')).toEqual({ pathEnd: 9, fragmentStart: 14 })
+        expect(addressParts('docs/a.md', 'docs/a.md')).toEqual({ pathEnd: 9, fragmentStart: null })
+        expect(addressParts('\\#x.md', '#x.md')).toEqual({ pathEnd: 0, fragmentStart: 2 })
+        expect(addressParts('nope\\#sec.md', 'nope#sec.md')).toEqual({ pathEnd: 4, fragmentStart: 6 })
+        expect(addressParts('a\\(1\\).md', 'a(1).md')).toEqual({ pathEnd: 9, fragmentStart: null })
+    })
+
+    it('gives nothing when the written parts do not read back as the url’s', () => {
+        // `&#35;` is a `#` to the parser, but the written `#` is inside the reference.
+        expect(addressParts('a&#35;b.md', 'a#b.md')).toBeNull()
+        expect(addressParts('a&#65;b.md', 'aAb.md')).toBeNull()
     })
 })

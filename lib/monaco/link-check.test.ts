@@ -6,7 +6,13 @@ import type { LinksReader } from '@/lib/markdown/links-reader'
 import { buildLinkIndex } from '@/lib/workspace/link-index'
 import type { DiskAnswer } from '@/lib/workspace/link-target-cache'
 import type { FileNode } from '@/lib/workspace/types'
+import { closeLinkTargets } from '@/lib/workspace/link-suggestions'
 import { attachLinkCheck, LINK_CHECK_DELAY_MS, LINK_CHECK_MARKER_OWNER, type LinkCheckConfig } from './link-check'
+
+vi.mock('@/lib/workspace/link-suggestions', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/workspace/link-suggestions')>()
+    return { ...actual, closeLinkTargets: vi.fn(actual.closeLinkTargets) }
+})
 
 // --- Small stand-ins for a Monaco text model, editor and API: just what the link check uses. ---
 
@@ -98,6 +104,7 @@ function fakeMonaco() {
             }),
         },
         languages: {
+            CodeActionTriggerType: { Invoke: 1, Auto: 2 },
             registerCodeActionProvider: vi.fn((language: string, provider: languages.CodeActionProvider) => {
                 expect(language).toBe('markdown')
                 providers.add(provider)
@@ -115,9 +122,10 @@ function underlined(markers: Map<FakeModel, editor.IMarkerData[]>, model: FakeMo
 
 const cancel = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }
 
-async function codeActions(provider: languages.CodeActionProvider, model: FakeModel, at: IPosition) {
+/** Asks for code actions as Ctrl+. does (Invoke, 1), or as Monaco's light bulb does by itself (Auto, 2). */
+async function codeActions(provider: languages.CodeActionProvider, model: FakeModel, at: IPosition, trigger: 1 | 2 = 1) {
     const range = { startLineNumber: at.lineNumber, startColumn: at.column, endLineNumber: at.lineNumber, endColumn: at.column }
-    const list = await provider.provideCodeActions(model as unknown as editor.ITextModel, range as never, { markers: [], trigger: 1 } as never, cancel)
+    const list = await provider.provideCodeActions(model as unknown as editor.ITextModel, range as never, { markers: [], trigger } as never, cancel)
     return list?.actions ?? []
 }
 
@@ -166,7 +174,12 @@ describe('attachLinkCheck', () => {
             return () => {}
         })
         const forget = vi.fn()
-        const session = attachLinkCheck(editorInstance as unknown as editor.IStandaloneCodeEditor, monaco, { reader, checkOnDisk, subscribe, forget }, config)
+        const session = attachLinkCheck(
+            editorInstance as unknown as editor.IStandaloneCodeEditor,
+            monaco,
+            { reader, checkOnDisk, subscribe, forget },
+            config
+        )
         return { model, editorInstance, markers, providers, read, checkOnDisk, forget, session, notify: () => notify() }
     }
 
@@ -286,6 +299,30 @@ describe('attachLinkCheck', () => {
         expect(await codeActions(provider!, model, positionOf(model, 'guide.md#usge'))).toEqual([])
     })
 
+    it('ranks files only when asked (Ctrl+. or the hover), once per mark, and not for the light bulb as the cursor moves', async () => {
+        const { model, providers } = setup('[a](docs/setp.md) [b](#nowhere)')
+        await vi.runAllTimersAsync()
+        const [provider] = [...providers]
+        const ranking = vi.mocked(closeLinkTargets)
+        ranking.mockClear()
+
+        // Monaco asks by itself as the cursor moves inside the mark and as marks change: no ranking.
+        expect(await codeActions(provider!, model, positionOf(model, 'docs/setp'), 2)).toEqual([])
+        expect(await codeActions(provider!, model, positionOf(model, 'setp.md'), 2)).toEqual([])
+        expect(ranking).not.toHaveBeenCalled()
+
+        const asked = await codeActions(provider!, model, positionOf(model, 'docs/setp'), 1)
+        expect(asked[0]!.title).toBe('Change to docs/set-up.md')
+        expect((await codeActions(provider!, model, positionOf(model, 'setp.md'), 1)).map((action) => action.title)).toEqual(
+            asked.map((action) => action.title)
+        )
+        // What was ranked is kept for the light bulb too.
+        expect((await codeActions(provider!, model, positionOf(model, 'docs/setp'), 2)).map((action) => action.title)).toEqual(
+            asked.map((action) => action.title)
+        )
+        expect(ranking).toHaveBeenCalledTimes(1)
+    })
+
     it('answers only for its own marks, and offers no fix once the text under the mark has changed', async () => {
         const { model, editorInstance, providers } = setup('Some words. [a](docs/setp.md)')
         await vi.runAllTimersAsync()
@@ -302,7 +339,12 @@ describe('attachLinkCheck', () => {
         const model = new FakeModel('[a](gone.md)', URI)
         const editorInstance = new FakeEditor(model)
         const reader: LinksReader = { read: async (source) => readDocumentLinks(source), dispose: () => {} }
-        const session = attachLinkCheck(editorInstance as unknown as editor.IStandaloneCodeEditor, monaco, { reader, subscribe: () => () => {}, forget: () => {} }, null)
+        const session = attachLinkCheck(
+            editorInstance as unknown as editor.IStandaloneCodeEditor,
+            monaco,
+            { reader, subscribe: () => () => {}, forget: () => {} },
+            null
+        )
         expect(monaco.languages.registerCodeActionProvider).toHaveBeenCalledTimes(1)
         session.setConfig(configFor())
         expect(monaco.languages.registerCodeActionProvider).toHaveBeenCalledTimes(2)

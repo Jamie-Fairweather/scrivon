@@ -75,7 +75,12 @@ function contains(range: IRange, position: IPosition): boolean {
 export function attachLinkCheck(
     editorInstance: editor.IStandaloneCodeEditor,
     monaco: Monaco,
-    { reader, checkOnDisk = (path, fresh) => checkLinkTarget(path, undefined, { fresh }), subscribe = subscribeLinkTargets, forget = () => forgetLinkTargets() }: Options,
+    {
+        reader,
+        checkOnDisk = (path, fresh) => checkLinkTarget(path, undefined, { fresh }),
+        subscribe = subscribeLinkTargets,
+        forget = () => forgetLinkTargets(),
+    }: Options,
     initial: LinkCheckConfig | null
 ): LinkCheckSession {
     let config = initial
@@ -107,8 +112,17 @@ export function attachLinkCheck(
 
     const noActions: languages.CodeActionList = { actions: [], dispose: () => {} }
 
-    /** The fixes Ctrl+. offers for a mark: the closest files or folders, or the closest anchors. */
-    const fixesFor = (model: editor.ITextModel, mark: Mark, asked: LinkCheckConfig): { title: string; text: string }[] => {
+    type Fix = { title: string; text: string }
+    /** Each mark's closest files or folders, ranked once: Monaco asks again whenever the cursor moves inside it. */
+    const rankedTargets = new WeakMap<Mark, { index: LinkIndex; fixes: Fix[] }>()
+
+    /**
+     * The fixes Ctrl+. offers for a mark: the closest files or folders, or the closest anchors. Ranking files means
+     * going through the whole folder's list, which can take a few hundred milliseconds in a very big folder, so it is
+     * done only when asked for (`ranking`): Ctrl+., or Quick Fix in the mark's hover. Monaco also asks by itself, for
+     * its light bulb, as the cursor moves and as marks change; those asks get only what was ranked already.
+     */
+    const fixesFor = (model: editor.ITextModel, mark: Mark, asked: LinkCheckConfig, ranking: boolean): Fix[] => {
         const { fix } = mark
         if (fix.kind === 'anchor') {
             const written = decode(model.getValueInRange(mark.fixRange))
@@ -116,29 +130,33 @@ export function attachLinkCheck(
         }
         const { index, documentPath } = asked
         if (!index || !documentPath) return []
-        return closeLinkTargets(index, fix.target, { wanted: fix.wanted, documentPath }).map((path) => {
+        const ranked = rankedTargets.get(mark)
+        if (ranked?.index === index) return ranked.fixes
+        if (!ranking) return []
+        const fixes = closeLinkTargets(index, fix.target, { wanted: fix.wanted, documentPath }).map((path) => {
             const text = documentLinkAddress(documentPath, path)
             return { title: `Change to ${decode(text)}`, text }
         })
+        rankedTargets.set(mark, { index, fixes })
+        return fixes
     }
 
     const codeActions: languages.CodeActionProvider = {
-        provideCodeActions(model, range) {
+        provideCodeActions(model, range, context) {
             const asked = config
             // Only for its own marks: spell check answers for misspelt words in the same file.
             const mark = markAt(model, { lineNumber: range.startLineNumber, column: range.startColumn })
             if (!mark || !asked || model.uri.toString() !== asked.modelUri) return noActions
             const diagnostics = [toMarker(mark)]
             const versionId = model.getVersionId()
-            const actions = fixesFor(model, mark, asked).map(
-                ({ title, text }, index): languages.CodeAction => ({
-                    title,
-                    kind: 'quickfix',
-                    diagnostics,
-                    isPreferred: index === 0,
-                    edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.fixRange, text } }] },
-                })
-            )
+            const ranking = context.trigger !== monaco.languages.CodeActionTriggerType.Auto
+            const actions = fixesFor(model, mark, asked, ranking).map(({ title, text }, index): languages.CodeAction => ({
+                title,
+                kind: 'quickfix',
+                diagnostics,
+                isPreferred: index === 0,
+                edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.fixRange, text } }] },
+            }))
             return { actions, dispose: () => {} }
         },
     }
@@ -173,7 +191,8 @@ export function attachLinkCheck(
             return false
         }
         reader
-            .read(source)
+            // Keyed by the model, so while a long file is still being read only its newest text waits.
+            .read(source, asked.modelUri)
             .then((links) => (stale() ? null : findBrokenLinks(source, links, { ...asked, anchorsOf, checkOnDisk, edited: wasEdited })))
             .then(
                 (found) => {
