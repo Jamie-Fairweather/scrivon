@@ -1,5 +1,5 @@
 import { renderMermaidSVG, type RenderOptions } from 'beautiful-mermaid'
-import { prepareMermaidSource } from '@/lib/mermaid/prepare-source'
+import { chooseDiagramEngine, prepareMermaidSource } from '@/lib/mermaid/prepare-source'
 import { getDiagramColors, type AppThemeId } from '@/lib/theme/catalog'
 
 export function getMermaidRenderOptions(themeId: AppThemeId): RenderOptions {
@@ -60,6 +60,7 @@ export function renderMermaidDiagram(source: string, themeId: AppThemeId): strin
     return addMessageLabelHalo(stripRemoteFontImports(renderMermaidSVG(prepareMermaidSource(source), getMermaidRenderOptions(themeId))))
 }
 
+/** beautiful-mermaid's picture for an export. Only for its own six types: see renderMermaidDiagramForExportAsync. */
 export function renderMermaidDiagramForExport(
     source: string,
     themeId: AppThemeId,
@@ -68,4 +69,16 @@ export function renderMermaidDiagramForExport(
     const options = transparent ? getMermaidRenderOptions(themeId) : getMermaidExportRenderOptions(themeId)
     const svg = stripRemoteFontImports(renderMermaidSVG(prepareMermaidSource(source), options))
     return labelHalo ? addMessageLabelHalo(svg) : svg
+}
+
+/**
+ * A diagram's picture for an export, from whichever engine draws it (chooseDiagramEngine). A type only the official
+ * mermaid package draws gets a render of its own through render-official.ts, not one shared with the preview, so
+ * each picture in an export has its own id. Throws as renderMermaidDiagramForExport does, and for those types as
+ * renderOfficialDiagram does.
+ */
+export async function renderMermaidDiagramForExportAsync(source: string, themeId: AppThemeId, options: ExportRenderOptions = {}): Promise<string> {
+    if (chooseDiagramEngine(source).engine !== 'mermaid') return renderMermaidDiagramForExport(source, themeId, options)
+    const { renderOfficialDiagram } = await import('@/lib/mermaid/render-official')
+    return renderOfficialDiagram(source, themeId, { transparent: options.transparent ?? false })
 }

@@ -72,6 +72,12 @@ jobs:
             - name: Check the web workers load
               run: bun run check:workers
 
+            # The official mermaid package (pie charts, Gantt charts and the other types beautiful-mermaid can't
+            # draw) must load only when such a diagram is drawn, and never call eval or new Function, which the
+            # CSP blocks. Only the bundle shows either.
+            - name: Check mermaid loads lazily and keeps to the CSP
+              run: bun run check:mermaid
+
             # The build regenerates these and always ships the fresh copy. A diff only means the
             # committed copy is stale (for example after a Dependabot bump), so this warns instead of failing.
             - name: Check generated files are committed

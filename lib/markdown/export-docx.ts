@@ -92,8 +92,9 @@ import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/l
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { isRtl, RTL_LETTER } from '@/lib/markdown/text-direction'
 import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
-import { unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
-import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
+import { hasForeignObject } from '@/lib/mermaid/official-svg'
+import { chooseDiagramEngine, unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
+import { renderMermaidDiagramForExportAsync } from '@/lib/mermaid/render'
 import { svgToPngBlob } from '@/lib/mermaid/export'
 import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { AppThemeId } from '@/lib/theme/catalog'
@@ -107,8 +108,11 @@ type PreparedCode =
     /** `size` is the SVG's own size, which the PDF draws it at. The PNG is drawn at 2x that. */
     | { kind: 'diagram'; png: Uint8Array | null; size: { width: number; height: number } | null; source: string; alt: DiagramAltText }
     | { kind: 'error'; message: string }
-    /** A diagram type Scrivon can't draw: a short note for readers, then its source as code. */
+    /** A diagram type Scrivon can't draw, or can't draw in Word: a short note for readers, then its source as code. */
     | { kind: 'unsupported'; note: string; lines: HighlightedToken[][] }
+
+/** The note in place of a diagram with HTML labels, which can't be drawn into a picture for Word. */
+export const NOT_IN_WORD_MESSAGE = "This diagram type can't be saved as a picture in Word yet. Export as PDF to include it."
 
 type Marks = {
     bold?: boolean
@@ -2875,14 +2879,18 @@ async function prepareCode(node: Code, profile: PdfExportProfile): Promise<Prepa
     const text = node.value.replace(/\n$/, '')
     if ((node.lang ?? '').toLowerCase() === 'mermaid') {
         // As in the PDF: a line for readers instead of the preview's help, and the source so its data isn't lost.
-        const unsupported = unsupportedDiagramNote(text)
-        if (unsupported) return { kind: 'unsupported', note: unsupported, lines: await codeLines(text, 'mermaid', profile) }
+        const engine = chooseDiagramEngine(text)
+        if (engine.engine === 'unsupported') {
+            return { kind: 'unsupported', note: unsupportedDiagramNote(engine.name), lines: await codeLines(text, 'mermaid', profile) }
+        }
         try {
             // The renderer leaves out the accTitle and accDescr lines; the alt text reads them.
-            const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
+            const svg = await renderMermaidDiagramForExportAsync(text, profile.content.mermaidThemeId)
             // Nothing to draw yet renders a 0×0 picture, which can't be drawn. Say so, as the PDF does, not print the source.
             const size = getSvgDimensions(svg)
             if (!size) return { kind: 'error', message: EMPTY_DIAGRAM_MESSAGE }
+            // HTML labels taint the canvas the picture is drawn on, so Word gets the note and the source instead.
+            if (hasForeignObject(svg)) return { kind: 'unsupported', note: NOT_IN_WORD_MESSAGE, lines: await codeLines(text, 'mermaid', profile) }
             return {
                 kind: 'diagram',
                 png: await diagramPng(svg, profile.content.mermaidThemeId),

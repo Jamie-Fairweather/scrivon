@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
+import { diagramAltText, diagramKindName, diagramName } from '@/lib/mermaid/diagram-alt-text'
 
 describe('diagramAltText', () => {
     it("uses the diagram's own accTitle and accDescr", () => {
@@ -86,8 +86,86 @@ describe('diagramAltText', () => {
 
     it('falls back to the kind alone when there is nothing to name', () => {
         expect(diagramAltText('graph TD\n  A --> B')).toEqual({ name: 'Flowchart', description: 'Flowchart' })
-        expect(diagramAltText('pie\n  "Dogs" : 3')).toEqual({ name: 'Diagram', description: 'Diagram' })
+        expect(diagramAltText('gantt\n  dateFormat YYYY-MM-DD')).toEqual({ name: 'Gantt chart', description: 'Gantt chart' })
+        expect(diagramAltText('zenuml\n  A.method()')).toEqual({ name: 'Diagram', description: 'Diagram' })
         expect(diagramAltText('')).toEqual({ name: 'Diagram', description: 'Diagram' })
+    })
+
+    it.each([
+        ['pie\n  "Dogs" : 3', 'Pie chart'],
+        ['gantt\n  dateFormat YYYY-MM-DD', 'Gantt chart'],
+        ['mindmap\n  root((Plans))', 'Mind map'],
+        ['journey\n  section Morning', 'User journey'],
+        ['gitGraph\n  commit', 'Git graph'],
+        ['timeline\n  2024 : Launch', 'Timeline'],
+        ['quadrantChart\n  x-axis Low --> High', 'Quadrant chart'],
+        ['requirementDiagram\n  requirement r { id: 1 }', 'Requirement diagram'],
+        ['C4Context\n  Person(a, "A")', 'C4 diagram'],
+        ['C4Deployment\n  Node(a, "A")', 'C4 diagram'],
+        ['sankey-beta\n  a,b,1', 'Sankey diagram'],
+        ['block-beta\n  a b', 'Block diagram'],
+        ['packet-beta\n  0-15: "Source"', 'Packet diagram'],
+        ['kanban\n  Todo', 'Kanban board'],
+        ['architecture-beta\n  service db(database)[DB]', 'Architecture diagram'],
+        ['radar-beta\n  axis a, b, c', 'Radar chart'],
+        ['treemap-beta\n  "A": 1', 'Treemap'],
+    ])('names %j for what it is', (source, name) => {
+        expect(diagramAltText(source).name).toBe(name)
+        expect(diagramKindName(source)).toBe(name)
+    })
+
+    it("names the official package's types after their own title", () => {
+        expect(diagramAltText('pie title Pets\n  "Dogs" : 386\n  "Cats" : 85')).toEqual({ name: 'Pets', description: 'Pets' })
+        expect(diagramAltText('pie showData title Pets adopted\n  "Dogs" : 386')).toEqual({ name: 'Pets adopted', description: 'Pets adopted' })
+        expect(diagramAltText('gantt\n  title Release plan\n  dateFormat YYYY-MM-DD\n  Build :a1, 2024-01-01, 3d')).toEqual({
+            name: 'Release plan',
+            description: 'Release plan',
+        })
+        expect(diagramAltText('journey\n  title: My working day\n  section Go to work')).toEqual({
+            name: 'My working day',
+            description: 'My working day',
+        })
+        expect(diagramAltText('---\ntitle: Branches\n---\ngitGraph\n  commit')).toEqual({ name: 'Branches', description: 'Branches' })
+    })
+
+    it.each([
+        ['timeline\n  title History of social media\n  2004 : Facebook', 'History of social media'],
+        ['quadrantChart\n  title Reach and engagement\n  x-axis Low --> High', 'Reach and engagement'],
+        ['C4Context\n  title System context\n  Person(a, "A")', 'System context'],
+        ['packet-beta\n  title TCP packet\n  0-15: "Source"', 'TCP packet'],
+        ['radar-beta\n  title Skills\n  axis a, b, c', 'Skills'],
+        ['gitGraph\n  title Branches\n  commit', 'Branches'],
+    ])('reads the title line of %j, whose grammar has one', (source, title) => {
+        expect(diagramAltText(source).name).toBe(title)
+    })
+
+    it.each([
+        ['mindmap\n  root\n    Title page\n    Other', 'Mind map', 'Mind map'],
+        ['kanban\n  Todo\n    title Write the docs', 'Kanban board', 'Kanban board'],
+        ['block-beta\n  title a', 'Block diagram', 'Block diagram'],
+        ['sankey-beta\n  title page,b,1', 'Sankey diagram', 'Sankey diagram'],
+        ['requirementDiagram\n  title r', 'Requirement diagram', 'Requirement diagram'],
+    ])("doesn't take a node or card in %j for a title: the type has no title statement", (source, name, description) => {
+        expect(diagramAltText(source)).toEqual({ name, description })
+        expect(diagramName(source)).toEqual({ name, kind: name })
+    })
+
+    it('uses accTitle and accDescr before the chart title', () => {
+        expect(diagramAltText('pie title Pets\n  accTitle: Pet count\n  accDescr: Dogs win\n  "Dogs" : 386')).toEqual({
+            name: 'Pet count',
+            description: 'Pet count. Dogs win',
+        })
+        expect(diagramAltText('gantt\n  accDescr: Two weeks of work\n  title Release plan')).toEqual({
+            name: 'Release plan',
+            description: 'Release plan. Two weeks of work',
+        })
+    })
+
+    it("names a pie chart's first few slices when it has no title", () => {
+        expect(diagramAltText('pie\n  "Dogs" : 386\n  "Cats" : 85\n  "Rats" : 15')).toEqual({
+            name: 'Pie chart',
+            description: 'Pie chart: Dogs, Cats, Rats',
+        })
     })
 })
 
@@ -111,5 +189,32 @@ describe('diagramAltText and the renderer read the accessibility lines the same 
             name: 'Flowchart',
             description: 'Flowchart: Start, End',
         })
+    })
+})
+
+describe('diagramName', () => {
+    it.each([
+        ['graph TD\n  A[Start] --> B[End]', { name: 'Flowchart', kind: 'Flowchart' }],
+        ['graph TD\n  accTitle: Sign-in\n  A --> B', { name: 'Sign-in', kind: 'Flowchart' }],
+        ['---\ntitle: Orders\n---\ngraph TD\n  A --> B', { name: 'Orders', kind: 'Flowchart' }],
+        ['pie title Pets\n  "Dogs" : 386', { name: 'Pets', kind: 'Pie chart' }],
+        ['pie\n  "Dogs" : 386', { name: 'Pie chart', kind: 'Pie chart' }],
+        ['%%{\n  init: { "pie": { "textPosition": 0.5 } }\n}%%\npie title Pets\n  "Dogs" : 386', { name: 'Pets', kind: 'Pie chart' }],
+        ['gantt\n  title Release plan', { name: 'Release plan', kind: 'Gantt chart' }],
+        ['', { name: 'Diagram', kind: 'Diagram' }],
+    ])('names %j as the alt text does', (source, expected) => {
+        expect(diagramName(source)).toEqual(expected)
+        expect(diagramName(source).name).toBe(diagramAltText(source).name)
+    })
+
+    it('stays quick for a long diagram, and so does the alt text', () => {
+        // One edge per line and no title, so the alt text names its nodes. That used to take time with the square of
+        // the length (seconds at this size), and the canvas did it on every edit.
+        const edges = Array.from({ length: 20_000 }, (_, i) => `  N${i}[Node ${i}] --> N${i + 1}[Node ${i + 1}]`)
+        const source = `flowchart TD\n${edges.join('\n')}`
+        const start = performance.now()
+        expect(diagramName(source)).toEqual({ name: 'Flowchart', kind: 'Flowchart' })
+        expect(diagramAltText(source).description).toBe('Flowchart: Node 0, Node 1, Node 2, Node 3, Node 4, and 19996 more')
+        expect(performance.now() - start).toBeLessThan(2000)
     })
 })

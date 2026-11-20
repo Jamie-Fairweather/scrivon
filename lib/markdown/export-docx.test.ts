@@ -1,16 +1,17 @@
 import { inflateRawSync } from 'node:zlib'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { NOT_IN_WORD_MESSAGE } from '@/lib/markdown/export-docx'
 import { buildExportDocument } from '@/lib/markdown/export-document'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
-const renderMermaidDiagramForExport = vi.hoisted(() =>
+const renderMermaidDiagramForExportAsync = vi.hoisted(() =>
     vi.fn((source: string) => {
         if (source.includes('throw-error')) throw new Error('diagram broke')
         if (source.includes('throw-string')) throw 'diagram string'
         if (source.includes('throw-lines')) throw new Error('Pies are not drawn yet. Scrivon can draw:\n• Flowcharts\r\n• Sequence diagrams')
-        // As the real renderer does: the preview card's help.
-        if (source.startsWith('pie')) throw new Error("Pie charts aren't supported yet. Scrivon can draw:\n• Flowcharts (flowchart TD or graph LR)")
+        // A mind map drawn with HTML labels, which can't be drawn into a picture.
+        if (source.startsWith('mindmap')) return '<svg viewBox="0 0 1 1"><foreignObject><div>root</div></foreignObject></svg>'
         // The size of the 1×1 PNG svgToPngBlob hands back.
         return `<svg viewBox="0 0 1 1">${source}</svg>`
     })
@@ -36,7 +37,7 @@ const highlightFencedCodeTokens = vi.hoisted(() =>
     })
 )
 
-vi.mock('@/lib/mermaid/render', () => ({ renderMermaidDiagramForExport }))
+vi.mock('@/lib/mermaid/render', () => ({ renderMermaidDiagramForExportAsync }))
 vi.mock('@/lib/mermaid/export', () => ({ svgToPngBlob }))
 const notifyWarning = vi.hoisted(() => vi.fn())
 
@@ -461,7 +462,7 @@ describe('renderExportDocx', () => {
 
     it('draws diagrams at their own size, like the PDF, and fits them to the real page', async () => {
         const diagram = async (width: number, height: number) => {
-            renderMermaidDiagramForExport.mockImplementationOnce(() => `<svg viewBox="0 0 ${width} ${height}"></svg>`)
+            renderMermaidDiagramForExportAsync.mockImplementationOnce(() => `<svg viewBox="0 0 ${width} ${height}"></svg>`)
             // The PNG is rasterised at 2x.
             svgToPngBlob.mockImplementationOnce(async () => new Blob([Uint8Array.from(sizedPng(width * 2, height * 2))]))
             const { xml } = await render(fence('mermaid', 'graph TD'))
@@ -519,7 +520,7 @@ describe('renderExportDocx', () => {
     })
 
     it('estimates contents page numbers with a diagram in a list at the width it is drawn', async () => {
-        renderMermaidDiagramForExport.mockImplementationOnce(() => '<svg viewBox="0 0 1436 2000"></svg>')
+        renderMermaidDiagramForExportAsync.mockImplementationOnce(() => '<svg viewBox="0 0 1436 2000"></svg>')
         svgToPngBlob.mockImplementationOnce(async () => new Blob([Uint8Array.from(sizedPng(2872, 4000))]))
         const { xml } = await render(['# Start', '', '- item', '', '  ```mermaid', '  graph TD', '  ```', '', '# End'].join('\n'), (draft) => {
             draft.frontMatter.toc = true
@@ -533,7 +534,7 @@ describe('renderExportDocx', () => {
 
     it('says a diagram with nothing to draw yet is empty, as the PDF does, instead of printing its source (U39)', async () => {
         // Just `graph TD` renders without error to a 0×0 picture.
-        renderMermaidDiagramForExport.mockImplementationOnce(() => '<svg viewBox="0 0 0 0" width="0" height="0"></svg>')
+        renderMermaidDiagramForExportAsync.mockImplementationOnce(() => '<svg viewBox="0 0 0 0" width="0" height="0"></svg>')
         svgToPngBlob.mockClear()
         const { parts } = await render(['Before.', '', fence('mermaid', 'graph TD'), '', 'After.'].join('\n'))
         const body = parts['word/document.xml']!
@@ -544,35 +545,59 @@ describe('renderExportDocx', () => {
     })
 
     it("writes a diagram type Scrivon can't draw as a short note for readers and its source, not the preview's help", async () => {
-        const { parts, diagramsNotDrawn } = await render(['Before.', '', fence('mermaid', 'pie\n  "Dogs" : 3'), '', 'After.'].join('\n'))
+        renderMermaidDiagramForExportAsync.mockClear()
+        const { parts, diagramsNotDrawn } = await render(['Before.', '', fence('mermaid', 'zenuml\n  A.method()'), '', 'After.'].join('\n'))
         const body = parts['word/document.xml']!
-        const note = blockWith(body, 'Pie chart: not supported in Scrivon yet')
+        const note = blockWith(body, 'ZenUML diagram: not supported in Scrivon yet')
         expect(note).toContain('<w:i/>')
         // It stays on the page with the code under it.
         expect(note).toContain('<w:keepNext/>')
-        // The diagram's data still reaches the reader, as a code block.
-        expect(runWith(body, 'pie')).toContain('w:ascii="Consolas"')
-        expect(runWith(body, '  &quot;Dogs&quot; : 3')).toContain('w:ascii="Consolas"')
+        // The diagram's text still reaches the reader, as a code block.
+        expect(runWith(body, 'zenuml')).toContain('w:ascii="Consolas"')
+        expect(runWith(body, '  A.method()')).toContain('w:ascii="Consolas"')
         expect(body).not.toContain('Scrivon can draw')
         expect(body).not.toContain('<w:drawing>')
+        expect(renderMermaidDiagramForExportAsync).not.toHaveBeenCalled()
+        expect(diagramsNotDrawn).toBe(1)
+    })
+
+    it('draws the types the official mermaid package draws, through the async export render, with their own alt text', async () => {
+        renderMermaidDiagramForExportAsync.mockClear()
+        const { xml, diagramsNotDrawn } = await render(fence('mermaid', 'pie title Pets\n  "Dogs" : 3'))
+        expect(renderMermaidDiagramForExportAsync).toHaveBeenCalledWith('pie title Pets\n  "Dogs" : 3', expect.anything())
+        expect(xml).toContain('<w:drawing>')
+        expect(xml).toContain('name="Pets" descr="Pets"')
+        expect(diagramsNotDrawn).toBe(0)
+    })
+
+    it('writes a diagram with HTML labels as the note and its source, as it cannot be drawn into a picture', async () => {
+        svgToPngBlob.mockClear()
+        const { parts, diagramsNotDrawn } = await render(fence('mermaid', 'mindmap\n  root'))
+        const body = parts['word/document.xml']!
+        // Its apostrophe is written as an XML entity.
+        expect(blockWith(body, NOT_IN_WORD_MESSAGE.replace(/'/g, '&apos;'))).toContain('<w:i/>')
+        expect(runWith(body, 'mindmap')).toContain('w:ascii="Consolas"')
+        expect(body).not.toContain('<w:drawing>')
+        // Never drawn into a blank or broken picture.
+        expect(svgToPngBlob).not.toHaveBeenCalled()
         expect(diagramsNotDrawn).toBe(1)
     })
 
     it('counts the diagrams it could not draw: errors, empty ones, pictures that failed and types it does not support', async () => {
-        const draw = renderMermaidDiagramForExport.getMockImplementation()!
+        const draw = renderMermaidDiagramForExportAsync.getMockImplementation()!
         // Nothing to draw yet renders a 0×0 picture.
-        renderMermaidDiagramForExport.mockImplementation((source) =>
+        renderMermaidDiagramForExportAsync.mockImplementation((source) =>
             source === 'empty' ? '<svg viewBox="0 0 0 0" width="0" height="0"></svg>' : draw(source)
         )
         try {
             // png-garbage: a picture came back, but its size can't be read, so the source is shown.
-            const source = ['png-ok', 'throw-error', 'empty', 'png-fail', 'png-garbage', 'pie\n  "Dogs" : 3']
+            const source = ['png-ok', 'throw-error', 'empty', 'png-fail', 'png-garbage', 'zenuml\n  A.method()', 'pie\n  "Dogs" : 3']
                 .map((text) => fence('mermaid', text))
                 .join('\n\n')
             expect((await render(source)).diagramsNotDrawn).toBe(5)
             expect((await render(fence('js', 'const a = 1'))).diagramsNotDrawn).toBe(0)
         } finally {
-            renderMermaidDiagramForExport.mockImplementation(draw)
+            renderMermaidDiagramForExportAsync.mockImplementation(draw)
         }
     })
 
@@ -597,7 +622,7 @@ describe('renderExportDocx', () => {
         expect(xml).toContain('name="Login flow" descr="Login flow. How a user signs in"')
         // The renderer leaves the accTitle and accDescr lines out itself (lib/mermaid/accessibility.test.ts), the same
         // way for the preview, the PDF and Word, so Word hands it the diagram as written rather than stripping it twice.
-        expect(renderMermaidDiagramForExport).toHaveBeenCalledWith(
+        expect(renderMermaidDiagramForExportAsync).toHaveBeenCalledWith(
             'flowchart TD\n  accTitle: Login flow\n  accDescr: How a user signs in\n  A --> B',
             expect.anything()
         )

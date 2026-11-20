@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { RenderRequest, RenderResponse } from '@/lib/mermaid/render-worker-core'
 
 const renderMermaidDiagram = vi.hoisted(() =>
@@ -9,6 +9,15 @@ const renderMermaidDiagram = vi.hoisted(() =>
 )
 
 vi.mock('@/lib/mermaid/render', () => ({ renderMermaidDiagram }))
+
+/** render-official.ts, faked: each render waits until the test settles it. */
+type OfficialCall = { source: string; themeId: string; options: unknown; resolve: (svg: string) => void; reject: (err: Error) => void }
+const official = vi.hoisted(() => ({ calls: [] as OfficialCall[] }))
+const renderOfficialDiagram = vi.hoisted(
+    () => (source: string, themeId: string, options?: unknown) =>
+        new Promise<string>((resolve, reject) => official.calls.push({ source, themeId, options, resolve, reject }))
+)
+vi.mock('@/lib/mermaid/render-official', () => ({ renderOfficialDiagram }))
 
 class FakeWorker {
     static instances: FakeWorker[] = []
@@ -340,5 +349,136 @@ describe('renderMermaidDiagramAsync', () => {
 
         await expect(next).resolves.toBe('<svg>small</svg>')
         expect(renderMermaidDiagram).not.toHaveBeenCalled()
+    })
+})
+
+describe('renderMermaidDiagramAsync for the types the official mermaid package draws', () => {
+    const PIE = 'pie\n  "A" : 1'
+
+    /** Waits for the client to hand its next render to render-official.ts (its module loads first). */
+    async function nextOfficial(): Promise<OfficialCall> {
+        await vi.waitFor(() => expect(official.calls.length).toBeGreaterThan(0))
+        return official.calls.shift()!
+    }
+
+    beforeEach(() => {
+        official.calls = []
+    })
+
+    it('skips the worker, and draws with render-official.ts in the preview theme with no backdrop', async () => {
+        const { renderMermaidDiagramAsync } = await loadClient()
+
+        const result = renderMermaidDiagramAsync(PIE, 'nord', 'pets.mmd')
+        const call = await nextOfficial()
+        expect([call.source, call.themeId, call.options]).toEqual([PIE, 'nord', undefined])
+        call.resolve('<svg>pie</svg>')
+
+        await expect(result).resolves.toBe('<svg>pie</svg>')
+        expect(FakeWorker.instances).toHaveLength(0)
+        expect(renderMermaidDiagram).not.toHaveBeenCalled()
+    })
+
+    it("draws beside the worker's renders, without either waiting for the other", async () => {
+        const { renderMermaidDiagramAsync } = await loadClient()
+
+        const flowchart = renderMermaidDiagramAsync('graph TD', 'nord', 'flow.mmd')
+        const pie = renderMermaidDiagramAsync(PIE, 'nord', 'pets.mmd')
+        const worker = onlyWorker()
+        expect(worker.posted.map((request) => request.source)).toEqual(['graph TD'])
+
+        // The worker is still busy, and the pie chart draws anyway.
+        const call = await nextOfficial()
+        call.resolve('<svg>pie</svg>')
+        await expect(pie).resolves.toBe('<svg>pie</svg>')
+
+        worker.answer(worker.posted[0], { svg: '<svg>flow</svg>' })
+        await expect(flowchart).resolves.toBe('<svg>flow</svg>')
+    })
+
+    it("passes on mermaid's own message for text that doesn't parse, and the timeout message", async () => {
+        const { renderMermaidDiagramAsync, RENDER_TIMEOUT_MESSAGE } = await loadClient()
+
+        const bad = renderMermaidDiagramAsync('pie\n  oops', 'nord', 'a.mmd')
+        ;(await nextOfficial()).reject(new Error('Parse error on line 2'))
+        await expect(bad).rejects.toThrow('Parse error on line 2')
+
+        const huge = renderMermaidDiagramAsync('pie\n  "Huge" : 1', 'nord', 'b.mmd')
+        ;(await nextOfficial()).reject(new Error(RENDER_TIMEOUT_MESSAGE))
+        await expect(huge).rejects.toThrow(RENDER_TIMEOUT_MESSAGE)
+    })
+
+    it('runs one at a time, and drops a waiting one when newer text for the same document comes in', async () => {
+        const { renderMermaidDiagramAsync, SupersededRenderError } = await loadClient()
+
+        const first = renderMermaidDiagramAsync('pie\n  "v1" : 1', 'nord', 'a.mmd')
+        const running = await nextOfficial()
+        const waiting = renderMermaidDiagramAsync('pie\n  "v2" : 1', 'nord', 'a.mmd')
+        const newest = renderMermaidDiagramAsync('pie\n  "v3" : 1', 'nord', 'a.mmd')
+
+        await expect(waiting).rejects.toBeInstanceOf(SupersededRenderError)
+        expect(official.calls).toHaveLength(0)
+
+        running.resolve('<svg>v1</svg>')
+        await expect(first).resolves.toBe('<svg>v1</svg>')
+        const next = await nextOfficial()
+        expect(next.source).toBe('pie\n  "v3" : 1')
+        next.resolve('<svg>v3</svg>')
+        await expect(newest).resolves.toBe('<svg>v3</svg>')
+    })
+
+    it('drops a waiting one once its view has gone, or once its document has moved on to a worker type', async () => {
+        const { renderMermaidDiagramAsync, SupersededRenderError } = await loadClient()
+        const leftTab = new AbortController()
+
+        const running = renderMermaidDiagramAsync('pie\n  "busy" : 1', 'nord', 'busy.mmd')
+        const busy = await nextOfficial()
+        const waiting = renderMermaidDiagramAsync(PIE, 'nord', 'left.mmd', leftTab.signal)
+        leftTab.abort()
+        await expect(waiting).rejects.toBeInstanceOf(SupersededRenderError)
+
+        // A document switched from a pie chart to a flowchart no longer needs the pie chart.
+        const switched = renderMermaidDiagramAsync('pie\n  "old" : 1', 'nord', 'switch.mmd')
+        void renderMermaidDiagramAsync('graph TD', 'nord', 'switch.mmd').catch(() => {})
+        await expect(switched).rejects.toBeInstanceOf(SupersededRenderError)
+
+        busy.resolve('<svg>busy</svg>')
+        await expect(running).resolves.toBe('<svg>busy</svg>')
+        await Promise.resolve()
+        expect(official.calls).toHaveLength(0)
+    })
+
+    it('shares one render between identical requests', async () => {
+        const { renderMermaidDiagramAsync } = await loadClient()
+
+        const block = renderMermaidDiagramAsync(PIE, 'nord', 'notes.md:block:1')
+        const expanded = renderMermaidDiagramAsync(PIE, 'nord', 'notes.md:expanded:1')
+        ;(await nextOfficial()).resolve('<svg>pie</svg>')
+
+        await expect(block).resolves.toBe('<svg>pie</svg>')
+        await expect(expanded).resolves.toBe('<svg>pie</svg>')
+        expect(official.calls).toHaveLength(0)
+        // The same text in another theme is another picture.
+        const dark = renderMermaidDiagramAsync(PIE, 'dracula', 'notes.md:block:1')
+        ;(await nextOfficial()).resolve('<svg>dark pie</svg>')
+        await expect(dark).resolves.toBe('<svg>dark pie</svg>')
+    })
+
+    it('says plainly when the renderer fails to load, and loads it again for the next render', async () => {
+        const loads = { count: 0 }
+        vi.doMock('@/lib/mermaid/render-official', () => {
+            loads.count++
+            if (loads.count === 1) throw new Error('Failed to fetch dynamically imported module: /_next/static/chunks/y.js')
+            return { renderOfficialDiagram }
+        })
+        onTestFinished(() => {
+            vi.doMock('@/lib/mermaid/render-official', () => ({ renderOfficialDiagram }))
+        })
+        const { renderMermaidDiagramAsync, RendererLoadError } = await loadClient()
+
+        await expect(renderMermaidDiagramAsync(PIE, 'nord', 'a.mmd')).rejects.toBeInstanceOf(RendererLoadError)
+        const retried = renderMermaidDiagramAsync(PIE, 'nord', 'a.mmd')
+        ;(await nextOfficial()).resolve('<svg>pie</svg>')
+        await expect(retried).resolves.toBe('<svg>pie</svg>')
+        expect(loads.count).toBe(2)
     })
 })

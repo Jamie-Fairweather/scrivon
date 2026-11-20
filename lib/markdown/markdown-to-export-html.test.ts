@@ -1,19 +1,52 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultPdfExportProfile } from '@/lib/settings/pdf-export-defaults'
 import type { PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
+import type { AppThemeId } from '@/lib/theme/catalog'
 
 const EMPTY_ASSETS: PdfExportResolvedAssets = { logoDataUrl: '', header: { left: '', right: '' }, footer: { left: '', right: '' } }
 
-vi.mock('@/lib/mermaid/render', () => ({
-    renderMermaidDiagramForExport: vi.fn((source: string) => {
-        if (source.includes('FAIL_STRING')) throw 'mermaid string boom'
-        if (source.includes('FAIL')) throw new Error('mermaid boom')
-        // As the real renderer does: the preview card's help.
-        if (source.startsWith('pie')) throw new Error("Pie charts aren't supported yet. Scrivon can draw:\n• Flowcharts (flowchart TD or graph LR)")
-        // A diagram with nothing to draw yet renders without error to a 0×0 picture.
-        if (source.includes('EMPTY')) return '<svg viewBox="0 0 0 0" width="0" height="0"></svg>'
-        return `<svg data-mermaid="${source.trim()}" viewBox="0 0 100 50"></svg>`
-    }),
+/** beautiful-mermaid's export render, faked. */
+function fakeBeautifulMermaid(source: string): string {
+    if (source.includes('FAIL_STRING')) throw 'mermaid string boom'
+    if (source.includes('FAIL')) throw new Error('mermaid boom')
+    // A diagram with nothing to draw yet renders without error to a 0×0 picture.
+    if (source.includes('EMPTY')) return '<svg viewBox="0 0 0 0" width="0" height="0"></svg>'
+    return `<svg data-mermaid="${source.trim()}" viewBox="0 0 100 50"></svg>`
+}
+
+// The real export render, so the official mermaid package's types go through render-official.ts as they would in the
+// app, with beautiful-mermaid faked. Mermaid itself is faked below: it can't lay a diagram out without a real page.
+vi.mock('@/lib/mermaid/render', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/mermaid/render')>()
+    const { chooseDiagramEngine } = await import('@/lib/mermaid/prepare-source')
+    return {
+        ...actual,
+        renderMermaidDiagramForExportAsync: vi.fn(async (source: string, themeId: AppThemeId) =>
+            chooseDiagramEngine(source).engine === 'mermaid'
+                ? actual.renderMermaidDiagramForExportAsync(source, themeId)
+                : fakeBeautifulMermaid(source)
+        ),
+    }
+})
+
+/**
+ * Mermaid as it draws a diagram: a root `<svg>` with the id it was given, styles scoped to that id, and, like a
+ * Sankey diagram's gradients, an inner id it doesn't prefix.
+ */
+vi.mock('mermaid', () => ({
+    default: {
+        initialize: vi.fn(),
+        render: vi.fn(async (id: string, text: string) => {
+            if (text.includes('FAIL')) throw new Error('Parse error on line 2')
+            const kind = text.trim().split(/\s/)[0]
+            return {
+                svg:
+                    `<svg id="${id}" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-width: 200px;" viewBox="0 0 200 100">` +
+                    `<style>#${id} .${kind}{fill:#123456;}</style><defs><linearGradient id="gradient-1"/></defs>` +
+                    `<rect class="${kind}" fill="url(#gradient-1)"/></svg>`,
+            }
+        }),
+    },
 }))
 
 vi.mock('@/lib/markdown/shiki-highlighter', () => ({
@@ -1083,12 +1116,46 @@ SHIKI_FAIL
 
     it("prints a diagram type Scrivon can't draw as a short note for readers and its source, not the preview's help", async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
-        const { html, diagramsNotDrawn } = await markdownToExportHtml('# Notes\n\n```mermaid\npie\n  "Dogs" : 3\n```\n')
-        expect(html).toContain('<p dir="ltr" class="export-diagram-note">Pie chart: not supported in Scrivon yet</p>')
-        // The diagram's data still reaches the reader, as a code block.
-        expect(html).toMatch(/<div dir="ltr" class="code-block[^"]*"><pre class="shiki"[^>]*><code>pie\n {2}"Dogs" : 3<\/code><\/pre><\/div>/)
+        const { html, diagramsNotDrawn } = await markdownToExportHtml('# Notes\n\n```mermaid\nzenuml\n  A.method()\n```\n')
+        expect(html).toContain('<p dir="ltr" class="export-diagram-note">ZenUML diagram: not supported in Scrivon yet</p>')
+        // The diagram's text still reaches the reader, as a code block.
+        expect(html).toMatch(/<div dir="ltr" class="code-block[^"]*"><pre class="shiki"[^>]*><code>zenuml\n {2}A\.method\(\)<\/code><\/pre><\/div>/)
         expect(html).not.toContain('Scrivon can draw')
         expect(html).not.toContain('class="export-error')
+        expect(diagramsNotDrawn).toBe(1)
+    })
+
+    it("draws the official mermaid package's types, each with its own ids and its own styles", async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const diagram = (text: string) => ['```mermaid', text, '```'].join('\n')
+        const pie = 'pie title Pets\n  "Dogs" : 3'
+        const source = ['# Notes', diagram(pie), diagram(pie), diagram('gantt\n  title Plan'), diagram('graph TD; A-->B')].join('\n\n')
+        const { html, diagramsNotDrawn } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+        expect(diagramsNotDrawn).toBe(0)
+
+        const roots = [...html.matchAll(/<svg\b[^>]*\sid="([^"]+)"[^>]*>/g)]
+        expect(roots).toHaveLength(3)
+        const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1])
+        expect(new Set(ids).size).toBe(ids.length)
+        // Sized from the viewBox, with Mermaid's max-width gone.
+        for (const [tag] of roots) {
+            expect(tag).toContain('width="200" height="100"')
+            expect(tag).not.toContain('max-width')
+            expect(tag).not.toContain('100%')
+        }
+        // Each picture's styles only reach that picture, and its references find its own elements.
+        for (const [, id] of roots) {
+            expect(html).toContain(`<style>#${id} .`)
+            expect(html).toContain(`fill="url(#${id}-gradient-1)"`)
+        }
+        expect(html).toContain('aria-label="Pets"><svg ')
+        expect(html).toContain('aria-label="Plan"><svg ')
+    })
+
+    it("shows the official package's own message for a diagram that doesn't parse", async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const { html, diagramsNotDrawn } = await markdownToExportHtml('```mermaid\npie FAIL\n```')
+        expect(html).toContain('<pre dir="ltr" class="export-error pdf-avoid-break">Parse error on line 2</pre>')
         expect(diagramsNotDrawn).toBe(1)
     })
 
@@ -1100,6 +1167,7 @@ SHIKI_FAIL
             diagram('graph TD; A-->B'),
             diagram('graph TD FAIL'),
             diagram('graph TD EMPTY'),
+            diagram('zenuml\n  A.method()'),
             diagram('pie\n  "Dogs" : 3'),
         ].join('\n\n')
         expect((await markdownToExportHtml(source)).diagramsNotDrawn).toBe(3)

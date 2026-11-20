@@ -21,6 +21,7 @@
         "generate:examples": "node scripts/generate-examples.mjs",
         "generate:licenses": "node scripts/generate-licenses.mjs",
         "check:workers": "node scripts/check-workers.mjs",
+        "check:mermaid": "node scripts/check-lazy-mermaid.mjs",
         "release": "semantic-release",
         "prepare": "husky"
     },
@@ -54,6 +55,7 @@
         "hast-util-to-html": "^9.0.6",
         "lucide-react": "^1.70.0",
         "mdast-util-math": "^3.0.0",
+        "mermaid": "11.17.2",
         "micromark-extension-math": "^3.1.0",
         "monaco-editor": "^0.57.0",
         "next": "^16.4.5",
