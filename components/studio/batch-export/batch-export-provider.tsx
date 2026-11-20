@@ -62,6 +62,26 @@ function imageFormat(choice: BatchImageChoice): BatchImageFormat {
     return { format: 'png', scale: choice === 'png-1' ? 1 : choice === 'png-2' ? 2 : 4 }
 }
 
+const doNothing = () => {}
+
+/**
+ * Export All Diagrams in Folder… on the welcome screen, where no folder is open and BatchExportProvider (inside
+ * the studio layout) isn't there: the palette lists it greyed out, saying why ("No folder open", or "Desktop
+ * only" in the web build).
+ */
+export function BatchExportWithoutFolder() {
+    const commands = useMemo(
+        () =>
+            buildBatchExportCommands({
+                availability: batchExportAvailability({ isDesktop: isTauri(), hasFolder: false, exporting: false }),
+                exportOpenFolder: doNothing,
+            }),
+        []
+    )
+    useRegisterCommands(commands)
+    return null
+}
+
 /** Keeps `tabsRef` up to date with the open tabs. On its own, so typing draws only this and not the dialog. */
 function TrackTabs({ tabsRef }: { tabsRef: MutableRefObject<DocumentTab[]> }) {
     const { tabs } = useDocumentTabs()

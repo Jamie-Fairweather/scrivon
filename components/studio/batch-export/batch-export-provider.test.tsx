@@ -7,7 +7,7 @@ import type { BatchExportRequest, BatchExportResult } from '@/lib/mermaid/batch-
 import { createDefaultSettings } from '@/lib/settings/defaults'
 import type { AppSettings } from '@/lib/settings/types'
 import type { DocumentTab } from '@/lib/workspace/types'
-import { BatchExportProvider, useBatchExport, useExportRunning } from './batch-export-provider'
+import { BatchExportProvider, BatchExportWithoutFolder, useBatchExport, useExportRunning } from './batch-export-provider'
 
 const ROOT = 'C:\\work\\notes'
 
@@ -161,16 +161,35 @@ describe('Export All Diagrams in Folder…', () => {
         expect(within(options).getByText(/every \.mmd and \.mermaid file in notes/)).toBeInTheDocument()
     })
 
-    it('is greyed out with a reason in the web build and with no folder open', async () => {
+    it('is greyed out with a reason in the web build', async () => {
         session.desktop = false
-        const view = renderProvider()
+        renderProvider()
         await waitFor(() => expect(command()).toMatchObject({ disabled: true, disabledReason: 'Desktop only' }))
+    })
+
+    it('is in the palette on the welcome screen, greyed out because no folder is open', async () => {
+        // The studio layout, and so BatchExportProvider, is only there once a folder is open (StudioRouter).
+        const view = render(
+            <CommandRegistryProvider>
+                <BatchExportWithoutFolder />
+                <Probe />
+            </CommandRegistryProvider>
+        )
+        await waitFor(() =>
+            expect(command()).toMatchObject({ label: 'Export All Diagrams in Folder…', disabled: true, disabledReason: 'No folder open' })
+        )
+        act(() => void command()!.run())
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
         view.unmount()
 
-        session.desktop = true
-        session.workspaceRoot = null
-        renderProvider()
-        await waitFor(() => expect(command()).toMatchObject({ disabled: true, disabledReason: 'No folder open' }))
+        session.desktop = false
+        render(
+            <CommandRegistryProvider>
+                <BatchExportWithoutFolder />
+                <Probe />
+            </CommandRegistryProvider>
+        )
+        await waitFor(() => expect(command()).toMatchObject({ disabled: true, disabledReason: 'Desktop only' }))
     })
 
     it('keeps Export greyed out until an output folder is chosen, and says so', async () => {

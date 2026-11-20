@@ -62,15 +62,15 @@ function allOff(commands: (ShownCommand | undefined)[]): boolean {
 
 /**
  * File → Export: each kind of export, greyed out when the active tab can't do it, and the export of every
- * diagram in the open folder, which needs no tab. The export providers register these commands only while a
- * folder is open, so it's left out until then.
+ * diagram in the open folder, which needs no tab. It's left out until a folder is open: the export providers
+ * register these commands only then, and the welcome screen's greyed-out folder export is for the palette.
  */
-function ExportSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
+function ExportSubmenu({ byId, hasWorkspace }: { byId: ReadonlyMap<string, ShownCommand>; hasWorkspace: boolean }) {
     const png = PNG_SCALES.map((scale) => byId.get(`export-png-${scale}`))
     const others = ['export-pdf', 'export-docx', 'export-html', 'export-svg', 'copy-diagram-svg', 'copy-diagram-png', EXPORT_FOLDER_DIAGRAMS_ID].map(
         (id) => byId.get(id)
     )
-    if (!byId.has('export') && !byId.has(EXPORT_FOLDER_DIAGRAMS_ID)) return null
+    if (!hasWorkspace || (!byId.has('export') && !byId.has(EXPORT_FOLDER_DIAGRAMS_ID))) return null
     return (
         <>
             <MenuSeparator />
@@ -202,7 +202,7 @@ export function StudioMenuBar() {
                             {item('save-all')}
                             {item('revert-file')}
                         </MenuGroup>
-                        <ExportSubmenu byId={byId} />
+                        <ExportSubmenu byId={byId} hasWorkspace={hasWorkspace} />
                         <MenuSeparator />
                         <MenuGroup>
                             {item('close-tab')}

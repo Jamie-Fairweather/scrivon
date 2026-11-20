@@ -532,14 +532,14 @@ describe('the shared render function', () => {
     })
 
     it('is what Export Diagram as SVG… saves and Copy Diagram as SVG copies', async () => {
-        dialog.pickSavePath.mockResolvedValueOnce('D:\out\seq.svg')
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\seq.svg')
         const look: DiagramLook = { themeId: 'scrivon-dark', transparent: true }
         const { svg } = await renderDiagramImage(SEQUENCE, look, { format: 'svg' })
 
         await exportSvg(SEQUENCE, look, { tabName: 'seq.mmd' })
         await copySvg(SEQUENCE, look)
 
-        expect(dialog.writeTextFileAtPath).toHaveBeenCalledWith('D:\out\seq.svg', svg)
+        expect(dialog.writeTextFileAtPath).toHaveBeenCalledWith('D:\\out\\seq.svg', svg)
         expect(clipboard.writeClipboardSvg).toHaveBeenCalledWith(svg)
     })
 
@@ -547,14 +547,14 @@ describe('the shared render function', () => {
         stubCanvas()
         const drawn = vi.spyOn(URL, 'createObjectURL')
         onTestFinished(() => drawn.mockRestore())
-        dialog.pickSavePath.mockResolvedValueOnce('D:\out\seq.png')
+        dialog.pickSavePath.mockResolvedValueOnce('D:\\out\\seq.png')
         const look: DiagramLook = { themeId: 'scrivon-dark', transparent: false }
 
         const image = await renderDiagramImage(SEQUENCE, look, { format: 'png', scale: 2 })
         await exportPng(SEQUENCE, look, { tabName: 'seq.mmd' }, 2)
         await copyPng(SEQUENCE, look)
 
-        expect(dialog.writeBinaryFile).toHaveBeenCalledWith('D:\out\seq.png', image.bytes)
+        expect(dialog.writeBinaryFile).toHaveBeenCalledWith('D:\\out\\seq.png', image.bytes)
         expect(clipboard.writeClipboardPng).toHaveBeenCalledWith(image.bytes)
         // Each drew the same picture.
         const pictures = await Promise.all(drawn.mock.calls.map(([blob]) => (blob as Blob).text()))

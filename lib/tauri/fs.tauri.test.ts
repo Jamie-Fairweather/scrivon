@@ -93,9 +93,9 @@ describe('workspace fs (Tauri)', () => {
         invokeMock.mockResolvedValue(undefined)
     })
 
-    /** What the last save asked the app's save command to write, and where (see saveRequestBody). */
-    function lastSave() {
-        const call = invokeMock.mock.calls.findLast(([command]) => command === 'save_workspace_file')
+    /** What the last save asked the app's save (or create) command to write, and where (see saveRequestBody). */
+    function lastSave(name = 'save_workspace_file') {
+        const call = invokeMock.mock.calls.findLast(([command]) => command === name)
         if (!call) return undefined
         const body = call[1] as Uint8Array
         const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true)
@@ -289,14 +289,26 @@ describe('workspace fs (Tauri)', () => {
         expect(writeTextFileMock).toHaveBeenCalledWith('/ws/docs/readme.md', '# Hello', { createNew: true })
     })
 
-    it('creates a file of bytes, such as a PNG, without replacing anything', async () => {
+    it('creates a file of bytes, such as a PNG, through the app command that flushes it to the disk', async () => {
         const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
-        await createWorkspaceBinaryFile('C:\out\flow.png', png)
-        expect(writeFileMock).toHaveBeenCalledWith('C:\out\flow.png', png, { createNew: true })
+        await createWorkspaceBinaryFile('C:\\out\\flow.png', png)
 
-        existsMock.mockResolvedValue(true)
-        await expect(createWorkspaceBinaryFile('C:\out\flow.png', png)).rejects.toBeInstanceOf(PathExistsError)
-        expect(writeFileMock).toHaveBeenCalledTimes(1)
+        expect(lastSave('create_workspace_file')).toEqual({ path: 'C:\\out\\flow.png', bytes: png })
+        // Not through the file plugin, whose writes aren't flushed before a move puts them in place.
+        expect(writeFileMock).not.toHaveBeenCalled()
+    })
+
+    it('never replaces a file when creating one of bytes, also one that turns up a moment before', async () => {
+        const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+        invokeMock.mockRejectedValueOnce('The file exists. (os error 80)')
+        await expect(createWorkspaceBinaryFile('C:\\out\\flow.png', png)).rejects.toEqual(new PathExistsError('C:\\out\\flow.png'))
+
+        invokeMock.mockRejectedValueOnce('File exists (os error 17)')
+        await expect(createWorkspaceBinaryFile('/out/flow.png', png)).rejects.toBeInstanceOf(PathExistsError)
+
+        // Any other failure comes through as it is.
+        invokeMock.mockRejectedValueOnce('There is not enough space on the disk. (os error 112)')
+        await expect(createWorkspaceBinaryFile('C:\\out\\flow.png', png)).rejects.toBe('There is not enough space on the disk. (os error 112)')
     })
 
     it('refuses to create a file or folder over one that already exists', async () => {

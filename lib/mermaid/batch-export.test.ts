@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 /**
  * A pretend Windows drive, behind the plugin-fs calls and app commands lib/tauri/fs.ts makes. Names ignore
@@ -109,7 +109,13 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     watchImmediate: vi.fn(),
 }))
 vi.mock('@tauri-apps/api/core', () => ({
-    invoke: vi.fn(async (command: string, args: Record<string, string>) => {
+    invoke: vi.fn(async (command: string, args: Record<string, string> | Uint8Array) => {
+        if (command === 'create_workspace_file' && args instanceof Uint8Array) {
+            // The path's length, the path, then the file's bytes (saveRequestBody in lib/tauri/fs.ts).
+            const length = new DataView(args.buffer, args.byteOffset).getUint32(0, true)
+            return disk.write(new TextDecoder().decode(args.subarray(4, 4 + length)), args.slice(4 + length), true)
+        }
+        if (args instanceof Uint8Array) throw new Error(`unexpected command ${command}`)
         if (command === 'rename_workspace_path') return disk.rename(args.oldPath!, args.newPath!)
         if (command === 'trash_workspace_path') return disk.trash(args.path!)
         throw new Error(`unexpected command ${command}`)
@@ -463,6 +469,89 @@ describe('names already taken', () => {
 
         expect(askNameClash).toHaveBeenCalledWith(expect.any(Array), false)
     })
+
+    it('names a taken file once when two diagrams would both get its name, and numbers both with Keep Both', async () => {
+        disk.file('C:\\work\\notes\\flow.mermaid', FLOW)
+
+        const { askNameClash } = await exportNotes({ choice: 'cancel' })
+        // other.mmd doesn't clash, so Skip is still offered.
+        expect(askNameClash).toHaveBeenCalledExactlyOnceWith(['sub\\flow.svg', 'flow.svg'], true)
+
+        const { result } = await exportNotes({ choice: 'keep-both' })
+        expect(disk.text('C:\\out\\Flow.svg')).toBe('theirs')
+        expect(disk.has('C:\\out\\flow 2.svg')).toBe(true)
+        expect(disk.has('C:\\out\\flow 3.svg')).toBe(true)
+        expect(countOutcomes(ran(result).outcomes)).toEqual({ saved: 4, skipped: 0, failed: 0 })
+    })
+
+    it('offers no Skip when every diagram clashes, also when two of them clash on the same name', async () => {
+        disk.file('C:\\work\\notes\\flow.mermaid', FLOW)
+        disk.file('C:\\out\\other.svg')
+
+        const { askNameClash } = await exportNotes({ choice: 'cancel' })
+
+        expect(askNameClash).toHaveBeenCalledExactlyOnceWith(['sub\\flow.svg', 'flow.svg', 'other.svg'], false)
+    })
+})
+
+describe('checking a large output folder', () => {
+    /** Each folder listing takes a moment, as a round trip to the app does; counts how many run at once. */
+    async function slowListings() {
+        const fs = await import('@tauri-apps/plugin-fs')
+        const listings = { running: 0, most: 0, output: [] as string[] }
+        vi.mocked(fs.readDir).mockImplementation(async (path: string | URL) => {
+            const folder = String(path)
+            if (folder.startsWith('C:\\out')) listings.output.push(folder)
+            listings.running += 1
+            listings.most = Math.max(listings.most, listings.running)
+            try {
+                await new Promise((resolve) => setTimeout(resolve, 1))
+                return disk.readDir(folder) as Awaited<ReturnType<typeof fs.readDir>>
+            } finally {
+                listings.running -= 1
+            }
+        })
+        onTestFinished(() => {
+            vi.mocked(fs.readDir).mockImplementation(async (path: string | URL) => disk.readDir(String(path)) as never)
+        })
+        return listings
+    }
+
+    beforeEach(() => {
+        for (let i = 0; i < 30; i++) {
+            disk.folder(`C:\\work\\notes\\s${i}`)
+            disk.file(`C:\\work\\notes\\s${i}\\flow.mmd`, FLOW)
+            disk.folder(`C:\\out\\s${i}`)
+        }
+    })
+
+    it('lists the output folders a few at a time, as the folder listing does', async () => {
+        const listings = await slowListings()
+
+        const { result } = await exportNotes()
+
+        expect(listings.output).toHaveLength(30)
+        expect(listings.most).toBeLessThanOrEqual(8)
+        expect(countOutcomes(ran(result).outcomes)).toEqual({ saved: 30, skipped: 0, failed: 0 })
+    })
+
+    it('stops listing them when cancelled, before asking or writing anything', async () => {
+        const listings = await slowListings()
+        disk.file('C:\\out\\s0\\flow.svg')
+        const controller = new AbortController()
+        const { result, askNameClash } = await exportNotes({
+            signal: controller.signal,
+            onProgress: (step) => {
+                // Cancel pressed once the checking has started.
+                if (step.phase === 'checking') setTimeout(() => controller.abort(), 0)
+            },
+        })
+
+        expect(ran(result)).toMatchObject({ cancelled: true, notTried: 30, outcomes: [] })
+        expect(listings.output.length).toBeLessThan(30)
+        expect(askNameClash).not.toHaveBeenCalled()
+        expect(disk.paths().filter((path) => /\.svg$/.test(path))).toEqual(['C:\\out\\s0\\flow.svg'])
+    })
 })
 
 describe('writing each file', () => {
@@ -470,16 +559,19 @@ describe('writing each file', () => {
         disk.file('C:\\work\\notes\\flow.mmd', FLOW)
     })
 
-    it('writes to a temporary file in the folder, then moves it into place', async () => {
-        const fs = await import('@tauri-apps/plugin-fs')
+    it('writes to a temporary file in the folder, flushed to the disk, then moves it into place', async () => {
         const core = await import('@tauri-apps/api/core')
+        const writes: string[] = []
+        disk.beforeRename = () => writes.push(...disk.paths().filter((path) => path.endsWith('.tmp')))
 
         await exportNotes()
 
-        const [[temp, , options]] = vi.mocked(fs.writeTextFile).mock.calls as unknown as [[string, string, { createNew: boolean }]]
-        expect(temp).toMatch(/^C:\\out\\\.scrivon-save-[a-z0-9]+\.tmp$/)
-        expect(options).toEqual({ createNew: true })
+        // Through the app's create command, which flushes the file before the move (src-tauri/src/atomic_write.rs).
+        const [temp] = writes
+        expect(writes).toEqual([expect.stringMatching(/^C:\\out\\\.scrivon-save-[a-z0-9]+\.tmp$/)])
+        expect(vi.mocked(core.invoke).mock.calls.filter(([command]) => command === 'create_workspace_file')).toHaveLength(1)
         expect(core.invoke).toHaveBeenCalledWith('rename_workspace_path', { oldPath: temp, newPath: 'C:\\out\\flow.svg' })
+        expect(disk.text('C:\\out\\flow.svg')).toMatch(/^<svg/)
     })
 
     it('fails a diagram whose name is taken by the time it is written, rather than renaming it', async () => {

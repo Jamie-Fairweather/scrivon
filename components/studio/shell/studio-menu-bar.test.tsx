@@ -580,6 +580,19 @@ describe('StudioMenuBar File → Export', () => {
         expect(within(exportMenu).getByRole('menuitem', { name: 'All Diagrams in Folder…' })).not.toHaveAttribute('aria-disabled')
     })
 
+    it('is left out on the welcome screen, where the folder export is only in the palette, greyed out', async () => {
+        mockContexts({ isDesktop: true, workspaceRoot: null, openingWorkspace: null, recentWorkspaces: [] })
+        render(
+            <Studio>
+                <FolderExportCommand state={{ ...FOLDER_OPEN, hasFolder: false }} />
+            </Studio>
+        )
+
+        const file = await openMenu('File')
+        expect(within(file).getByRole('menuitem', { name: /^Save Ctrl/ })).toBeInTheDocument()
+        expect(within(file).queryByRole('menuitem', { name: 'Export' })).not.toBeInTheDocument()
+    })
+
     it('greys out the folder export while another export runs', async () => {
         render(
             <Studio>

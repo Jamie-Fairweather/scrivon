@@ -3,14 +3,15 @@ import type { NameClashChoice } from '@/lib/tauri/dialog'
 import {
     createWorkspaceBinaryFile,
     createWorkspaceDirectory,
-    createWorkspaceFile,
     comparablePath,
+    createLimit,
     getBaseName,
     isMermaidFile,
     isWindowsPath,
     joinPath,
     listFolderNames,
     listWorkspaceTree,
+    MAX_PARALLEL_READS,
     newTempFileName,
     PathExistsError,
     readEntryKind,
@@ -103,7 +104,10 @@ export type PlannedDiagram = {
 export type BatchPlan = {
     outputFolder: string
     items: PlannedDiagram[]
-    /** The names already taken, as paths from the output folder (`sub\flow.svg`), in the order of `items`. */
+    /**
+     * The names already taken, as paths from the output folder (`sub\flow.svg`), in the order of `items`. Each
+     * is listed once, also when two diagrams would both get it (`flow.mmd` and `flow.mermaid`).
+     */
     clashes: string[]
     /** The names in use in each folder the export writes to (by comparablePath, in lower case): on disk, and planned. */
     taken: Map<string, Set<string>>
@@ -121,9 +125,15 @@ async function namesOnDisk(folder: string): Promise<string[]> {
 /**
  * Where each diagram goes and what it is called, and which names are already taken in the output folders, read
  * from disk and ignoring letter case as Windows does. Two diagrams that would get the same name (`flow.mmd` and
- * `flow.mermaid`) are told apart with a number. Nothing is written.
+ * `flow.mermaid`) are told apart with a number. Nothing is written. The output folders are listed a few at a
+ * time, as the folder itself was; rejects when `signal` stops it.
  */
-export async function planBatchExport(files: DiagramFile[], outputFolder: string, extension: 'svg' | 'png'): Promise<BatchPlan> {
+export async function planBatchExport(
+    files: DiagramFile[],
+    outputFolder: string,
+    extension: 'svg' | 'png',
+    { signal }: { signal?: AbortSignal } = {}
+): Promise<BatchPlan> {
     const folderOf = (file: DiagramFile) => file.folders.reduce(joinPath, outputFolder)
     const folders = new Map<string, string>()
     for (const file of files) {
@@ -131,13 +141,21 @@ export async function planBatchExport(files: DiagramFile[], outputFolder: string
         folders.set(comparablePath(folder), folder)
     }
     const onDisk = new Map<string, Set<string>>()
+    const limit = createLimit(MAX_PARALLEL_READS)
     await Promise.all(
-        [...folders].map(async ([key, folder]) => onDisk.set(key, new Set((await namesOnDisk(folder)).map((name) => name.toLowerCase()))))
+        [...folders].map(([key, folder]) =>
+            limit(async () => {
+                // Folders still waiting their turn aren't listed once the user has cancelled.
+                signal?.throwIfAborted()
+                onDisk.set(key, new Set((await namesOnDisk(folder)).map((name) => name.toLowerCase())))
+            })
+        )
     )
 
     const taken = new Map<string, Set<string>>()
     const items: PlannedDiagram[] = []
-    const clashes: string[] = []
+    // By the name in lower case, so a name two diagrams would both get is listed once.
+    const clashes = new Map<string, string>()
     for (const file of files) {
         const folder = folderOf(file)
         const key = comparablePath(folder)
@@ -148,14 +166,15 @@ export async function planBatchExport(files: DiagramFile[], outputFolder: string
         if (disk.has(base.toLowerCase())) {
             // Named when the user says what to do (resolveNameClashes).
             items.push({ file, folder, fileName: base, clash: true })
-            clashes.push(relativePath(outputFolder, file.folders, base))
+            const clash = relativePath(outputFolder, file.folders, base)
+            if (!clashes.has(clash.toLowerCase())) clashes.set(clash.toLowerCase(), clash)
             continue
         }
         const fileName = uniqueNewName(base, planned)
         planned.add(fileName.toLowerCase())
         items.push({ file, folder, fileName, clash: false })
     }
-    return { outputFolder, items, clashes, taken }
+    return { outputFolder, items, clashes: [...clashes.values()], taken }
 }
 
 /**
@@ -273,15 +292,16 @@ async function removeTempFile(path: string): Promise<string | undefined> {
 }
 
 /**
- * Writes the picture to a temporary file in its folder, then moves that into place under its name, which never
- * replaces anything. So a failed write never leaves a part-written file under the real name.
+ * Writes the picture to a temporary file in its folder, flushed to the disk, then moves that into place under
+ * its name, which never replaces anything. So a failed write, or a power cut just after, never leaves a
+ * part-written or empty file under the real name.
  */
 async function saveImage(item: PlannedDiagram, image: DiagramImage): Promise<{ reason: string; leftover?: string } | null> {
     const target = joinPath(item.folder, item.fileName)
     const temp = joinPath(item.folder, newTempFileName())
     try {
-        if (image.format === 'svg') await createWorkspaceFile(temp, image.svg)
-        else await createWorkspaceBinaryFile(temp, image.bytes)
+        // SVG text as UTF-8 with no byte order mark, as Export Diagram as SVG… saves it.
+        await createWorkspaceBinaryFile(temp, image.format === 'svg' ? new TextEncoder().encode(image.svg) : image.bytes)
         await renameWorkspacePath(temp, target)
         return null
     } catch (err) {
@@ -370,11 +390,22 @@ export async function exportFolderDiagrams(request: BatchExportRequest): Promise
     if (listing.files.length === 0) return result
 
     onProgress({ phase: 'checking' })
-    const plan = await planBatchExport(listing.files, outputFolder, settings.image.format)
-    if (signal.aborted) return { ...result, cancelled: true, notTried: listing.files.length }
+    const cancelledBeforeSaving = { ...result, cancelled: true, notTried: listing.files.length }
+    let plan: BatchPlan
+    try {
+        plan = await planBatchExport(listing.files, outputFolder, settings.image.format, { signal })
+    } catch (err) {
+        if (signal.aborted) return cancelledBeforeSaving
+        throw err
+    }
+    if (signal.aborted) return cancelledBeforeSaving
     let choice: NameClashChoice = 'keep-both'
     if (plan.clashes.length > 0) {
-        choice = await request.askNameClash(plan.clashes, plan.clashes.length < plan.items.length)
+        // Skip is offered unless it would leave nothing to save.
+        choice = await request.askNameClash(
+            plan.clashes,
+            plan.items.some((item) => !item.clash)
+        )
         if (choice === 'cancel') return 'cancelled'
     }
     const { toWrite, skipped } = resolveNameClashes(plan, choice)

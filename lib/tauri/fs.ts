@@ -117,7 +117,7 @@ function errorText(err: unknown): string {
 }
 
 /** Folders listed at once while reading a tree. Each listing is a round trip to the app, so they overlap. */
-const MAX_PARALLEL_READS = 8
+export const MAX_PARALLEL_READS = 8
 
 export type Limit = <T>(task: () => Promise<T>) => Promise<T>
 
@@ -466,13 +466,19 @@ export async function createWorkspaceFile(path: string, content: string, format?
 }
 
 /**
- * Creates a new file holding `bytes`, such as a PNG. Never replaces an existing one: throws PathExistsError
- * instead, also for one that turns up between the check and the write.
+ * Creates a new file holding `bytes`, such as a PNG, through the app's create command, which flushes it to the
+ * disk before it resolves (src-tauri/src/atomic_write.rs). So a file written under a temporary name and then
+ * moved into place (renameWorkspacePath) can't come back empty under its real name after a power cut. Never
+ * replaces an existing one: throws PathExistsError instead, also for one that turns up a moment before.
  */
 export async function createWorkspaceBinaryFile(path: string, bytes: Uint8Array): Promise<void> {
     if (!isTauri()) return
-    if (await exists(path)) throw new PathExistsError(path)
-    await writeFile(path, bytes, { createNew: true })
+    try {
+        await invoke('create_workspace_file', saveRequestBody(normalizePath(path), bytes))
+    } catch (err) {
+        if (isPathTakenError(err, path)) throw new PathExistsError(path)
+        throw err
+    }
 }
 
 /**

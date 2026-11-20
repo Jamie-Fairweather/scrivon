@@ -43,6 +43,44 @@ pub async fn save_workspace_file(
     .map_err(|err| err.to_string())?
 }
 
+/// Creates a new file holding the body's bytes (sent as `save_workspace_file`'s
+/// are), and flushes it to the disk before it answers. Never replaces anything:
+/// when the path is taken it fails with "(os error 80)" on Windows and
+/// "(os error 17)" elsewhere. A file it couldn't finish writing is removed again.
+///
+/// Diagram export writes each picture this way under a temporary name, then
+/// moves it into place with `rename_workspace_path`. Without the flush, a power
+/// cut could keep the move but not the bytes, leaving an empty file under the
+/// real name.
+#[tauri::command]
+pub async fn create_workspace_file(
+    app: tauri::AppHandle,
+    request: Request<'_>,
+) -> Result<(), String> {
+    let InvokeBody::Raw(body) = request.body() else {
+        return Err("The file to save was sent in the wrong form.".into());
+    };
+    let (path, bytes) = parse_body(body)?;
+    let bytes = bytes.to_vec();
+    let scope = app.fs_scope();
+    tauri::async_runtime::spawn_blocking(move || {
+        create_allowed(&path, &bytes, |target| scope.is_allowed(target))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+/// Creates `path` holding `bytes` when `is_allowed` (the file scope) lets the
+/// window write where that really is.
+fn create_allowed(
+    path: &Path,
+    bytes: &[u8],
+    is_allowed: impl Fn(&Path) -> bool,
+) -> Result<(), String> {
+    let target = allowed_target(path, is_allowed)?;
+    create_synced(&target, bytes).map_err(|err| err.to_string())
+}
+
 /// Saves `bytes` to `path` when `is_allowed` (the file scope) lets the window
 /// write where that really is.
 fn save_allowed(
@@ -396,17 +434,21 @@ fn write_temp(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
         ".scrivon-save-{}.tmp",
         uuid::Uuid::new_v4().simple()
     ));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temp)?;
+    create_synced(&temp, bytes)?;
+    Ok(temp)
+}
+
+/// A new file at `path` holding `bytes` and flushed to the disk. Fails if
+/// anything is already there. Removed again if writing it fails part way.
+fn create_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     let written = file.write_all(bytes).and_then(|()| file.sync_all());
     drop(file);
     if let Err(err) = written {
-        let _ = fs::remove_file(&temp);
+        let _ = fs::remove_file(path);
         return Err(err);
     }
-    Ok(temp)
+    Ok(())
 }
 
 /// Runs `step` again while the file is busy for a moment (in use, locked or,
@@ -979,6 +1021,47 @@ mod tests {
         assert_eq!(fs::read_to_string(&other).unwrap(), "OTHER");
         assert_eq!(fs::read_to_string(&elsewhere).unwrap(), "NOTES");
         assert_eq!(fs::read_to_string(&notes).unwrap(), "NOTES");
+    }
+
+    #[test]
+    fn creates_a_new_file_holding_the_bytes() {
+        let dir = TempDir::new();
+        let path = dir.0.join(".scrivon-save-1.tmp");
+
+        create_allowed(&path, b"<svg/>", |_| true).unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"<svg/>");
+        assert_eq!(dir.names(), [".scrivon-save-1.tmp"]);
+    }
+
+    #[test]
+    fn never_replaces_a_file_when_creating_one() {
+        let dir = TempDir::new();
+        let path = dir.0.join("flow.svg");
+        fs::write(&path, "theirs").unwrap();
+
+        let refused = create_allowed(&path, b"ours", |_| true).unwrap_err();
+
+        assert!(says_the_new_path_is_taken(&refused), "{refused}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "theirs");
+        assert_eq!(dir.names(), ["flow.svg"]);
+    }
+
+    #[test]
+    fn creates_a_file_only_inside_the_opened_folder() {
+        let dir = TempDir::new();
+        let opened = dir.0.join("opened");
+        fs::create_dir(&opened).unwrap();
+
+        for path in [
+            opened.join("..").join("outside.svg"),
+            dir.0.join("outside.svg"),
+        ] {
+            let refused = create_allowed(&path, b"x", inside(&opened)).unwrap_err();
+            assert!(refused.contains("folder you opened"), "{refused}");
+        }
+
+        assert_eq!(dir.names(), ["opened"]);
     }
 
     #[test]
