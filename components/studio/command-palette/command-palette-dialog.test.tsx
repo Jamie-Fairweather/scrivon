@@ -775,6 +775,41 @@ describe('CommandPaletteDialog Find in Workspace options', () => {
         expect(status()).toHaveTextContent('Invalid regular expression: Unterminated group')
     })
 
+    it('waits for the pause again when the same invalid pattern comes back', async () => {
+        vi.useFakeTimers()
+        const error = 'Invalid regular expression: Unterminated group'
+        const props = (query: string, queryError: string | null): DialogProps => ({
+            open: true,
+            onOpenChange: vi.fn(),
+            mode: 'text',
+            onModeChange: vi.fn(),
+            query,
+            onQueryChange: vi.fn(),
+            groups: [],
+            isSearchingText: false,
+            textCapped: false,
+            textTruncatedFiles: 0,
+            textUnreadableFiles: 0,
+            hasWorkspace: true,
+            onSelectItem: vi.fn(),
+            searchOptions: { ...OFF, useRegex: true },
+            onSearchOptionsChange: vi.fn(),
+            searchOptionsApply: true,
+            queryError,
+        })
+        const { rerender } = render(<CommandPaletteDialog {...props('a(', error)} />)
+        await act(() => vi.advanceTimersByTimeAsync(DEBOUNCE_MS))
+        expect(status()).toHaveTextContent(error)
+
+        rerender(<CommandPaletteDialog {...props('a()', null)} />)
+        expect(status()).not.toHaveTextContent(error)
+
+        rerender(<CommandPaletteDialog {...props('a()(', error)} />)
+        expect(status()).not.toHaveTextContent(error)
+        await act(() => vi.advanceTimersByTimeAsync(DEBOUNCE_MS))
+        expect(status()).toHaveTextContent(error)
+    })
+
     it('says why a regex search stopped, in the footer and the status', () => {
         const stopped = 'Search stopped: the regular expression took too long on notes.md. Try a simpler pattern.'
         renderWithOptions({ textStopMessage: stopped, groups: [{ id: 'text', label: 'Text', items: [hit(1)] }] }, { ...OFF, useRegex: true })

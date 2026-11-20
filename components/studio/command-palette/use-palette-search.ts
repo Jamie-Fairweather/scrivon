@@ -145,8 +145,10 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
     const [textStop, setTextStop] = useState<SearchStop | null>(null)
     const [lastResolvedSearchKey, setLastResolvedSearchKey] = useState<string | null>(null)
     const abortRef = useRef<AbortController | null>(null)
-    // What the last search started was for, so a change of options (or mode) with the same query skips the typing pause.
-    const lastStartedRef = useRef<{ query: string; mode: PaletteMode; optionsKey: string; immediate: boolean } | null>(null)
+    // What the search effect last ran for, so a change of options (or mode) with the same typed query skips the typing pause.
+    // `typed` is the query with its spaces trimmed, as typed: turning Use Regular Expression on or off keeps or trims the
+    // spaces of the pattern, but nothing new was typed. An invalid pattern is recorded too, though it starts no search.
+    const lastStartedRef = useRef<{ query: string; typed: string; mode: PaletteMode; optionsKey: string; immediate: boolean } | null>(null)
     // File text read by earlier searches in this palette session (cleared on close and folder change).
     const [contentCache] = useState(() => createContentCache())
 
@@ -178,8 +180,13 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
     const textResolved = searchKey !== null && lastResolvedSearchKey === searchKey
     const isSearchingText = shouldSearchText && !textResolved
 
-    // An invalid pattern leaves no hits behind, not even greyed out until the next search finishes.
-    if (queryError && textHits.length > 0) setTextHits([])
+    // An invalid pattern leaves no hits behind, not even greyed out until the next search finishes. Its last
+    // results are forgotten too, so going back to that search (Backspace, or an option switched back) shows it
+    // running again rather than a finished, empty result with the old footer notes.
+    if (queryError && (textHits.length > 0 || lastResolvedSearchKey !== null)) {
+        setTextHits([])
+        setLastResolvedSearchKey(null)
+    }
 
     // '@' reads the open Markdown file's headings, as the Outline panel does, only while it is typed.
     const isMarkdown = activeTab !== null && documentKind(activeTab.name) === 'markdown'
@@ -306,24 +313,30 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
     // Only worked out when the list is empty: ':' counts the open file's lines for it.
     const emptyHint = groups.length === 0 ? prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings) : null
 
+    // The query as typed, without the spaces a regular expression keeps: what the search effect compares.
+    const typedQuery = parsePaletteQuery(query, mode).query
+
     useEffect(() => {
+        const parsedQuery = parsedQueryState.query
         if (!textMatcher || searchKey === null) {
             abortRef.current?.abort()
+            // Remembered, so an option switched over an invalid pattern searches at once.
+            if (enabled) lastStartedRef.current = { query: parsedQuery, typed: typedQuery, mode, optionsKey, immediate: false }
             return
         }
 
-        const parsedQuery = parsedQueryState.query
         const root = workspaceRoot ?? ''
         const controller = new AbortController()
         abortRef.current?.abort()
         abortRef.current = controller
 
-        // Typing waits for a pause. Switching an option or the mode for the same query searches at once.
+        // Typing waits for a pause. Switching an option or the mode for the same typed query searches at once.
         // The same search started again (an edit to an open file, or Strict Mode running effects twice) keeps its own timing.
         const previous = lastStartedRef.current
         const sameSearch = previous !== null && previous.query === parsedQuery && previous.optionsKey === optionsKey && previous.mode === mode
-        const immediate = sameSearch ? previous.immediate : previous !== null && previous.query === parsedQuery
-        lastStartedRef.current = { query: parsedQuery, mode, optionsKey, immediate }
+        const switched = previous !== null && previous.typed === typedQuery && (previous.optionsKey !== optionsKey || previous.mode !== mode)
+        const immediate = sameSearch ? previous.immediate : switched
+        lastStartedRef.current = { query: parsedQuery, typed: typedQuery, mode, optionsKey, immediate }
 
         const timeout = window.setTimeout(
             () => {
@@ -370,7 +383,7 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOpti
             controller.abort()
         }
         // searchKey stands for the query, the mode and the options together, so any of them runs the search again.
-    }, [searchKey, textMatcher, parsedQueryState.query, mode, optionsKey, tabs, filePaths, contentCache, workspaceRoot])
+    }, [searchKey, textMatcher, parsedQueryState.query, typedQuery, mode, optionsKey, enabled, tabs, filePaths, contentCache, workspaceRoot])
 
     const runItem = useCallback(
         async (item: PaletteItem) => {

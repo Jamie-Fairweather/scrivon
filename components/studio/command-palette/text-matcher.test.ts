@@ -91,6 +91,8 @@ describe('Match Whole Word', () => {
     it('goes on from the next character after a match that is not a whole word', () => {
         expect(found('aaa aa', 'aa', { wholeWord: true })).toEqual(['aa'])
         expect(matchLine('aaa aa', matcher('aa', { wholeWord: true }))).toEqual([{ start: 4, length: 2 }])
+        // The whole word starts inside the failed match, so jumping past that match would miss it.
+        expect(matchLine('ba a a', matcher('a a', { wholeWord: true }))).toEqual([{ start: 3, length: 3 }])
     })
 
     it('finds a Japanese word with no spaces around it where the script changes', () => {
@@ -194,6 +196,7 @@ describe('Use Regular Expression', () => {
         expect(found('cat cats concatenate', 'cat\\w*', { useRegex: true, wholeWord: true })).toEqual(['cat', 'cats'])
         expect(found('cats cat', 'cat', { useRegex: true, wholeWord: true })).toEqual(['cat'])
         expect(found('aaa aa', 'aa', { useRegex: true, wholeWord: true })).toEqual(['aa'])
+        expect(matchLine('ba a a', matcher('a a', { useRegex: true, wholeWord: true }))).toEqual([{ start: 3, length: 3 }])
     })
 
     it('gives the error for an invalid pattern, without the /pattern/flags part', () => {

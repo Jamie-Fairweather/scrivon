@@ -1221,6 +1221,112 @@ describe('usePaletteSearch Find in Workspace options', () => {
         expect(calls()).toHaveLength(2)
     })
 
+    it('forgets the last results when a pattern turns invalid, so going back to it searches again', async () => {
+        const { result } = renderSearch({ mode: 'text', options: { ...OFF, useRegex: true } })
+        vi.mocked(searchWorkspaceContent).mockResolvedValueOnce({
+            hits: [
+                {
+                    path: '/ws/a.md',
+                    line: 1,
+                    column: 5,
+                    length: 5,
+                    preview: 'the OAuth flow',
+                    previewMatchStart: 4,
+                    previewMatchLength: 5,
+                    source: 'disk',
+                },
+            ],
+            capped: true,
+            unreadableFiles: 1,
+            truncatedFiles: 1,
+            longLinesSkipped: 2,
+            stopped: { reason: 'unavailable' },
+        })
+        act(() => result.current.setQuery('oauth'))
+        await settle(DEBOUNCE_MS)
+        expect(result.current.textCapped).toBe(true)
+
+        act(() => result.current.setQuery('oauth('))
+        expect(result.current.queryError).not.toBeNull()
+
+        // Backspace: the same search as before, but its hits are gone, so it has to run again.
+        vi.mocked(searchWorkspaceContent).mockImplementationOnce(() => new Promise(() => {}))
+        act(() => result.current.setQuery('oauth'))
+        expect(result.current.isSearchingText).toBe(true)
+        expect(result.current.textCapped).toBe(false)
+        expect(result.current.textUnreadableFiles).toBe(0)
+        expect(result.current.textTruncatedFiles).toBe(0)
+        expect(result.current.textLongLinesSkipped).toBe(0)
+        expect(result.current.textStopMessage).toBeNull()
+        // Typing still waits for a pause.
+        await settle(DEBOUNCE_MS - 1)
+        expect(calls()).toHaveLength(1)
+        await settle(1)
+        expect(calls()).toHaveLength(2)
+    })
+
+    it('searches at once when Use Regular Expression is turned off over an invalid pattern', async () => {
+        const { result, rerender } = renderSearch({ mode: 'text', options: OFF })
+        act(() => result.current.setQuery('oauth('))
+        await settle(DEBOUNCE_MS)
+        expect(calls()).toHaveLength(1)
+
+        rerender({ mode: 'text', options: { ...OFF, useRegex: true } })
+        expect(result.current.queryError).toBe('Invalid regular expression: Unterminated group')
+
+        vi.mocked(searchWorkspaceContent).mockImplementationOnce(() => new Promise(() => {}))
+        rerender({ mode: 'text', options: OFF })
+        expect(result.current.isSearchingText).toBe(true)
+        await settle(0)
+        expect(calls()).toHaveLength(2)
+        expect(lastCall().matcher.options).toEqual(OFF)
+    })
+
+    it('searches at once when a pattern typed invalid is searched as plain text', async () => {
+        const { result, rerender } = renderSearch({ mode: 'text', options: { ...OFF, useRegex: true } })
+        act(() => result.current.setQuery('oauth'))
+        await settle(DEBOUNCE_MS)
+        act(() => result.current.setQuery('oauth(b'))
+        await settle(DEBOUNCE_MS)
+        expect(calls()).toHaveLength(1)
+
+        rerender({ mode: 'text', options: OFF })
+        await settle(0)
+        expect(calls()).toHaveLength(2)
+        expect(lastCall().matcher.query).toBe('oauth(b')
+    })
+
+    it('searches at once when Use Regular Expression changes over a query with a trailing space', async () => {
+        const { result, rerender } = renderSearch({ mode: 'text', options: OFF })
+        act(() => result.current.setQuery('oauth'))
+        await settle(DEBOUNCE_MS)
+        act(() => result.current.setQuery('oauth '))
+        await settle(DEBOUNCE_MS)
+        expect(calls()).toHaveLength(1)
+
+        // Turning regex on keeps the space, so the pattern changes, but nothing was typed.
+        rerender({ mode: 'text', options: { ...OFF, useRegex: true } })
+        await settle(0)
+        expect(calls()).toHaveLength(2)
+        expect(lastCall().matcher.query).toBe('oauth ')
+
+        rerender({ mode: 'text', options: OFF })
+        await settle(0)
+        expect(calls()).toHaveLength(3)
+        expect(lastCall().matcher.query).toBe('oauth')
+    })
+
+    it('still waits for a pause when a space is typed after a regular expression', async () => {
+        const { result } = renderSearch({ mode: 'text', options: { ...OFF, useRegex: true } })
+        act(() => result.current.setQuery('oauth'))
+        await settle(DEBOUNCE_MS)
+        act(() => result.current.setQuery('oauth '))
+        await settle(DEBOUNCE_MS - 1)
+        expect(calls()).toHaveLength(1)
+        await settle(1)
+        expect(calls()).toHaveLength(2)
+    })
+
     it('keeps the spaces of a regular expression', async () => {
         vi.mocked(searchWorkspaceContent).mockImplementationOnce(() => new Promise(() => {}))
         const { result } = renderSearch({ mode: 'text', options: { ...OFF, useRegex: true } })
@@ -1245,6 +1351,24 @@ describe('usePaletteSearch Find in Workspace options', () => {
         expect(result.current.isSearchingText).toBe(false)
         expect(result.current.textStopMessage).toBe('Search stopped: the regular expression took too long on notes.md. Try a simpler pattern.')
         expect(result.current.textLongLinesSkipped).toBe(3)
+        expect(disabled(result.current.groups)).toEqual([false])
+    })
+
+    it("says when regular expression search isn't available, and keeps the hits found before it openable", async () => {
+        vi.mocked(searchWorkspaceContent).mockResolvedValueOnce({
+            hits: [{ path: '/ws/a.md', line: 1, column: 1, length: 1, preview: 'a', previewMatchStart: 0, previewMatchLength: 1, source: 'disk' }],
+            capped: false,
+            unreadableFiles: 0,
+            truncatedFiles: 0,
+            longLinesSkipped: 0,
+            stopped: { reason: 'unavailable' },
+        })
+        const { result } = renderSearch({ mode: 'text', options: { ...OFF, useRegex: true } })
+        act(() => result.current.setQuery('oauth'))
+        await settle(DEBOUNCE_MS)
+
+        expect(result.current.isSearchingText).toBe(false)
+        expect(result.current.textStopMessage).toBe("Regular expression search isn't available.")
         expect(disabled(result.current.groups)).toEqual([false])
     })
 })

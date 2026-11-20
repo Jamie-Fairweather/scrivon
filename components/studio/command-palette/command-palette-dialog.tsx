@@ -450,6 +450,8 @@ export function CommandPaletteDialog({
 
     // An invalid pattern is announced once typing pauses, not on every key.
     const [announcedError, setAnnouncedError] = useState<string | null>(null)
+    // Forgotten once the pattern is valid again, so the same error coming back also waits for the pause.
+    if (!queryError && announcedError !== null) setAnnouncedError(null)
     useEffect(() => {
         if (!queryError) return
         const timer = window.setTimeout(() => setAnnouncedError(queryError), DEBOUNCE_MS)
