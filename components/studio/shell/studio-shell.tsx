@@ -6,6 +6,7 @@ import { BatchExportWithoutFolder } from '@/components/studio/batch-export/batch
 import { CommandPaletteProvider } from '@/components/studio/command-palette/command-palette-provider'
 import { CommandRegistryProvider } from '@/components/studio/commands/command-registry'
 import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
+import { DiagramStartersProvider } from '@/components/studio/dialogs/diagram-starters-provider'
 import { FileHistoryProvider } from '@/components/studio/dialogs/file-history-provider'
 import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { LinkUpdateProvider } from '@/components/studio/dialogs/link-update-provider'
@@ -79,22 +80,24 @@ export function StudioShell() {
                                     <LinkUpdateProvider>
                                         <FileHistoryProvider>
                                             <TemplatePickerProvider>
-                                                <AppUpdateProvider>
-                                                    {/* Below the providers above, so a command can use their dialogs and updates. */}
-                                                    <PresentModeProvider>
-                                                        <StudioPalette>
-                                                            {/* First, so these commands lead the palette's list. */}
-                                                            <StudioCommands />
-                                                            <HelpCommands />
-                                                            <NativeWindowTitle />
-                                                            <WindowFileDrop />
-                                                            {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
-                                                            <TooltipProvider delay={400}>
-                                                                <StudioRouter />
-                                                            </TooltipProvider>
-                                                        </StudioPalette>
-                                                    </PresentModeProvider>
-                                                </AppUpdateProvider>
+                                                <DiagramStartersProvider>
+                                                    <AppUpdateProvider>
+                                                        {/* Below the providers above, so a command can use their dialogs and updates. */}
+                                                        <PresentModeProvider>
+                                                            <StudioPalette>
+                                                                {/* First, so these commands lead the palette's list. */}
+                                                                <StudioCommands />
+                                                                <HelpCommands />
+                                                                <NativeWindowTitle />
+                                                                <WindowFileDrop />
+                                                                {/* One shared delay: once a toolbar tooltip has shown, the next button's shows straight away. */}
+                                                                <TooltipProvider delay={400}>
+                                                                    <StudioRouter />
+                                                                </TooltipProvider>
+                                                            </StudioPalette>
+                                                        </PresentModeProvider>
+                                                    </AppUpdateProvider>
+                                                </DiagramStartersProvider>
                                             </TemplatePickerProvider>
                                         </FileHistoryProvider>
                                     </LinkUpdateProvider>

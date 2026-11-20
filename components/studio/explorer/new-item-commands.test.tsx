@@ -7,9 +7,10 @@ import { buildNewItemCommands, useNewItemCommands, type NewItemCommandsContext }
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { FileNode } from '@/lib/workspace/types'
 
-const { createNewItem, newFromTemplate, session, activeTab, layout } = vi.hoisted(() => ({
+const { createNewItem, newFromTemplate, openStarterGallery, session, activeTab, layout } = vi.hoisted(() => ({
     createNewItem: vi.fn(async () => true),
     newFromTemplate: vi.fn<(folder: string) => Promise<boolean>>(async () => true),
+    openStarterGallery: vi.fn(),
     session: { workspaceRoot: '/ws' as string | null, tree: [] as FileNode[] },
     activeTab: { id: null as string | null },
     layout: { layout: { explorerOpen: true }, setExplorerOpen: vi.fn() },
@@ -19,6 +20,7 @@ vi.mock('@/components/studio/explorer/use-file-tree-actions', () => ({
     useCreateNewItem: () => createNewItem,
     useCreateFromTemplate: () => newFromTemplate,
 }))
+vi.mock('@/components/studio/dialogs/diagram-starters-provider', () => ({ useDiagramStarters: () => ({ openStarterGallery }) }))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { keybinds: createDefaultKeybinds(false) } }),
 }))
@@ -34,6 +36,7 @@ function context(overrides: Partial<NewItemCommandsContext> = {}): NewItemComman
         targetFolder: () => '/ws/docs',
         createNewItem: vi.fn(async () => true),
         newFromTemplate: vi.fn(async () => true),
+        newFromStarter: vi.fn(),
         showExplorer: vi.fn(),
         ...overrides,
     }
@@ -42,7 +45,7 @@ function context(overrides: Partial<NewItemCommandsContext> = {}): NewItemComman
 const find = (ctx: NewItemCommandsContext, id: string) => buildNewItemCommands(ctx).find((command) => command.id === id)
 
 describe('buildNewItemCommands', () => {
-    it('offers a new diagram, document and folder, and a new file from a template, on their own shortcuts', () => {
+    it('offers a new diagram, document and folder, a new file from a template and a new diagram from a starter', () => {
         const commands = buildNewItemCommands(context())
         const keybinds = createDefaultKeybinds(false)
         expect(commands.map((c) => [c.id, c.label, commandShortcut(c, keybinds, false)])).toEqual([
@@ -50,13 +53,31 @@ describe('buildNewItemCommands', () => {
             ['new-document', 'New Document…', 'Ctrl+N'],
             ['new-folder', 'New Folder…', undefined],
             ['new-from-template', 'New from Template…', undefined],
+            ['new-diagram-from-starter', 'New Diagram from Starter…', undefined],
         ])
         expect(commands.map((c) => c.keybind)).toEqual([
             'workspace.newDiagram',
             'workspace.newDocument',
             'workspace.newFolder',
             'workspace.newFromTemplate',
+            // No shortcut setting yet.
+            undefined,
         ])
+    })
+
+    it('opens the Diagram Starters window for the folder new items go in when it runs', () => {
+        let folder: string | null = '/ws/docs'
+        const ctx = context({ targetFolder: () => folder })
+        const command = find(ctx, 'new-diagram-from-starter')!
+
+        folder = '/ws/old'
+        void command.run()
+        expect(ctx.newFromStarter).toHaveBeenCalledExactlyOnceWith('/ws/old')
+        expect(ctx.createNewItem).not.toHaveBeenCalled()
+
+        folder = null
+        void command.run()
+        expect(ctx.newFromStarter).toHaveBeenCalledTimes(1)
     })
 
     it('runs New from Template on keys the user sets', () => {
@@ -113,10 +134,13 @@ describe('buildNewItemCommands', () => {
         expect(ctx.showExplorer).not.toHaveBeenCalled()
     })
 
-    it.each(['new-diagram', 'new-document', 'new-folder', 'new-from-template'])('says to open a folder first when none is open (%s)', (id) => {
-        expect(find(context({ hasWorkspace: false }), id)).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
-        expect(find(context(), id)).toMatchObject({ disabled: false })
-    })
+    it.each(['new-diagram', 'new-document', 'new-folder', 'new-from-template', 'new-diagram-from-starter'])(
+        'says to open a folder first when none is open (%s)',
+        (id) => {
+            expect(find(context({ hasWorkspace: false }), id)).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
+            expect(find(context(), id)).toMatchObject({ disabled: false })
+        }
+    )
 })
 
 describe('useNewItemCommands', () => {
@@ -266,6 +290,18 @@ describe('useNewItemCommands', () => {
         expect(createNewItem).not.toHaveBeenCalled()
     })
 
+    it('opens the Diagram Starters window to make a new file in the folder New Document would use, with no file open', () => {
+        const command = renderCommands()
+
+        act(() => void command('new-diagram-from-starter').run())
+        expect(openStarterGallery).toHaveBeenCalledExactlyOnceWith({ primary: 'new-file', folder: '/ws' })
+
+        row('/ws/drafts').focus()
+        act(() => void command('new-diagram-from-starter').run())
+        expect(openStarterGallery).toHaveBeenLastCalledWith({ primary: 'new-file', folder: '/ws/drafts' })
+        expect(createNewItem).not.toHaveBeenCalled()
+    })
+
     it('is off with no folder open', () => {
         session.workspaceRoot = null
         session.tree = []
@@ -273,5 +309,6 @@ describe('useNewItemCommands', () => {
 
         expect(command('new-document').disabled).toBe(true)
         expect(command('new-from-template').disabled).toBe(true)
+        expect(command('new-diagram-from-starter')).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
     })
 })

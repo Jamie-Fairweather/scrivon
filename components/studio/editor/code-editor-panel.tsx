@@ -21,6 +21,7 @@ import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
 import { trackCaretInTable } from '@/components/studio/editor/editor-table-caret'
 import { useTableSizePrompt } from '@/components/studio/dialogs/insert-table-dialog'
+import { useDiagramStarters } from '@/components/studio/dialogs/diagram-starters-provider'
 import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
 import { attachEditorImages, imageDocumentFor, pasteClipboardPicture } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
@@ -460,6 +461,8 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         tableCaretRef.current?.update()
     }, [activeTab?.id, activeIsMarkdown])
     const { askTableSize, dialog: insertTableDialog } = useTableSizePrompt()
+    const { openStarterGallery } = useDiagramStarters()
+    const activeKind = activeTab ? documentKind(activeTab.name) : null
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
     useEditorCommands(editorPath ? mountedEditor : null, {
         shown: open,
@@ -467,6 +470,8 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         markdown: activeIsMarkdown,
         inTable: caretInTable,
         askTableSize,
+        fileKind: activeKind ?? 'other',
+        openStarterGallery,
     })
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content

@@ -9,7 +9,7 @@ import { APP_NAME } from '@/lib/app-branding'
 import { CommandMenuItem } from '@/components/studio/commands/command-menu-item'
 import { useCommands, type ShownCommand } from '@/components/studio/commands/command-registry'
 import { EXPORT_FOLDER_DIAGRAMS_ID } from '@/components/studio/batch-export/batch-export-commands'
-import { FORMAT_TABLE_ID, INSERT_TABLE_ID, TABLE_COMMAND_GROUPS } from '@/components/studio/editor/editor-commands'
+import { FORMAT_TABLE_ID, INSERT_DIAGRAM_STARTER_ID, INSERT_TABLE_ID, TABLE_COMMAND_GROUPS } from '@/components/studio/editor/editor-commands'
 import { PNG_SCALES } from '@/components/studio/editor/export-commands'
 import { displayPath } from '@/lib/workspace/display-path'
 import { folderLabels } from '@/lib/workspace/paths'
@@ -175,6 +175,7 @@ export function StudioMenuBar() {
                     <MenuBarEntry label="File" focusAfterCommand={focusAfterCommand}>
                         <MenuGroup>
                             {item('new-diagram')}
+                            {item('new-diagram-from-starter')}
                             {item('new-document')}
                             {item('new-folder')}
                             {item('new-from-template')}
@@ -288,6 +289,12 @@ export function StudioMenuBar() {
                                 {item('edit.link')}
                             </MenuGroup>
                             <TableSubmenu byId={byId} />
+                            {byId.has(INSERT_DIAGRAM_STARTER_ID) ? (
+                                <>
+                                    <MenuSeparator />
+                                    {item(INSERT_DIAGRAM_STARTER_ID)}
+                                </>
+                            ) : null}
                         </MenuBarEntry>
                     )}
 

@@ -38,6 +38,8 @@ const chooseTemplate = vi.hoisted(() =>
     vi.fn(async () => ({ title: 'Meeting notes', fileName: 'meeting-notes.md', kind: 'markdown' as const, text: '# {{title}}' }))
 )
 vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate }) }))
+const openStarterGallery = vi.hoisted(() => vi.fn())
+vi.mock('@/components/studio/dialogs/diagram-starters-provider', () => ({ useDiagramStarters: () => ({ openStarterGallery }) }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useActiveTabId: vi.fn(),
     useCanvasFit: vi.fn(),
@@ -180,6 +182,8 @@ function EditorCommands({ state, inTable = false }: { state: EditorState; inTabl
         markdown: true,
         inTable,
         askTableSize,
+        fileKind: 'markdown',
+        openStarterGallery,
     })
     return null
 }
@@ -411,6 +415,7 @@ describe('StudioMenuBar File menu', () => {
         const file = await openMenu('File')
         expect(menuLabels(file)).toEqual([
             'New Diagram…Alt+N',
+            'New Diagram from Starter…',
             'New Document…Ctrl+N',
             'New Folder…',
             'New from Template…',
@@ -430,6 +435,7 @@ describe('StudioMenuBar File menu', () => {
         ])
         for (const name of [
             'New Diagram… Alt+N',
+            'New Diagram from Starter…',
             'New Document… Ctrl+N',
             'New Folder…',
             'Save Ctrl+S',
@@ -497,6 +503,15 @@ describe('StudioMenuBar File menu', () => {
         )
     })
 
+    it('opens the Diagram Starters window to make a new diagram in the folder New Document would use', async () => {
+        mockContexts({ workspaceRoot: 'C:\\work', activeTabId: 'C:\\work\\docs\\a.md' })
+        render(<Studio />)
+
+        await userEvent.setup().click(within(await openMenu('File')).getByRole('menuitem', { name: 'New Diagram from Starter…' }))
+
+        expect(openStarterGallery).toHaveBeenCalledWith({ primary: 'new-file', folder: 'C:\\work\\docs' })
+    })
+
     it('asks for a new document in the explorer row clicked before the menu', async () => {
         mockContexts({ workspaceRoot: 'C:\\work', activeTabId: 'C:\\work\\docs\\a.md' })
         render(
@@ -518,7 +533,7 @@ describe('StudioMenuBar File menu', () => {
         render(<Studio />)
 
         const file = await openMenu('File')
-        for (const name of [/^New Diagram/, /^New Document/, /^New Folder/, /^New from Template/]) {
+        for (const name of [/^New Diagram…/, /^New Diagram from Starter/, /^New Document/, /^New Folder/, /^New from Template/]) {
             expect(within(file).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
         }
     })
@@ -775,7 +790,16 @@ describe('StudioMenuBar Edit menu', () => {
             'Inline CodeCtrl+E',
             'LinkCtrl+K',
             'Table',
+            'Insert Diagram Starter…',
         ])
+    })
+
+    it('opens the Diagram Starters window to insert in the open file', async () => {
+        render(<Studio editor="ready" />)
+
+        await userEvent.setup().click(within(await openMenu('Edit')).getByRole('menuitem', { name: 'Insert Diagram Starter…' }))
+
+        expect(openStarterGallery).toHaveBeenCalledWith(expect.objectContaining({ primary: 'insert' }))
     })
 
     it('runs the command in the editor', async () => {
@@ -825,8 +849,8 @@ describe('StudioMenuBar Edit menu', () => {
         const editorItems = within(menu)
             .getAllByRole('menuitem')
             .filter((item) => !palette.includes(item))
-        // The editor's thirteen, and the Table submenu.
-        expect(editorItems).toHaveLength(14)
+        // The editor's thirteen, the Table submenu and Insert Diagram Starter.
+        expect(editorItems).toHaveLength(15)
         expect(editorItems.every((item) => item.getAttribute('aria-disabled') === 'true')).toBe(true)
         expect(palette.every((item) => item.getAttribute('aria-disabled') !== 'true')).toBe(true)
     })
@@ -852,11 +876,11 @@ describe('StudioMenuBar Edit → Table', () => {
         return { edit, table }
     }
 
-    it('ends the Edit menu, with every table command and Format Table’s keys', async () => {
+    it('comes before Insert Diagram Starter at the end of the Edit menu, with every table command and Format Table’s keys', async () => {
         render(<Studio editor="ready" inTable />)
 
         const { edit, table } = await openTableMenu()
-        expect(menuLabels(edit).at(-1)).toBe('Table')
+        expect(menuLabels(edit).slice(-2)).toEqual(['Table', 'Insert Diagram Starter…'])
         expect(menuLabels(table)).toEqual([
             'Insert Table…',
             'Insert Row Above',
@@ -946,7 +970,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(62)
+        expect(compared).toBe(64)
     })
 })
 

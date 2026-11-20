@@ -65,6 +65,9 @@ vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ DeleteCo
 vi.mock('@/components/studio/dialogs/link-update-provider', () => ({ LinkUpdateProvider: providerWithDialog('link-update') }))
 vi.mock('@/components/studio/dialogs/file-history-provider', () => ({ FileHistoryProvider: providerWithDialog('file-history') }))
 vi.mock('@/components/studio/app-update-provider', () => ({ AppUpdateProvider: providerWithDialog('app-update') }))
+vi.mock('@/components/studio/dialogs/diagram-starters-provider', () => ({
+    DiagramStartersProvider: ({ children }: { children: ReactNode }) => children,
+}))
 
 beforeEach(() => {
     crash.in = null

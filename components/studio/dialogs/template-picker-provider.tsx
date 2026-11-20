@@ -1,7 +1,8 @@
 'use client'
 
 import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon, FileTextIcon, NetworkIcon } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useFocusReturn } from '@/components/studio/dialogs/focus-return'
 import { useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import {
     Command,
@@ -94,22 +95,6 @@ function matchesQuery(option: TemplateOption, query: string): boolean {
 
 const optionTitle = (option: unknown) => (option as TemplateOption | null)?.title ?? ''
 
-/**
- * Menus, the menu bar and dialogs (the palette among them). A command chosen in one of them runs as it closes, so the
- * picker can't give focus back there: it goes back to where focus was before.
- */
-const PASSING_FOCUS = '[data-slot="menu-popup"], [role="menubar"], [data-slot$="dialog-popup"]'
-
-function isPassingFocus(el: Element): boolean {
-    return el.closest(PASSING_FOCUS) !== null
-}
-
-/** True when `el` can take focus now: still on the page, drawn, and not in a hidden (inert) pane. */
-function canTakeFocus(el: HTMLElement | null): el is HTMLElement {
-    if (!el?.isConnected || el.closest('[inert]')) return false
-    return typeof el.checkVisibility !== 'function' || el.checkVisibility({ visibilityProperty: true })
-}
-
 /** How many folder templates are waiting to be shown, as the picker says it. */
 function heldBackMessage(count: number): string {
     return `${count === 1 ? '1 template' : `${count} templates`} from this folder will show when you next type.`
@@ -137,10 +122,8 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
     const [listing, setListing] = useState<WorkspaceListing>({ status: 'loading' })
     const [pickError, setPickError] = useState<string | null>(null)
     // Where the keyboard was when the picker opened, and whether a template was picked.
-    const returnFocusRef = useRef<HTMLElement | null>(null)
+    const { remember: rememberFocus, returnTarget } = useFocusReturn()
     const pickedRef = useRef(false)
-    // Where focus last rested outside a menu, the menu bar or a dialog, for when the picker is opened from one of them.
-    const restingFocusRef = useRef<HTMLElement | null>(null)
     // The folder's templates come in above the built-ins, and Base UI keeps the highlight on the same row number. So once
     // the user has moved the highlight with the keys or typed, they are held back until the search next changes (which
     // moves the highlight to the first match anyway), rather than slipping a different template under the highlight.
@@ -148,15 +131,6 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
     const highlightedRef = useRef<TemplateOption | undefined>(undefined)
     const movedHighlightRef = useRef(false)
     const queryRef = useRef('')
-
-    useEffect(() => {
-        const onFocusIn = (event: FocusEvent) => {
-            const target = event.target
-            if (target instanceof HTMLElement && target !== document.body && !isPassingFocus(target)) restingFocusRef.current = target
-        }
-        document.addEventListener('focusin', onFocusIn)
-        return () => document.removeEventListener('focusin', onFocusIn)
-    }, [])
 
     const finish = useCallback((template: ChosenTemplate | null) => {
         openingRef.current += 1
@@ -168,19 +142,13 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
     }, [])
 
     // Cancelled, focus goes back where it was. Picked, the name prompt opens next and takes it, so it is left alone.
-    const finalFocus = useCallback(() => {
-        if (pickedRef.current) return false
-        const previous = returnFocusRef.current
-        return canTakeFocus(previous) ? previous : true
-    }, [])
+    const finalFocus = useCallback(() => (pickedRef.current ? false : returnTarget()), [returnTarget])
 
     const chooseTemplate = useCallback(() => {
         return new Promise<ChosenTemplate | null>((resolve) => {
             pendingRef.current?.(null)
             pendingRef.current = resolve
-            const active = document.activeElement
-            returnFocusRef.current =
-                active instanceof HTMLElement && active !== document.body && !isPassingFocus(active) ? active : restingFocusRef.current
+            rememberFocus()
             pickedRef.current = false
             const opening = ++openingRef.current
             pickRef.current += 1
@@ -212,7 +180,7 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
                 }
             )
         })
-    }, [workspaceRoot])
+    }, [workspaceRoot, rememberFocus])
 
     const pick = useCallback(
         async (option: TemplateOption) => {

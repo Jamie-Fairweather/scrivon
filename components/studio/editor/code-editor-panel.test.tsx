@@ -450,6 +450,7 @@ const coordinatorHandlers: {
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({
     registerCoordinatorRefs: (_refs: unknown, handlers: typeof coordinatorHandlers) => Object.assign(coordinatorHandlers, handlers),
 }))
+vi.mock('@/components/studio/dialogs/diagram-starters-provider', () => ({ useDiagramStarters: () => ({ openStarterGallery: () => {} }) }))
 type ThemeState = { isLight: boolean; tokens: Record<string, string> }
 const LIGHT_THEME: ThemeState = { isLight: true, tokens: { name: 'light' } }
 let theme = LIGHT_THEME
