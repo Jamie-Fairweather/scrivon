@@ -38,6 +38,8 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.togglePreview': [chord('p', { ...mod, alt: true })],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
         'view.present': [chord('F5')],
+        // As in browsers and other editors, where F11 is full screen. Nothing else uses it.
+        'view.toggleFocusMode': [chord('F11')],
         'view.fitDiagram': [chord('r', mod)],
         // Ctrl+Plus is the number pad's plus, a plus key (German), or Ctrl+Shift+= (US, UK): see matchKeybind.
         'view.appZoomIn': [chord('=', mod), chord('+', mod)],
@@ -116,6 +118,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             editorWidth: DEFAULT_EDITOR_WIDTH,
             restorePanelsOnOpen: true,
             outlineOpen: false,
+            focusMode: false,
         },
         editor: {
             fontSize: 13,
@@ -127,6 +130,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             tabMovesFocus: false,
             scrollSync: true,
             jumpFromPreview: true,
+            dimOtherParagraphs: false,
         },
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,

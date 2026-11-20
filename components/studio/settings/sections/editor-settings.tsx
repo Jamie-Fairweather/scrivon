@@ -106,6 +106,13 @@ export function EditorSettings() {
             />
 
             <SwitchSetting
+                label="Dim other paragraphs"
+                description="Fade every line but the paragraph you are writing in. A selection keeps every paragraph it touches."
+                checked={settings.editor.dimOtherParagraphs}
+                onChange={(dimOtherParagraphs) => setEditor({ dimOtherParagraphs })}
+            />
+
+            <SwitchSetting
                 label="Scroll with the preview"
                 description="The editor and the Markdown preview scroll together."
                 checked={settings.editor.scrollSync}

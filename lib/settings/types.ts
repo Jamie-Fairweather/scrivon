@@ -26,6 +26,7 @@ export type KeybindActionId =
     | 'view.toggleEditor'
     | 'view.togglePreview'
     | 'view.previewOnly'
+    | 'view.toggleFocusMode'
     | 'view.present'
     | 'view.fitDiagram'
     | 'view.appZoomIn'
@@ -109,6 +110,11 @@ export type AppSettings = {
         restorePanelsOnOpen: boolean
         /** The Outline panel, which lists the headings of the Markdown file on screen. */
         outlineOpen: boolean
+        /**
+         * Only the editor shows, filling the window (the menu bar stays). A flag of its own, apart from the
+         * panes above, so leaving it brings back exactly the layout there was.
+         */
+        focusMode: boolean
     }
     editor: {
         fontSize: number
@@ -124,6 +130,8 @@ export type AppSettings = {
         scrollSync: boolean
         /** Double-clicking the Markdown preview moves the editor's cursor to that line. */
         jumpFromPreview: boolean
+        /** Fades every line but the paragraph (or paragraphs) the cursor or selection is in. */
+        dimOtherParagraphs: boolean
     }
     workspace: {
         maxRecentFolders: number

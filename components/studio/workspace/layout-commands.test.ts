@@ -8,7 +8,10 @@ function context(overrides: Partial<LayoutCommandsContext> = {}): LayoutCommands
         editorOpen: true,
         previewOpen: true,
         outlineOpen: false,
+        focusMode: false,
         canFitDiagram: true,
+        setFocusMode: vi.fn(),
+        focusEditorSoon: vi.fn(),
         setExplorerOpen: vi.fn(),
         setEditorOpen: vi.fn(),
         setPreviewOpen: vi.fn(),
@@ -105,9 +108,61 @@ describe('buildLayoutCommands layout modes', () => {
             'layout-all-panels',
             'layout-editor-preview',
             'preview-only',
+            'toggle-focus-mode',
         ]) {
             expect(find(ctx, id)).toMatchObject({ disabled: true, disabledReason: 'No folder open' })
         }
+    })
+})
+
+describe('buildLayoutCommands Focus Mode', () => {
+    it('turns focus mode on and off, on its shortcut, and says whether it is on', () => {
+        const off = context({ focusMode: false })
+        expect(find(off, 'toggle-focus-mode')).toMatchObject({
+            label: 'Focus Mode',
+            checked: false,
+            keybind: 'view.toggleFocusMode',
+            disabled: false,
+        })
+        void find(off, 'toggle-focus-mode')!.run()
+        expect(off.setFocusMode).toHaveBeenCalledWith(true)
+
+        const on = context({ focusMode: true, explorerOpen: false, previewOpen: false, outlineOpen: false })
+        expect(find(on, 'toggle-focus-mode')?.checked).toBe(true)
+        void find(on, 'toggle-focus-mode')!.run()
+        expect(on.setFocusMode).toHaveBeenCalledWith(false)
+    })
+
+    it('moves the keyboard to the editor as focus mode turns on, as the pane that had it may be gone', () => {
+        // From the View menu or the palette, which hold focus as the command runs, the editor would not get it otherwise.
+        const off = context({ focusMode: false })
+        void find(off, 'toggle-focus-mode')!.run()
+        expect(off.focusEditorSoon).toHaveBeenCalledOnce()
+
+        // Leaving keeps focus where it is: the tab bar's focus handling covers the editor's empty region.
+        const on = context({ focusMode: true, explorerOpen: false, previewOpen: false, outlineOpen: false })
+        void find(on, 'toggle-focus-mode')!.run()
+        expect(on.focusEditorSoon).not.toHaveBeenCalled()
+    })
+
+    it('can be found by the words people use for it', () => {
+        const keywords = find(context(), 'toggle-focus-mode')?.keywords
+        for (const word of ['distraction', 'writing', 'zen']) expect(keywords).toContain(word)
+    })
+
+    it('shows the hidden panes as off in focus mode, so their commands show them rather than hide them', () => {
+        // In focus mode the layout reads as only the editor on screen (studio-layout-context.tsx).
+        const ctx = context({ focusMode: true, explorerOpen: false, previewOpen: false, outlineOpen: false })
+        for (const id of ['toggle-explorer', 'toggle-preview', 'toggle-outline']) expect(find(ctx, id)?.checked).toBe(false)
+
+        void find(ctx, 'toggle-explorer')!.run()
+        void find(ctx, 'toggle-preview')!.run()
+        void find(ctx, 'toggle-outline')!.run()
+        expect(ctx.setExplorerOpen).toHaveBeenCalledWith(true)
+        expect(ctx.setPreviewOpen).toHaveBeenCalledWith(true)
+        expect(ctx.setOutlineOpen).toHaveBeenCalledWith(true)
+        // Focus mode itself is left by those setters, not turned off a second time here.
+        expect(ctx.setFocusMode).not.toHaveBeenCalled()
     })
 })
 

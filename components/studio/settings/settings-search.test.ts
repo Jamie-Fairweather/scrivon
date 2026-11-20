@@ -101,4 +101,13 @@ describe('searchSettings', () => {
     it('finds the status bar', () => {
         expect(searchSettings('word count', BROWSER)).toEqual([expect.objectContaining({ section: 'editor', label: 'Status bar' })])
     })
+
+    it('finds Dim other paragraphs, by its name and by the words people use for it', () => {
+        expect(searchSettings('dim', BROWSER)).toEqual([expect.objectContaining({ section: 'editor', label: 'Dim other paragraphs' })])
+        expect(searchSettings('fade paragraph', BROWSER).map((entry) => entry.label)).toEqual(['Dim other paragraphs'])
+    })
+
+    it('finds the focus mode shortcut in Keyboard settings', () => {
+        expect(searchSettings('focus mode', BROWSER)).toEqual([expect.objectContaining({ section: 'keyboard', label: 'Toggle focus mode' })])
+    })
 })
