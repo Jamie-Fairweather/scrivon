@@ -158,12 +158,18 @@ function replacementPreview(preview: string, matchStart: number, matchLength: nu
     return (
         <>
             {preview.slice(0, start)}
-            <del className="rounded-sm bg-destructive/10 px-0.5 text-destructive-foreground line-through decoration-2">
+            <del
+                className="rounded-sm bg-destructive/10 px-0.5 text-destructive-foreground line-through decoration-2
+                    in-data-highlighted:bg-transparent"
+            >
                 {preview.slice(start, end)}
             </del>
             <span className="sr-only"> replaced with </span>
             {newText ? (
-                <ins className="rounded-sm bg-success/10 px-0.5 font-semibold text-success-foreground underline decoration-1 underline-offset-2">
+                <ins
+                    className="rounded-sm bg-success/10 px-0.5 font-semibold text-success-foreground underline decoration-1 underline-offset-2
+                        in-data-highlighted:bg-transparent"
+                >
                     {newText}
                 </ins>
             ) : (
@@ -378,24 +384,32 @@ function PaletteItemRow({
     )
 }
 
-/** A file's heading in Replace in Workspace: its name, folder and match count, and a button to replace in it. */
+/**
+ * A file's heading in Replace in Workspace: its name, folder and match count (which also name its group, so a
+ * screen reader hears them on reaching its first match), and a button to replace in it. The button sits beside
+ * the label, not in it: the label is hidden from screen readers, as it only names the group.
+ */
 function ReplaceFileHeading({ file, busy, onReplaceFile }: { file: PaletteGroupFile; busy: boolean; onReplaceFile: (path: string) => void }) {
     const count = file.capped ? `${file.matchCount}+` : String(file.matchCount)
     return (
-        <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 flex-1 truncate">
-                <span className="text-foreground" dir="auto">
-                    {file.name}
+        <div className="flex min-w-0 items-center gap-2 pe-2">
+            <CommandGroupLabel className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate">
+                    <span className="text-foreground" dir="auto">
+                        {file.name}
+                    </span>
+                    {file.folder ? <span className="font-normal"> {displayPath(file.folder)}</span> : null}
                 </span>
-                {file.folder ? <span className="font-normal"> {displayPath(file.folder)}</span> : null}
-            </span>
-            <Badge
-                aria-label={file.capped ? `${count} matches, more than are listed` : `${count} ${file.matchCount === 1 ? 'match' : 'matches'}`}
-                className="shrink-0 tabular-nums"
-                variant="outline"
-            >
-                {count}
-            </Badge>
+                <Badge
+                    aria-label={
+                        file.capped ? `, ${count} matches, more than are listed` : `, ${count} ${file.matchCount === 1 ? 'match' : 'matches'}`
+                    }
+                    className="shrink-0 tabular-nums"
+                    variant="outline"
+                >
+                    {count}
+                </Badge>
+            </CommandGroupLabel>
             <IconTooltip label={`Replace in ${file.name}`}>
                 <Button
                     aria-label={`Replace in ${file.name}`}
@@ -412,7 +426,7 @@ function ReplaceFileHeading({ file, busy, onReplaceFile }: { file: PaletteGroupF
                     <ReplaceAllIcon aria-hidden />
                 </Button>
             </IconTooltip>
-        </span>
+        </div>
     )
 }
 
@@ -636,8 +650,24 @@ export function CommandPaletteDialog({
         search.dispatchEvent(
             new globalThis.KeyboardEvent('keydown', { key, code, shiftKey, ctrlKey, altKey, metaKey, bubbles: true, cancelable: true })
         )
-        setReplaceActiveDescendant(search.getAttribute('aria-activedescendant') ?? undefined)
     }, [])
+    // While the Replace box has the keyboard, it follows the search box's highlighted row.
+    const activeDescendantObserver = useRef<MutationObserver | null>(null)
+    const handleReplaceFocus = useCallback(() => {
+        const search = inputRef.current
+        if (!search) return
+        const sync = () => setReplaceActiveDescendant(search.getAttribute('aria-activedescendant') ?? undefined)
+        sync()
+        activeDescendantObserver.current?.disconnect()
+        if (typeof MutationObserver === 'undefined') return
+        activeDescendantObserver.current = new MutationObserver(sync)
+        activeDescendantObserver.current.observe(search, { attributes: true, attributeFilter: ['aria-activedescendant'] })
+    }, [])
+    const handleReplaceBlur = useCallback(() => {
+        activeDescendantObserver.current?.disconnect()
+        activeDescendantObserver.current = null
+    }, [])
+    useEffect(() => () => activeDescendantObserver.current?.disconnect(), [])
 
     // An invalid pattern is announced once typing pauses, not on every key.
     const [announcedError, setAnnouncedError] = useState<string | null>(null)
@@ -682,6 +712,8 @@ export function CommandPaletteDialog({
                         onClick={showAllResults}
                         onMouseDown={(event) => event.preventDefault()}
                         render={<button type="button" />}
+                        // With the Replace box, Tab goes straight to it; Backspace in the empty search box still does this.
+                        tabIndex={replace ? -1 : undefined}
                         title="Show all results (Backspace)"
                         variant="outline"
                     >
@@ -750,7 +782,8 @@ export function CommandPaletteDialog({
                                         sm:text-sm"
                                     dir="auto"
                                     id={replaceId}
-                                    onBlur={() => setReplaceActiveDescendant(undefined)}
+                                    onBlur={handleReplaceBlur}
+                                    onFocus={handleReplaceFocus}
                                     onChange={(event) => replace.onChange(event.currentTarget.value)}
                                     onKeyDown={handleReplaceKeyDown}
                                     placeholder="Replace with…"
@@ -845,25 +878,16 @@ export function CommandPaletteDialog({
                         <CommandList>
                             {(group: PaletteGroup, index: number) => (
                                 <Fragment key={group.id}>
-                                    <CommandGroup
-                                        aria-label={
-                                            group.file
-                                                ? `${group.file.name}, ${group.file.capped ? `${group.file.matchCount}+` : group.file.matchCount} matches`
-                                                : undefined
-                                        }
-                                        items={group.items}
-                                    >
-                                        <CommandGroupLabel>
-                                            {group.file && replace ? (
-                                                <ReplaceFileHeading
-                                                    busy={replace.busy}
-                                                    file={group.file}
-                                                    onReplaceFile={(path) => void replace.replaceFile(path)}
-                                                />
-                                            ) : (
-                                                group.label
-                                            )}
-                                        </CommandGroupLabel>
+                                    <CommandGroup items={group.items}>
+                                        {group.file && replace ? (
+                                            <ReplaceFileHeading
+                                                busy={replace.busy}
+                                                file={group.file}
+                                                onReplaceFile={(path) => void replace.replaceFile(path)}
+                                            />
+                                        ) : (
+                                            <CommandGroupLabel>{group.label}</CommandGroupLabel>
+                                        )}
                                         <CommandCollection>
                                             {(item: PaletteItem) => (
                                                 <PaletteItemRow

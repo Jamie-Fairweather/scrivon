@@ -52,6 +52,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Settings** — **Ctrl/Cmd+,** opens preferences for theme, autosave, editor, and configurable keyboard shortcuts
 - **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace. Type `:` to go to a line, `@` to jump to a heading, or `?` to see these
 - **Find in Workspace** — **Ctrl/Cmd+Shift+F** searches the text of every file, with Match Case (**Alt+C**), Match Whole Word (**Alt+W**) and Use Regular Expression (**Alt+R**; **Cmd+Option** on macOS). The options are remembered, and a regular expression that runs too long is stopped instead of freezing the window
+- **Replace in Workspace** — **Ctrl/Cmd+Shift+H** adds a Replace box to Find in Workspace and previews each change, grouped by file. Replace one match (**Ctrl/Cmd+Shift+1**) or every match in a file as an unsaved edit you can undo, or Replace All (**Ctrl/Cmd+Alt+Enter**) after confirming the true totals. In regex mode, `$1`, `$<name>` and `$&` fill in what was matched. Files keep their encoding and line endings, and a file changed elsewhere in the meantime is skipped
 - **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows
 - **Auto-updates** — Updates install in-app; **Help → Check for Updates…** looks for one at any time (see [releases](https://github.com/Jamie-Fairweather/scrivon/releases))
 

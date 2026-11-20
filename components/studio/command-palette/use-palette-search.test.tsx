@@ -1378,3 +1378,110 @@ describe('usePaletteSearch Find in Workspace options', () => {
         expect(disabled(result.current.groups)).toEqual([false])
     })
 })
+
+describe('usePaletteSearch Replace in Workspace', () => {
+    const OFF: WorkspaceSearchOptions = { matchCase: false, wholeWord: false, useRegex: false }
+    type Props = { mode: PaletteMode; options: WorkspaceSearchOptions; replacement: string | null }
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.useFakeTimers()
+        state.settings.settings = createDefaultSettings(false)
+        state.session.workspaceRoot = '/ws'
+        state.session.tree = [file('/ws/a.md'), file('/ws/docs/b.md')]
+        state.tabs.tabs = []
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(readFile).mockImplementation(async (path) => utf8(String(path).endsWith('a.md') ? 'cat cat' : 'one cat'))
+        vi.mocked(readStamp).mockImplementation(async () => null)
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    function renderSearch(initialProps: Props) {
+        return renderHookAlone((props: Props) => usePaletteSearch(props.mode, true, props.options, props.replacement), {
+            wrapper: WithCommands,
+            initialProps,
+        })
+    }
+
+    const calls = () => vi.mocked(searchWorkspaceContent).mock.calls.map(([options]) => options)
+    const settle = (ms = 0) => act(() => vi.advanceTimersByTimeAsync(ms))
+
+    it('groups the matches by file, each saying what it becomes', async () => {
+        const { result } = renderSearch({ mode: 'text', options: OFF, replacement: 'dog' })
+        act(() => result.current.setQuery('cat'))
+        await settle(DEBOUNCE_MS)
+
+        expect(result.current.replaceActive).toBe(true)
+        expect(result.current.groups.map((group) => [group.id, group.file?.name, group.file?.folder, group.file?.matchCount])).toEqual([
+            ['replace:/ws/a.md', 'a.md', '', 2],
+            ['replace:/ws/docs/b.md', 'b.md', 'docs', 1],
+        ])
+        expect(result.current.groups.flatMap((group) => group.items.map((item) => item.kind === 'text' && item.newText))).toEqual([
+            'dog',
+            'dog',
+            'dog',
+        ])
+    })
+
+    it('marks a file whose matches were cut short, so its heading says 10+', async () => {
+        vi.mocked(readFile).mockImplementation(async () => utf8('cat '.repeat(20)))
+        const { result } = renderSearch({ mode: 'text', options: OFF, replacement: 'dog' })
+        act(() => result.current.setQuery('cat'))
+        await settle(DEBOUNCE_MS)
+
+        expect(result.current.groups.map((group) => [group.file?.matchCount, group.file?.capped])).toEqual([
+            [10, true],
+            [10, true],
+        ])
+    })
+
+    it('shows a plain replacement as typed without searching again, and works out a regex one in the search', async () => {
+        const { result, rerender } = renderSearch({ mode: 'text', options: OFF, replacement: 'dog' })
+        act(() => result.current.setQuery('cat'))
+        await settle(DEBOUNCE_MS)
+        expect(calls()).toHaveLength(1)
+
+        rerender({ mode: 'text', options: OFF, replacement: 'bird' })
+        await settle(DEBOUNCE_MS)
+        expect(calls()).toHaveLength(1)
+        expect(result.current.groups[0]!.items[0]).toMatchObject({ newText: 'bird' })
+
+        rerender({ mode: 'text', options: { ...OFF, useRegex: true }, replacement: '[$&]' })
+        await settle(DEBOUNCE_MS)
+        expect(calls().at(-1)!.replacement).toBe('[$&]')
+    })
+
+    it('searches again at once after a replace, the old results greyed out until then', async () => {
+        const { result } = renderSearch({ mode: 'text', options: OFF, replacement: 'dog' })
+        act(() => result.current.setQuery('cat'))
+        await settle(DEBOUNCE_MS)
+        expect(result.current.textResolved).toBe(true)
+
+        vi.mocked(readFile).mockImplementation(async (path) => utf8(String(path).endsWith('a.md') ? 'dog dog' : 'one cat'))
+        act(() => result.current.refreshText())
+        expect(result.current.textResolved).toBe(false)
+        expect(
+            result.current.groups.every((group) => group.file?.disabled && group.items.every((item) => item.kind === 'text' && item.disabled))
+        ).toBe(true)
+
+        await settle(0)
+        expect(calls()).toHaveLength(2)
+        expect(result.current.textResolved).toBe(true)
+        expect(result.current.groups.map((group) => group.file?.path)).toEqual(['/ws/docs/b.md'])
+    })
+
+    it('keeps the usual Text group without the Replace box, and outside Text mode', async () => {
+        const { result, rerender } = renderSearch({ mode: 'text', options: OFF, replacement: null })
+        act(() => result.current.setQuery('cat'))
+        await settle(DEBOUNCE_MS)
+        expect(result.current.groups.map((group) => group.id)).toEqual(['text'])
+
+        rerender({ mode: 'all', options: OFF, replacement: 'dog' })
+        await settle(DEBOUNCE_MS)
+        expect(result.current.replaceActive).toBe(false)
+        expect(result.current.groups.some((group) => group.file)).toBe(false)
+    })
+})

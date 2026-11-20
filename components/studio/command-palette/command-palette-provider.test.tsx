@@ -2,7 +2,7 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-li
 import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandPaletteProvider, useCommandPalette, useOptionalCommandPalette } from '@/components/studio/command-palette/command-palette-provider'
-import type { PaletteGroup, PaletteItem, PaletteMode } from '@/components/studio/command-palette/types'
+import type { PaletteGroup, PaletteItem, PaletteMode, PaletteOpenOptions } from '@/components/studio/command-palette/types'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { notifyError } from '@/lib/notify'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -10,6 +10,7 @@ import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '@
 const search = vi.hoisted(() => ({
     enabled: false,
     searchOptions: undefined as unknown,
+    replacement: null as string | null,
     groups: [] as PaletteGroup[],
     emptyHint: null as string | null,
     runItem: (async () => {}) as (item: PaletteItem) => Promise<void>,
@@ -29,11 +30,13 @@ vi.mock('@/components/studio/settings/settings-provider', () => ({
 vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
     const { useCallback, useState } = await import('react')
     return {
-        usePaletteSearch: (mode: unknown, enabled: boolean, searchOptions: unknown) => {
+        usePaletteSearch: (mode: unknown, enabled: boolean, searchOptions: unknown, replacement: string | null = null) => {
             search.enabled = enabled
             search.searchOptions = searchOptions
+            search.replacement = replacement
             const [query, setQuery] = useState('')
             const resetSearch = useCallback(() => setQuery(''), [])
+            const searchOptionsApply = mode === 'text' && !query.trimStart().startsWith('>')
             return {
                 query,
                 setQuery,
@@ -46,13 +49,19 @@ vi.mock('@/components/studio/command-palette/use-palette-search', async () => {
                 runItem: (item: PaletteItem) => search.runItem(item),
                 hasWorkspace: true,
                 emptyHint: search.emptyHint,
-                searchOptionsApply: mode === 'text' && !query.trimStart().startsWith('>'),
+                searchOptionsApply,
+                replaceActive: replacement !== null && searchOptionsApply,
+                textMatcher: null,
+                textResolved: false,
+                refreshText: () => {},
+                filePaths: [],
+                showEditor: () => {},
             }
         },
     }
 })
 
-const palette: { openMode: (mode: PaletteMode) => void } = { openMode: () => {} }
+const palette: { openMode: (mode: PaletteMode, options?: PaletteOpenOptions) => void } = { openMode: () => {} }
 
 beforeEach(() => {
     search.groups = []
@@ -211,6 +220,43 @@ describe('CommandPaletteProvider search options', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Use Regular Expression' }))
         expect(saved).toEqual({ workspaceSearch: { matchCase: true, wholeWord: false, useRegex: true }, fileHistory: { enabled: false } })
+    })
+})
+
+describe('CommandPaletteProvider Replace in Workspace', () => {
+    beforeEach(() => {
+        palette.openMode = () => {}
+    })
+
+    const replaceBox = () => screen.queryByRole('textbox', { name: 'Replace with' })
+
+    it('opens Find in Workspace with the Replace box, and keeps what was typed in it', () => {
+        renderProvider(null)
+        act(() => palette.openMode('text', { replace: true }))
+        expect(screen.getByPlaceholderText('Find in workspace…')).toBeInTheDocument()
+        expect(replaceBox()).toBeInTheDocument()
+
+        fireEvent.change(replaceBox()!, { target: { value: 'dog' } })
+        expect(search.replacement).toBe('dog')
+    })
+
+    it("closes the box on Find in Workspace's key, and when the Text filter is removed", () => {
+        renderProvider(null)
+        act(() => palette.openMode('text', { replace: true }))
+        act(() => palette.openMode('text'))
+        expect(replaceBox()).toBeNull()
+        expect(search.replacement).toBeNull()
+
+        act(() => palette.openMode('text', { replace: true }))
+        expect(replaceBox()).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Text only. Show all results' }))
+        expect(replaceBox()).toBeNull()
+    })
+
+    it('never shows the box outside Text mode', () => {
+        renderProvider(null)
+        act(() => palette.openMode('files', { replace: true }))
+        expect(replaceBox()).toBeNull()
     })
 })
 

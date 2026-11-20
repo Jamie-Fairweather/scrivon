@@ -156,6 +156,13 @@ describe('status text colours', () => {
         expect(contrastRatio(vars['--destructive-foreground'], vars['--accent'])).toBeGreaterThanOrEqual(4.5)
     })
 
+    it.each(APP_THEME_IDS)("%s: Replace in Workspace's old and new text reach 4.5:1 on the highlighted row", (id) => {
+        const vars = tokensToSemanticVars(resolveThemeTokensForId(id))
+
+        expect(contrastRatio(vars['--destructive-foreground'], vars['--accent'])).toBeGreaterThanOrEqual(4.5)
+        expect(contrastRatio(vars['--success-foreground'], vars['--accent'])).toBeGreaterThanOrEqual(4.5)
+    })
+
     it("keeps Tailwind's shades where they already pass", () => {
         const vars = tokensToSemanticVars(resolveThemeTokensForId('github-light'))
 
