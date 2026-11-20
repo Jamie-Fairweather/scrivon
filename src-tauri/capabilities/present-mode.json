@@ -1,0 +1,7 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "present-mode",
+    "description": "Lets the main window go full screen while a Markdown document is presented as slides, and back",
+    "windows": ["main"],
+    "permissions": ["core:window:allow-set-fullscreen", "core:window:allow-is-fullscreen"]
+}

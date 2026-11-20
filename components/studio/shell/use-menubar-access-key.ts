@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
 
-const OPEN_MODAL_SELECTOR = '[data-slot$="dialog-popup"]'
+/** An open dialog, or present mode's slides (components/studio/present/present-mode-view.tsx). */
+const OPEN_MODAL_SELECTOR = '[data-slot$="dialog-popup"], [data-slot="present-popup"]'
 const OPEN_MENU_SELECTOR = '[role="menu"]'
 
 function isPlainKey(event: KeyboardEvent): boolean {

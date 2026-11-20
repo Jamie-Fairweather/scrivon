@@ -1,8 +1,10 @@
 import { act, renderHook } from '@testing-library/react'
 import { invoke } from '@tauri-apps/api/core'
+import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { isTauri } from '@/lib/tauri/platform'
 import { createWorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
+import { PresentModeProvider, usePresentMode, type PresentMode } from '@/components/studio/present/present-mode-provider'
 import { useWindowCloseHandler } from './use-window-close'
 
 type CloseHandler = (event: { preventDefault: () => void }) => Promise<void>
@@ -152,5 +154,78 @@ describe('useWindowCloseHandler', () => {
 
         expect(unlisten).toHaveBeenCalledTimes(1)
         expect(onCloseRequested).toHaveBeenCalledTimes(1)
+    })
+
+    describe('while presenting', () => {
+        function renderPresenting() {
+            const order: string[] = []
+            let finishLeaving = () => {}
+            const fullscreen = {
+                enter: vi.fn(async () => {}),
+                leave: vi.fn(
+                    () =>
+                        new Promise<void>((resolve) => {
+                            finishLeaving = () => {
+                                order.push('left full screen')
+                                resolve()
+                            }
+                        })
+                ),
+            }
+            const presentMode = { current: null as PresentMode | null }
+            const wrapper = ({ children }: { children: ReactNode }) => <PresentModeProvider fullscreen={fullscreen}>{children}</PresentModeProvider>
+            renderHook(
+                () => {
+                    presentMode.current = usePresentMode()
+                    useWindowCloseHandler()
+                },
+                { wrapper }
+            )
+            act(() => presentMode.current!.present('C:\\ws\\talk.md'))
+            return { order, fullscreen, presentMode, finishLeaving: () => finishLeaving() }
+        }
+
+        it('leaves present mode and full screen before asking about unsaved changes', async () => {
+            const { order, presentMode, finishLeaving } = renderPresenting()
+            state.coordinator.confirmCloseTabs.current = vi.fn(async () => {
+                order.push('confirmCloseTabs')
+                return true
+            })
+
+            let closing!: Promise<void>
+            act(() => {
+                closing = state.handler!({ preventDefault: () => {} })
+            })
+            expect(presentMode.current!.presentingTabId).toBeNull()
+            await act(async () => {
+                await Promise.resolve()
+            })
+            expect(order).toEqual([])
+
+            await act(async () => {
+                finishLeaving()
+                await closing
+            })
+            expect(order).toEqual(['left full screen', 'confirmCloseTabs'])
+        })
+
+        it('stays out of present mode when the user cancels, with the window open', async () => {
+            const { presentMode, fullscreen, finishLeaving } = renderPresenting()
+            state.coordinator.confirmCloseTabs.current = vi.fn(async () => false)
+
+            let prevented = false
+            let closing!: Promise<void>
+            act(() => {
+                closing = state.handler!({ preventDefault: () => (prevented = true) })
+            })
+            await act(async () => {
+                finishLeaving()
+                await closing
+            })
+
+            expect(prevented).toBe(true)
+            expect(presentMode.current!.presentingTabId).toBeNull()
+            expect(fullscreen.leave).toHaveBeenCalled()
+        })
     })
 })

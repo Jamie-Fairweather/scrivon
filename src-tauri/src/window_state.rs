@@ -7,7 +7,9 @@
 //! is moved, and shrunk if need be, onto the screen that shows most of it.
 //! When no screen shows any of it, the window opens at its default size in
 //! the middle of the screen. A window closed while maximised opens maximised,
-//! and goes back to its saved size when restored.
+//! and goes back to its saved size when restored. Nothing is saved while the
+//! window is full screen (present mode): leaving full screen puts it back as it
+//! was, and the resize that makes saves that again.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -202,12 +204,22 @@ pub fn save_soon(window: &tauri::Window) {
     });
 }
 
+/// Whether the window's size and place are worth saving now. Not while it is
+/// hidden: at start it is still being put in place, and it reads as not
+/// maximised until it is shown. Not while it is full screen either: it reads as
+/// a normal window the size of the whole screen, which isn't a size it goes
+/// back to.
+fn worth_saving(visible: bool, fullscreen: bool) -> bool {
+    visible && !fullscreen
+}
+
 /// Saves the main window's size and place for the next start, now. Call as it
 /// closes.
 pub fn save(window: &tauri::Window) {
-    // Not while hidden: at start it is still being put in place, and it reads
-    // as not maximised until it is shown.
-    if !window.is_visible().unwrap_or(false) {
+    if !worth_saving(
+        window.is_visible().unwrap_or(false),
+        window.is_fullscreen().unwrap_or(false),
+    ) {
         return;
     }
     let Some(file) = window
@@ -501,6 +513,15 @@ mod tests {
             PhysicalSize::new(1440, 810),
         );
         assert_eq!(size, PhysicalSize::new(0, 0));
+    }
+
+    #[test]
+    fn a_full_screen_window_is_not_saved() {
+        assert!(worth_saving(true, false));
+        // Present mode: saving would keep the whole screen as the window's size.
+        assert!(!worth_saving(true, true));
+        assert!(!worth_saving(false, false));
+        assert!(!worth_saving(false, true));
     }
 
     #[test]

@@ -26,6 +26,7 @@ export type KeybindActionId =
     | 'view.toggleEditor'
     | 'view.togglePreview'
     | 'view.previewOnly'
+    | 'view.present'
     | 'view.fitDiagram'
     | 'view.appZoomIn'
     | 'view.appZoomOut'
