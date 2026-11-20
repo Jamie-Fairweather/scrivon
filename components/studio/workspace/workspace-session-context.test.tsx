@@ -1,5 +1,5 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
-import { useMemo, type ReactNode } from 'react'
+import { act, fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
     exists,
@@ -52,7 +52,10 @@ import { gitRowMark, NO_GIT_CHANGES } from '@/lib/workspace/git-status'
 import { GIT_REFRESH_WAIT_MS } from '@/lib/workspace/git-status-refresh'
 import { forgetLinkTargets } from '@/lib/workspace/link-target-cache'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
+import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
+import { LinkUpdateHost } from '@/components/studio/dialogs/link-update-provider'
 import { DocumentSaveProvider } from './document-save-context'
+import { registerCoordinatorRefs } from './register-coordinator-refs'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { WorkspaceSessionProvider, useWorkspaceSession } from './workspace-session-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
@@ -61,7 +64,12 @@ const settingsState = vi.hoisted(() => ({
     autosave: { enabled: true, delayMs: 400 },
     // File history has its own tests (document-save-context.test.tsx); off here, so saves read nothing more.
     fileHistory: { enabled: false },
-    workspace: { maxRecentFolders: 10 } as { maxRecentFolders: number; reopenLastFolder?: boolean; showGitChanges?: boolean },
+    workspace: { maxRecentFolders: 10 } as {
+        maxRecentFolders: number
+        reopenLastFolder?: boolean
+        showGitChanges?: boolean
+        offerLinkUpdates?: boolean
+    },
 }))
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
@@ -4023,5 +4031,333 @@ describe('git changes in the explorer', () => {
         expect(result.current.session.gitChanges).toBe(NO_GIT_CHANGES)
         await act(async () => answer(modified('docs/a.md')))
         expect(result.current.session.gitChanges).toBe(NO_GIT_CHANGES)
+    })
+})
+
+describe('offering to update links after a rename or move', () => {
+    let disk: ReturnType<typeof createWindowsDisk>
+    const README = 'C:\\ws\\README.md'
+    const SETUP = 'C:\\ws\\docs\\setup.md'
+    const DEEP = 'C:\\ws\\guides\\deep'
+
+    /**
+     * Stands in for the editor's applyTabEdits (code-editor-panel.tsx, tested there with Monaco): one call is one
+     * undo step, kept per tab, and a read-only tab turns it down.
+     */
+    function FakeEditor({ coordinator, undo }: { coordinator: WorkspaceCoordinatorRefs; undo: Map<string, string[]> }) {
+        const { updateTabContent } = useDocumentTabs()
+        useEffect(() => {
+            registerCoordinatorRefs(coordinator, {
+                applyTabEdits: (tabId: string, edits: readonly TextEdit[]) => {
+                    const tab = coordinator.getTabs.current().find((t) => t.id === tabId)
+                    if (!tab || tab.readOnly) return false
+                    undo.set(tabId, [...(undo.get(tabId) ?? []), tab.content])
+                    updateTabContent(tabId, applyTextEdits(tab.content, edits))
+                    return true
+                },
+            })
+        }, [coordinator, undo, updateTabContent])
+        return null
+    }
+
+    function createLinkWrapper(undo = new Map<string, string[]>()) {
+        function Inner({ children, coordinator }: { children: ReactNode; coordinator: WorkspaceCoordinatorRefs }) {
+            const { workspaceRoot } = useWorkspaceSession()
+            const tabsState = useDocumentTabsState()
+            return (
+                <DocumentTabsProvider coordinator={coordinator} workspaceRoot={workspaceRoot} tabsState={tabsState}>
+                    <DocumentSaveProvider
+                        coordinator={coordinator}
+                        tabsRef={tabsState.tabsRef}
+                        setTabs={tabsState.setTabs}
+                        workspaceRoot={workspaceRoot}
+                    >
+                        <FakeEditor coordinator={coordinator} undo={undo} />
+                        <LinkUpdateHost coordinator={coordinator}>{children}</LinkUpdateHost>
+                    </DocumentSaveProvider>
+                </DocumentTabsProvider>
+            )
+        }
+        return function Wrapper({ children }: { children: ReactNode }) {
+            const coordinator = useMemo(() => createWorkspaceCoordinatorRefs(), [])
+            return (
+                <WorkspaceSessionProvider coordinator={coordinator}>
+                    <Inner coordinator={coordinator}>{children}</Inner>
+                </WorkspaceSessionProvider>
+            )
+        }
+    }
+
+    /** Lets a dialog finish opening or closing (it waits an animation frame), and the scan run its course. */
+    const settle = () =>
+        act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+        })
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        // A long delay keeps the autosave timer out of the way, so edits stay unsaved.
+        settingsState.autosave = { enabled: true, delayMs: 60_000 }
+        settingsState.workspace = { maxRecentFolders: 10, offerLinkUpdates: true }
+        vi.mocked(isTauri).mockReturnValue(true)
+        disk = createWindowsDisk({
+            [README]: '# Read me\n\nSee [setup](docs/setup.md#install).\n',
+            [SETUP]: '# Setup\n\n![chart](../assets/chart.png "Chart")\n',
+            'C:\\ws\\assets\\chart.png': 'PNG',
+            'C:\\ws\\notes.md': 'Nothing to change here.',
+            'C:\\ws\\guides\\deep\\keep.md': 'Keep.',
+        })
+        mountDisk(disk)
+    })
+
+    async function openFolder(result: { current: ReturnType<typeof useHarness> }, ...files: string[]) {
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+        for (const file of files) {
+            await act(async () => {
+                await result.current.tabs.openFile(file)
+            })
+        }
+    }
+
+    async function moveSetup(result: { current: ReturnType<typeof useHarness> }) {
+        await act(async () => {
+            await result.current.session.moveEntry(SETUP, false, DEEP)
+        })
+    }
+
+    const tabOf = (result: { current: ReturnType<typeof useHarness> }, path: string) => result.current.tabs.tabs.find((t) => t.path === path)
+
+    it('asks once the move is done, listing each file and each link, and updates them on Update Links', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+
+        await moveSetup(result)
+        // The move, and the tree, are done before anything is asked.
+        expect(await disk.exists('C:\\ws\\guides\\deep\\setup.md')).toBe(true)
+        expect(JSON.stringify(result.current.session.tree)).toContain('guides\\\\deep\\\\setup.md')
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+
+        const dialog = await screen.findByRole('alertdialog')
+        expect(dialog).toHaveAccessibleName('Update links?')
+        expect(dialog).toHaveAccessibleDescription(/^Moving setup\.md breaks 2 links in 2 files\. Update them to the new place\?/)
+        const list = within(dialog).getByRole('region', { name: 'Links to update' })
+        expect(list).toHaveTextContent('README.md')
+        expect(list).toHaveTextContent('Line 3:docs/setup.md#install→becomesguides/deep/setup.md#install')
+        expect(list).toHaveTextContent('guides\\deep\\setup.md')
+        expect(list).toHaveTextContent('../assets/chart.png→becomes../../assets/chart.png')
+
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Update Links' }))
+        await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith('Updated 2 links in 2 files', {}))
+        expect(await disk.read(README)).toBe('# Read me\n\nSee [setup](guides/deep/setup.md#install).\n')
+        expect(await disk.read('C:\\ws\\guides\\deep\\setup.md')).toBe('# Setup\n\n![chart](../../assets/chart.png "Chart")\n')
+        expect(await disk.read('C:\\ws\\notes.md')).toBe('Nothing to change here.')
+    })
+
+    it('changes nothing on Don’t Update or Esc, and puts focus back where it was', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        const row = document.createElement('button')
+        document.body.append(row)
+        row.focus()
+
+        await moveSetup(result)
+        const dialog = await screen.findByRole('alertdialog')
+        await settle()
+        expect(dialog).toContainElement(document.activeElement as HTMLElement)
+        fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+        await settle()
+        expect(document.activeElement).toBe(row)
+
+        expect(await disk.read(README)).toBe('# Read me\n\nSee [setup](docs/setup.md#install).\n')
+        expect(await disk.read('C:\\ws\\guides\\deep\\setup.md')).toBe('# Setup\n\n![chart](../assets/chart.png "Chart")\n')
+        expect(notifySuccess).not.toHaveBeenCalled()
+        row.remove()
+    })
+
+    it('changes nothing on Don’t Update', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        await act(async () => {
+            await result.current.session.renameEntry(SETUP, 'install.md', false)
+        })
+        fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: "Don't Update" }))
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+        await settle()
+
+        expect(await disk.read(README)).toBe('# Read me\n\nSee [setup](docs/setup.md#install).\n')
+        expect(notifySuccess).not.toHaveBeenCalled()
+        expect(notifyWarning).not.toHaveBeenCalled()
+    })
+
+    it('shows no dialog when no link would change, or when the setting is off', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'todo.md', false)
+        })
+        await settle()
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+
+        settingsState.workspace = { maxRecentFolders: 10, offerLinkUpdates: false }
+        const off = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(off.result)
+        vi.mocked(readFile).mockClear()
+        await moveSetup(off.result)
+        await settle()
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+        // Nothing was even read for it.
+        expect(vi.mocked(readFile).mock.calls.map(([path]) => String(path))).not.toContain(README)
+        expect(await disk.read(README)).toBe('# Read me\n\nSee [setup](docs/setup.md#install).\n')
+    })
+
+    it('offers to fix links whose spelling no longer matches after a case-only rename', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        await act(async () => {
+            await result.current.session.renameEntry(SETUP, 'Setup.md', false)
+        })
+        const dialog = await screen.findByRole('alertdialog')
+        expect(dialog).toHaveAccessibleDescription(/^Renaming setup\.md breaks 1 link in 1 file\. Update it to the new place\?/)
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Update Links' }))
+        await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith('Updated 1 link in README.md', {}))
+        expect(await disk.read(README)).toBe('# Read me\n\nSee [setup](docs/Setup.md#install).\n')
+    })
+
+    it('updates links into a moved folder and out of it, but not between two files inside it', async () => {
+        await disk.write('C:\\ws\\docs\\faq.md', 'See [setup](setup.md) and [notes](../notes.md).')
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        await act(async () => {
+            await result.current.session.moveEntry('C:\\ws\\docs', true, 'C:\\ws\\guides')
+        })
+        fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Update Links' }))
+        await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith('Updated 3 links in 3 files', {}))
+        expect(await disk.read(README)).toBe('# Read me\n\nSee [setup](guides/docs/setup.md#install).\n')
+        expect(await disk.read('C:\\ws\\guides\\docs\\faq.md')).toBe('See [setup](setup.md) and [notes](../../notes.md).')
+        expect(await disk.read('C:\\ws\\guides\\docs\\setup.md')).toBe('# Setup\n\n![chart](../../assets/chart.png "Chart")\n')
+    })
+
+    it('changes an open tab with unsaved edits in its buffer, as one undo step that keeps the edits', async () => {
+        const undo = new Map<string, string[]>()
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper(undo) })
+        await openFolder(result, README)
+        const edited = '# Read me, edited\n\nSee [setup](docs/setup.md#install).\n'
+        act(() => result.current.tabs.updateTabContent(README, edited))
+
+        await moveSetup(result)
+        fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Update Links' }))
+        await waitFor(() => expect(notifySuccess).toHaveBeenCalled())
+
+        expect(tabOf(result, README)).toMatchObject({ content: '# Read me, edited\n\nSee [setup](guides/deep/setup.md#install).\n', isDirty: true })
+        // Never written behind the tab's back.
+        expect(await disk.read(README)).toBe('# Read me\n\nSee [setup](docs/setup.md#install).\n')
+        // Ctrl+Z takes back the link change alone.
+        expect(undo.get(README)).toEqual([edited])
+        act(() => result.current.tabs.updateTabContent(README, undo.get(README)!.pop()!))
+        expect(tabOf(result, README)?.content).toBe(edited)
+    })
+
+    it('changes a clean tab in the background, which then shows as unsaved and is saved by autosave', async () => {
+        settingsState.autosave = { enabled: true, delayMs: 50 }
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result, README, 'C:\\ws\\notes.md')
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes.md')
+
+        await moveSetup(result)
+        fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Update Links' }))
+        await waitFor(() => expect(tabOf(result, README)?.content).toBe('# Read me\n\nSee [setup](guides/deep/setup.md#install).\n'))
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\notes.md')
+        await waitFor(async () => expect(await disk.read(README)).toBe('# Read me\n\nSee [setup](guides/deep/setup.md#install).\n'))
+        await waitFor(() => expect(tabOf(result, README)?.isDirty).toBe(false))
+    })
+
+    it('never changes a file that reads with an encoding problem, open read-only or not, and says why', async () => {
+        const legacy = (text: string) => new Uint8Array([...new TextEncoder().encode(text), 0xe9])
+        await disk.write('C:\\ws\\open-legacy.md', 'x')
+        await disk.write('C:\\ws\\legacy.md', 'x')
+        vi.mocked(readFile).mockImplementation(async (path) => {
+            if (/legacy\.md$/i.test(String(path))) return legacy('[setup](docs/setup.md) caf')
+            return disk.readBytes(path)
+        })
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result, 'C:\\ws\\open-legacy.md')
+        expect(tabOf(result, 'C:\\ws\\open-legacy.md')?.readOnly).toBe(true)
+
+        await moveSetup(result)
+        const dialog = await screen.findByRole('alertdialog')
+        expect(dialog).toHaveAccessibleDescription(/legacy\.md links to it too, but won't change: it isn't saved as UTF-8 or UTF-16/)
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Update Links' }))
+        await waitFor(() => expect(notifyWarning).toHaveBeenCalledWith('Updated 2 links in 2 files', expect.anything()))
+        const description = vi.mocked(notifyWarning).mock.calls.at(-1)![1]!.description!
+        expect(description).toContain("legacy.md (it isn't saved as UTF-8 or UTF-16, so Scrivon only reads it)")
+        expect(description).toContain("open-legacy.md (it isn't saved as UTF-8 or UTF-16, so Scrivon only reads it)")
+        expect(await disk.read('C:\\ws\\legacy.md')).toBe('x')
+        expect(await disk.read('C:\\ws\\open-legacy.md')).toBe('x')
+        expect(tabOf(result, 'C:\\ws\\open-legacy.md')?.content).toBe('[setup](docs/setup.md) café')
+    })
+
+    it('skips a file that changed on disk between reading and writing it, never overwriting it', async () => {
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        await moveSetup(result)
+        const dialog = await screen.findByRole('alertdialog')
+
+        // Another app saves README.md just after Scrivon reads it.
+        let reads = 0
+        vi.mocked(readFile).mockImplementation(async (path) => {
+            const bytes = await disk.readBytes(path)
+            if (String(path) === README && ++reads === 1) await disk.write(README, 'CHANGED ELSEWHERE [setup](docs/setup.md)')
+            return bytes
+        })
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Update Links' }))
+
+        await waitFor(() => expect(notifyWarning).toHaveBeenCalledWith('Updated 1 link in setup.md', expect.anything()))
+        expect(vi.mocked(notifyWarning).mock.calls.at(-1)![1]!.description).toBe(
+            'Not updated: README.md (it was changed or deleted outside Scrivon).'
+        )
+        expect(await disk.read(README)).toBe('CHANGED ELSEWHERE [setup](docs/setup.md)')
+    })
+
+    it('updates a file edited while the dialog was open at its links’ new places, and skips one whose links changed', async () => {
+        await disk.write('C:\\ws\\notes.md', 'Notes: [setup](docs/setup.md).')
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result, README, 'C:\\ws\\notes.md')
+        await moveSetup(result)
+        const dialog = await screen.findByRole('alertdialog')
+        expect(within(dialog).getByRole('region')).toHaveTextContent('notes.md')
+
+        act(() => result.current.tabs.updateTabContent(README, 'A new first line.\n\n# Read me\n\nSee [setup](docs/setup.md#install).\n'))
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\notes.md', 'Notes: [setup](docs/setup.md#faq).'))
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Update Links' }))
+
+        await waitFor(() => expect(notifyWarning).toHaveBeenCalledWith('Updated 2 links in 2 files', expect.anything()))
+        expect(vi.mocked(notifyWarning).mock.calls.at(-1)![1]!.description).toBe('Not updated: notes.md (its links changed since they were listed).')
+        expect(tabOf(result, README)?.content).toBe('A new first line.\n\n# Read me\n\nSee [setup](guides/deep/setup.md#install).\n')
+        expect(tabOf(result, 'C:\\ws\\notes.md')?.content).toBe('Notes: [setup](docs/setup.md#faq).')
+    })
+
+    it('reads many files, leaves out one over the size limit, and says some files weren’t checked', async () => {
+        for (let i = 0; i < 30; i++) await disk.write(`C:\\ws\\many\\n${i}.md`, `Number ${i}: [setup](../docs/setup.md)`)
+        await disk.write('C:\\ws\\big.md', `[setup](docs/setup.md)\n${'x'.repeat(1_100_000)}`)
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        await moveSetup(result)
+
+        const dialog = await screen.findByRole('alertdialog')
+        expect(dialog).toHaveAccessibleDescription(
+            /breaks 32 links in 32 files\..*Some files weren't checked: 1 file was too big or couldn't be read\./
+        )
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Update Links' }))
+        await waitFor(() =>
+            expect(notifySuccess).toHaveBeenCalledWith('Updated 32 links in 32 files', {
+                description: "Some files weren't checked: 1 file was too big or couldn't be read.",
+            })
+        )
+        expect(await disk.read('C:\\ws\\many\\n0.md')).toBe('Number 0: [setup](../guides/deep/setup.md)')
+        expect(await disk.read('C:\\ws\\many\\n29.md')).toBe('Number 29: [setup](../guides/deep/setup.md)')
+        expect((await disk.read('C:\\ws\\big.md')).startsWith('[setup](docs/setup.md)\n')).toBe(true)
     })
 })
