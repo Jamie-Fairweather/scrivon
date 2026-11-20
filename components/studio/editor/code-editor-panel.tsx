@@ -416,7 +416,7 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
 
     // Every editor showing the buffer hears a change to it (both groups, with one file in each); the shared models
     // pass it on to the tab once.
-    const { isSilent, editorChanged, syncModel, registerPanel } = models
+    const { isSilent, editorChanged, syncModel, latestContent, registerPanel } = models
     const onEditorChange = useCallback(
         (value: string | undefined, event?: { versionId?: number }) => {
             if (isSilent()) return
@@ -557,15 +557,19 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
      * Safety net: if the editor's buffer disagrees with the tab's text, the tab wins. `given` is text the tab
      * on screen has just been given from outside the editor, before React draws it (see replaceEditorText in
      * EditorModelsProvider, which also puts in text that isn't one of the editors' own edits coming back).
+     * Otherwise the tab's latest text, not the one this panel last drew: the buffer is shared, and a key typed in
+     * the other group's editor may not be drawn yet. Putting the drawn text back would drop that key and clear
+     * the undo history both groups share.
      */
     const syncEditorWithActiveTab = useCallback(
         (given?: { content: string }) => {
             const model = editorRef.current?.getModel()
-            const tab = given ?? activeTabRef.current
-            if (!model || !tab) return
-            syncModel(model, tab.content)
+            const tab = activeTabRef.current
+            const content = given ? given.content : tab ? latestContent(tab) : null
+            if (!model || content === null) return
+            syncModel(model, content)
         },
-        [syncModel]
+        [syncModel, latestContent]
     )
 
     useEffect(() => {

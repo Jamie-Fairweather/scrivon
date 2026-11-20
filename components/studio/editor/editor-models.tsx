@@ -49,6 +49,11 @@ export type EditorModels = {
     editorChanged: (tabId: string, text: string, model: editor.ITextModel | null, versionId?: number) => void
     /** Puts the tab's text into a buffer that disagrees with it (the tab wins), keeping line endings straight. */
     syncModel: (model: editor.ITextModel, content: string) => void
+    /**
+     * A tab's latest text: the tab list's own record, which takes each edit at once. A panel's copy of the tab is
+     * as the screen last drew it, which can miss a key just typed in the other group's editor on the same buffer.
+     */
+    latestContent: (tab: DocumentTab) => string
     /** Adds a panel. Returns the function that removes it again. */
     registerPanel: (panel: EditorPanelHandle) => () => void
 }
@@ -169,6 +174,11 @@ export function EditorModelsProvider({ children }: { children: ReactNode }) {
             applyIndentation(model, tabSizeRef.current)
         },
         [runSilently]
+    )
+
+    const latestContent = useCallback(
+        (tab: DocumentTab) => coordinator.getTabs.current().find((t) => t.id === tab.id)?.content ?? tab.content,
+        [coordinator]
     )
 
     // The tab's text can also change without the editor while the buffer stays the same: a folder reopened in one
@@ -314,8 +324,8 @@ export function EditorModelsProvider({ children }: { children: ReactNode }) {
     }, [])
 
     const value = useMemo<EditorModels>(
-        () => ({ keys: modelKeys, getMonaco, setMonaco, isSilent, editorChanged, syncModel, registerPanel }),
-        [modelKeys, getMonaco, setMonaco, isSilent, editorChanged, syncModel, registerPanel]
+        () => ({ keys: modelKeys, getMonaco, setMonaco, isSilent, editorChanged, syncModel, latestContent, registerPanel }),
+        [modelKeys, getMonaco, setMonaco, isSilent, editorChanged, syncModel, latestContent, registerPanel]
     )
 
     return <EditorModelsContext.Provider value={value}>{children}</EditorModelsContext.Provider>

@@ -1,5 +1,5 @@
 import { act, fireEvent, render as renderPlain, renderHook, screen, waitFor } from '@testing-library/react'
-import { Suspense, lazy, useEffect, type ComponentType, type ReactElement } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, type ComponentType, type ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import { applyLinkUpdates, scanLinkUpdates } from '@/lib/workspace/link-update'
@@ -416,6 +416,12 @@ vi.mock('next/dynamic', () => ({
 
 type TabsState = { tabs: DocumentTab[]; activeTabId: string | null; groups?: EditorGroups }
 let tabsState: TabsState = { tabs: [], activeTabId: null }
+/**
+ * The tab list's own record of the tabs, which takes a change straight away, before the screen draws it (tabsRef in
+ * document-tabs-context.tsx). Null: the same as the tabs drawn.
+ */
+let liveTabs: DocumentTab[] | null = null
+const coordinator = { getTabs: { current: () => liveTabs ?? tabsState.tabs } }
 const updateTabContent = vi.fn()
 const makeTabEditable = vi.fn()
 
@@ -432,7 +438,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         updateTabContent,
     }),
     useDocumentTabActions: () => ({ makeTabEditable }),
-    useWorkspaceCoordinator: () => ({}),
+    useWorkspaceCoordinator: () => coordinator,
     useWorkspaceSession: () => ({ workspaceRoot: session.workspaceRoot }),
 }))
 const session: { workspaceRoot: string | null } = { workspaceRoot: '/w' }
@@ -565,6 +571,7 @@ beforeEach(() => {
     theme = LIGHT_THEME
     editorSettings = DEFAULT_EDITOR_SETTINGS
     tabsState = { tabs: [], activeTabId: null }
+    liveTabs = null
     tabFocus.mode = false
     tabFocus.setTabFocusMode.mockClear()
     session.workspaceRoot = '/w'
@@ -2188,8 +2195,20 @@ describe('CodeEditorPanel with the editor split', async () => {
                     </EditorGroupProvider>
                 ) : null}
                 <CommandsProbe />
+                <TypeDuringCommit />
             </CommandRegistryProvider>
         )
+    }
+
+    /** A key to press in the left group's editor while React commits the next render, before its effects run. */
+    let keyDuringCommit: string | null = null
+    function TypeDuringCommit() {
+        useLayoutEffect(() => {
+            const key = keyDuringCommit
+            keyDuringCommit = null
+            if (key) editors[0]!.type(key)
+        })
+        return null
     }
 
     function split(left: string[], leftActive: string, right: string[], rightActive: string, focused: number): EditorGroups {
@@ -2219,6 +2238,7 @@ describe('CodeEditorPanel with the editor split', async () => {
 
     beforeEach(() => {
         shown = []
+        keyDuringCommit = null
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
             callback(0)
             return 0
@@ -2244,6 +2264,27 @@ describe('CodeEditorPanel with the editor split', async () => {
         expect(right.getValue()).toBe('start')
         expect(updateTabContent).toHaveBeenLastCalledWith(a, 'start')
         expect(updateTabContent).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps a key pressed in one group while the other group switches to the same file', async () => {
+        const { view, left, right } = await mountSplit(split([a], a, [b], b, 0), [tab(a, 'start'), tab(b, 'B')])
+        // The tab list takes each keystroke at once; the screen draws it later.
+        liveTabs = tabsState.tabs
+        updateTabContent.mockImplementation((id: string, content: string) => {
+            liveTabs = liveTabs!.map((t) => (t.id === id ? { ...t, content, isDirty: true } : t))
+        })
+
+        const setValue = vi.spyOn(left.getModel()!, 'setValue')
+
+        // The right group shows a.md too, and a key lands in the left editor before that render's effects run.
+        keyDuringCommit = '!'
+        refocus(view, split([a], a, [b, a], a, 0))
+
+        expect(right.getModel()).toBe(left.getModel())
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'start!')
+        // The buffer keeps the key, and its undo history, which setValue would clear.
+        expect(left.getValue()).toBe('start!')
+        expect(setValue).not.toHaveBeenCalled()
     })
 
     it('keeps the buffer the other group shows when a group closes', async () => {

@@ -73,7 +73,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         updateTabContent: () => {},
     }),
     useDocumentTabActions: () => ({ makeTabEditable: () => {} }),
-    useWorkspaceCoordinator: () => ({}),
+    useWorkspaceCoordinator: () => ({ getTabs: { current: () => tabs } }),
     useWorkspaceSession: () => ({ workspaceRoot: '/w', tree: TREE }),
 }))
 vi.mock('@/components/studio/workspace/register-coordinator-refs', () => ({ registerCoordinatorRefs: () => {} }))
