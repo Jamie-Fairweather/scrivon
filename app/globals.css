@@ -366,6 +366,10 @@
     [data-slot='menu-switch'][data-checked] [data-slot='menu-switch-thumb'] {
         background-color: HighlightText;
     }
+    /* The diagram part a double-click would pick (mermaid-canvas.tsx). */
+    [data-slot='diagram-pick-outline'] {
+        stroke: Highlight;
+    }
     /* The folder something dragged in the explorer would go into; its ring and tint are removed. */
     [data-drop-target] {
         outline: 2px dashed Highlight;

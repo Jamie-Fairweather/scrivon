@@ -68,6 +68,19 @@ describe('DiagramIframe', () => {
         expect(frames()[0].srcdoc).toContain('>C<')
     })
 
+    it('says which diagram is on screen, which lags the prop until the new frame shows', () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+        const onShownSvg = vi.fn()
+        const { rerender } = render(<DiagramIframe svg={svgOf('A')} onShownSvg={onShownSvg} />)
+        expect(onShownSvg).toHaveBeenLastCalledWith(svgOf('A'))
+
+        rerender(<DiagramIframe svg={svgOf('B')} onShownSvg={onShownSvg} />)
+        expect(onShownSvg).toHaveBeenLastCalledWith(svgOf('A'))
+
+        act(() => vi.advanceTimersByTime(SWAP_FALLBACK_MS))
+        expect(onShownSvg).toHaveBeenLastCalledWith(svgOf('B'))
+    })
+
     it('stops loading when the text goes back to the diagram already shown', () => {
         const { rerender } = render(<DiagramIframe svg={svgOf('A')} />)
         rerender(<DiagramIframe svg={svgOf('B')} />)

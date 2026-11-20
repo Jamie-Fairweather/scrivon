@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ImageOff, X } from 'lucide-react'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
+import type { LocateInFile } from '@/components/studio/canvas/use-diagram-picking'
 import { useFrameSyncedValue } from '@/components/studio/hooks/use-frame-synced-value'
 import { lastMermaidBlockSources } from '@/components/studio/markdown/markdown-block-ordinals'
 import {
@@ -28,6 +29,7 @@ import { Card, CardPanel } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCanvasFit, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { isExampleTabId } from '@/lib/examples/example-tab'
+import { locateInMarkdown } from '@/lib/mermaid/source-locations'
 import { notifyError, notifyInfo } from '@/lib/notify'
 import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
@@ -129,6 +131,20 @@ function findExpandButton(root: HTMLElement | null, blockId: string): HTMLElemen
     return null
 }
 
+/**
+ * The line (from 1) of a diagram block's opening fence, read from the preview: the block's nearest element with a
+ * source line. Read when it is needed, so it is still right after lines are added above the block.
+ */
+function mermaidFenceLine(root: HTMLElement | null, blockId: string): number | null {
+    if (!root) return null
+    for (const block of root.querySelectorAll<HTMLElement>('[data-mermaid-block-id]')) {
+        if (block.dataset.mermaidBlockId !== blockId) continue
+        const line = Number(block.closest<HTMLElement>('[data-source-line]')?.dataset.sourceLine)
+        return Number.isInteger(line) && line > 0 ? line : null
+    }
+    return null
+}
+
 /** What the preview shows while the document has nothing to show yet, like the diagram canvas's empty state. */
 function PreviewEmpty() {
     return (
@@ -211,6 +227,25 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     )
 
     const onCloseExpanded = useCallback(() => setExpanded(null), [setExpanded])
+
+    // A part double-clicked on the expanded diagram is found in this file: below the block's fence, and past any
+    // list indent or `> ` the block's text was shown without.
+    const tabPath = tab?.path ?? null
+    const documentTextRef = useRef(source)
+    useEffect(() => {
+        documentTextRef.current = source
+    }, [source])
+    const expandedBlockId = expanded?.blockId ?? null
+    const expandedSource = expanded?.source ?? null
+    const locateInDocument = useCallback<LocateInFile>(
+        (location) => {
+            if (!tabPath || expandedBlockId === null || expandedSource === null) return null
+            const fenceLine = mermaidFenceLine(scrollAreaRef.current, expandedBlockId)
+            const place = fenceLine === null ? null : locateInMarkdown(documentTextRef.current, fenceLine, expandedSource, location)
+            return place ? { path: tabPath, ...place } : null
+        },
+        [tabPath, expandedBlockId, expandedSource]
+    )
 
     const loadRemoteImages = tabId !== null && remoteImageTabs.has(tabId)
     /** How many blocked web images the preview shows now, so the notice offering to load them shows only then. */
@@ -482,7 +517,12 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                             Back
                         </Button>
                     </div>
-                    <MermaidCanvas source={expanded.source} canvasKey={expanded.canvasKey} className="min-h-0 flex-1" />
+                    <MermaidCanvas
+                        source={expanded.source}
+                        canvasKey={expanded.canvasKey}
+                        className="min-h-0 flex-1"
+                        locateInFile={locateInDocument}
+                    />
                 </div>
             ) : null}
         </div>

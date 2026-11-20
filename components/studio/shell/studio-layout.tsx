@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, type FocusEvent } from 'react'
 import { BatchExportProvider } from '@/components/studio/batch-export/batch-export-provider'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
+import type { LocateInFile } from '@/components/studio/canvas/use-diagram-picking'
 import { usePanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { MarkdownDocumentViewer } from '@/components/studio/markdown/markdown-document-viewer'
 import { MarkdownExpandProvider } from '@/components/studio/markdown/markdown-expand-context'
@@ -108,6 +109,9 @@ export function StudioLayout() {
     useWindowCloseHandler()
 
     const viewerKind = activeTab ? documentKind(activeTab.name) : null
+    // A part double-clicked on the diagram is on the same line of the tab's own text.
+    const activePath = activeTab?.path ?? null
+    const locateInTab = useCallback<LocateInFile>((location) => (activePath ? { path: activePath, ...location } : null), [activePath])
 
     return (
         <div ref={rootRef} className="flex min-h-0 flex-1 flex-col overflow-hidden" onFocus={onFocus}>
@@ -160,7 +164,12 @@ export function StudioLayout() {
                                             {viewerKind === 'markdown' ? (
                                                 <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
                                             ) : (
-                                                <MermaidCanvas source={activeTab?.content ?? ''} viewMemory={canvasViews} />
+                                                <MermaidCanvas
+                                                    source={activeTab?.content ?? ''}
+                                                    viewMemory={canvasViews}
+                                                    locateInFile={locateInTab}
+                                                    partsInPalette
+                                                />
                                             )}
                                         </PaneErrorBoundary>
                                     </div>

@@ -27,6 +27,11 @@ type DiagramIframeProps = {
     description?: string
     /** The language of the label and description, when it isn't the page's: 'en' for a name Scrivon made up inside a document in another language. */
     lang?: string
+    /**
+     * Told the SVG on screen whenever it changes. That is not always `svg`: a new diagram shows only once its frame has
+     * loaded (or after SWAP_FALLBACK_MS), so anything drawn over the picture follows this, not the prop.
+     */
+    onShownSvg?: (svg: string) => void
 }
 
 const DEFAULT_LABEL = 'Mermaid diagram'
@@ -42,7 +47,7 @@ type Frames = { shown: Frame; incoming: Frame | null; nextId: number }
  * loads in a hidden second frame and takes over once it has loaded and painted, so edits never
  * flash a blank frame. Between edits there is only one frame.
  */
-export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL, description, lang }: DiagramIframeProps) {
+export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_LABEL, description, lang, onShownSvg }: DiagramIframeProps) {
     const [frames, setFrames] = useState<Frames>(() => ({ shown: { svg, id: 0 }, incoming: null, nextId: 1 }))
     const paintRequestRef = useRef(0)
     const descriptionId = useId()
@@ -80,6 +85,9 @@ export const DiagramIframe = memo(function DiagramIframe({ svg, label = DEFAULT_
     }, [incomingId, show])
 
     useEffect(() => () => cancelAnimationFrame(paintRequestRef.current), [])
+
+    const shownSvg = current.shown.svg
+    useEffect(() => onShownSvg?.(shownSvg), [shownSvg, onShownSvg])
 
     const shownDims = getSvgDimensions(current.shown.svg)
     if (!shownDims) return null

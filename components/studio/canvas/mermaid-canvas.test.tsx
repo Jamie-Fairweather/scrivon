@@ -29,12 +29,14 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ activeTabId: 'a.mmd', tabs: [{ id: 'a.mmd', name: 'flow.mmd' }] }),
     useCanvasFit: () => ({ canvasFitRequestId: fit.requestId }),
+    useStudioLayout: () => ({ layout: { editorOpen: true } }),
+    useWorkspaceCoordinator: () => ({ revealInEditor: { current: () => {} } }),
 }))
 
 const keybinds = vi.hoisted(() => ({ current: {} as KeybindBindings }))
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
-    useAppSettings: () => ({ settings: { keybinds: keybinds.current } }),
+    useAppSettings: () => ({ settings: { keybinds: keybinds.current, editor: { jumpFromPreview: true } } }),
 }))
 vi.mock('@/lib/settings/chord-utils', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/settings/chord-utils')>()),

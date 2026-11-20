@@ -1,9 +1,10 @@
 'use client'
 
-import { memo, useCallback, useEffect, useId, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
 import { DiagramZoomToolbar } from '@/components/studio/canvas/diagram-zoom-toolbar'
 import { useCanvasFitOnFirstView, useCanvasFitOnRequest } from '@/components/studio/canvas/use-canvas-fit-on-load'
+import { useDiagramPicking, type LocateInFile } from '@/components/studio/canvas/use-diagram-picking'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { stopCanvasGesture, usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
@@ -11,6 +12,7 @@ import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
 import { diagramName } from '@/lib/mermaid/diagram-alt-text'
 import { supportedDiagramsSentence } from '@/lib/mermaid/prepare-source'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
+import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
 import { CircleAlert, Loader2 } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -24,6 +26,13 @@ type MermaidCanvasProps = {
     canvasKey?: string
     /** Keeps each tab's pan and zoom while this canvas is unmounted (see usePanZoomMemory). */
     viewMemory?: PanZoomMemory
+    /**
+     * Turns a place in the diagram's text into one in the host's file, so double-clicking a part selects it in the
+     * editor. Without it, a double-click only resets the view.
+     */
+    locateInFile?: LocateInFile
+    /** Whether `@` in the command palette lists this diagram's parts, so the screen reader hint can say so. */
+    partsInPalette?: boolean
 }
 
 /** Shown when there is no earlier diagram. The message can be selected, copied and scrolled. */
@@ -86,6 +95,37 @@ const DiagramEmpty = memo(function DiagramEmpty({ message, hint }: { message: st
     )
 })
 
+/**
+ * The outline of the part a double-click would pick, drawn over the picture inside the pan and zoom layer so it
+ * moves and scales with it, its line the same width at any zoom. Only shapes made here: never the diagram's own
+ * markup. Hidden from screen readers and the pointer; the canvas finds the part itself (use-diagram-picking.ts).
+ */
+const DiagramPickLayer = memo(function DiagramPickLayer({ svg, outlineRef }: { svg: string; outlineRef: RefObject<SVGPathElement | null> }) {
+    const size = getSvgDimensions(svg)
+    if (!size) return null
+    return (
+        <svg
+            aria-hidden
+            focusable="false"
+            className="pointer-events-none absolute top-0 left-0 z-10 overflow-visible"
+            width={size.width}
+            height={size.height}
+            viewBox={`0 0 ${size.width} ${size.height}`}
+        >
+            <path
+                ref={outlineRef}
+                data-slot="diagram-pick-outline"
+                d=""
+                fill="none"
+                className="stroke-ring"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+            />
+        </svg>
+    )
+})
+
 /** Fades in only if rendering takes a moment, so quick renders don't flash it. */
 function DiagramLoading() {
     return (
@@ -96,7 +136,15 @@ function DiagramLoading() {
     )
 }
 
-export function MermaidCanvas({ source, className, canvasKey, viewMemory }: MermaidCanvasProps) {
+/** What the canvas's description tells screen readers: its keys, and how to get from a part to its text. */
+function keysHint(canJump: boolean, partsInPalette: boolean): string {
+    let hint = '+ and - zoom, 0 goes back to 100%, and the arrow keys move the diagram.'
+    if (canJump) hint += ' Double-click a node, link or message to select its text in the editor.'
+    if (partsInPalette) hint += " In the command palette, type @ to list the diagram's parts and pick one with the keyboard."
+    return hint
+}
+
+export function MermaidCanvas({ source, className, canvasKey, viewMemory, locateInFile, partsInPalette = false }: MermaidCanvasProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const transformRef = useRef<HTMLDivElement>(null)
     const dimensionsRef = useRef<{ width: number; height: number } | null>(null)
@@ -115,7 +163,7 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
         if (name !== kind) return name
         return tabName ? `${kind}: ${tabName}` : kind
     }, [source, tabName])
-    const { reset, zoom, zoomLevel, fitToView, hasViewStateForTab, handlers } = usePanZoom(
+    const { reset, zoom, zoomLevel, fitToView, hasViewStateForTab, getView, handlers } = usePanZoom(
         containerRef,
         transformRef,
         viewKey,
@@ -126,6 +174,8 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
     const hasSource = source.trim().length > 0
     const { svgForDisplay, dimensions, currentError: error, isPending, isEmpty } = useMermaidSvg(source, viewKey)
     const keysHintId = useId()
+    // The picture the frame shows, which lags svgForDisplay while a new one loads: parts are picked from this one.
+    const [shownSvg, setShownSvg] = useState<string | null>(null)
 
     useEffect(() => {
         pruneSvgCache(openTabIds)
@@ -160,6 +210,15 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
     const showDiagram = hasSource && Boolean(svgForDisplay)
     const showEmpty = !error && !showDiagram && !isPending
     const showLoading = !error && !showDiagram && isPending
+    const picking = useDiagramPicking({
+        containerRef,
+        getView,
+        shownSvg: showDiagram ? shownSvg : null,
+        source,
+        locateInFile,
+        panHandlers: handlers,
+        reset,
+    })
 
     return (
         <div
@@ -180,19 +239,21 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
                 focus-visible:after:ring-inset`,
                 className
             )}
-            onDoubleClick={reset}
             {...handlers}
+            {...picking.handlers}
         >
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div ref={transformRef} className={cn('origin-center transition-opacity', showDiagram && error && 'opacity-40')}>
+                <div ref={transformRef} className={cn('relative origin-center transition-opacity', showDiagram && error && 'opacity-40')}>
                     {showDiagram ? (
                         <DiagramIframe
                             key={viewKey ?? 'none'}
                             svg={svgForDisplay!}
                             label={diagramLabel}
                             description={accessibility.description ?? undefined}
+                            onShownSvg={setShownSvg}
                         />
                     ) : null}
+                    {showDiagram && shownSvg && locateInFile ? <DiagramPickLayer svg={shownSvg} outlineRef={picking.outlineRef} /> : null}
                 </div>
             </div>
             {/* Messages sit outside the pan/zoom layer, so they always show centred at full size. */}
@@ -212,7 +273,7 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
                 <>
                     <DiagramZoomToolbar zoomLevel={zoomLevel} onZoom={zoom} onFit={fitDiagram} />
                     <span id={keysHintId} hidden>
-                        + and - zoom, 0 goes back to 100%, and the arrow keys move the diagram.
+                        {keysHint(Boolean(locateInFile), partsInPalette)}
                     </span>
                 </>
             ) : null}
