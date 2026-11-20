@@ -12,6 +12,7 @@ import {
 const { fsMock } = vi.hoisted(() => ({
     fsMock: {
         listFolderEntries: vi.fn<(path: string) => Promise<FolderEntry[]>>(),
+        readEntryKind: vi.fn<(path: string) => Promise<'file' | 'directory'>>(),
         getWorkspaceFileSize: vi.fn<(path: string) => Promise<number | null>>(),
         readWorkspaceFile: vi.fn<(path: string) => Promise<string>>(),
     },
@@ -19,8 +20,9 @@ const { fsMock } = vi.hoisted(() => ({
 
 vi.mock('@/lib/tauri/fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/tauri/fs')>()), ...fsMock }))
 
-const file = (name: string): FolderEntry => ({ name, isFile: true, isDirectory: false })
-const folder = (name: string): FolderEntry => ({ name, isFile: false, isDirectory: true })
+const file = (name: string): FolderEntry => ({ name, isFile: true, isDirectory: false, isSymlink: false })
+const folder = (name: string): FolderEntry => ({ name, isFile: false, isDirectory: true, isSymlink: false })
+const link = (name: string): FolderEntry => ({ name, isFile: false, isDirectory: false, isSymlink: true })
 
 describe('listWorkspaceTemplates', () => {
     beforeEach(() => {
@@ -54,7 +56,6 @@ describe('listWorkspaceTemplates', () => {
             file('Release_Flow.mmd'),
             file('Big Plan.MARKDOWN'),
             file('sequence.mermaid'),
-            { name: 'link.md', isFile: false, isDirectory: false },
         ])
 
         const { templates, folderFound } = await listWorkspaceTemplates('/ws')
@@ -65,6 +66,32 @@ describe('listWorkspaceTemplates', () => {
             { path: '/ws/.scrivon/templates/Release_Flow.mmd', fileName: 'Release_Flow.mmd', title: 'Release Flow', kind: 'mermaid' },
             { path: '/ws/.scrivon/templates/sequence.mermaid', fileName: 'sequence.mermaid', title: 'Sequence', kind: 'mermaid' },
             { path: '/ws/.scrivon/templates/weekly-review.md', fileName: 'weekly-review.md', title: 'Weekly review', kind: 'markdown' },
+        ])
+    })
+
+    it('lists a link to a document or diagram, as the explorer does, but not a link to a folder', async () => {
+        fsMock.listFolderEntries.mockResolvedValue([link('standup.md'), link('shared.md'), link('broken.mmd'), link('notes.txt'), file('plain.md')])
+        fsMock.readEntryKind.mockImplementation(async (path) => {
+            if (path.endsWith('standup.md')) return 'file'
+            if (path.endsWith('shared.md')) return 'directory'
+            throw new Error('The system cannot find the file specified. (os error 2)')
+        })
+
+        const { templates } = await listWorkspaceTemplates('/ws')
+
+        // A link that can't be followed is kept: picking it says why it can't be read.
+        expect(templates.map((t) => t.fileName)).toEqual(['broken.mmd', 'plain.md', 'standup.md'])
+        expect(templates.find((t) => t.fileName === 'standup.md')).toEqual<WorkspaceTemplate>({
+            path: '/ws/.scrivon/templates/standup.md',
+            fileName: 'standup.md',
+            title: 'Standup',
+            kind: 'markdown',
+        })
+        // Only links are looked up, and only ones with a document or diagram's name.
+        expect(fsMock.readEntryKind.mock.calls.map(([path]) => path).sort()).toEqual([
+            '/ws/.scrivon/templates/broken.mmd',
+            '/ws/.scrivon/templates/shared.md',
+            '/ws/.scrivon/templates/standup.md',
         ])
     })
 

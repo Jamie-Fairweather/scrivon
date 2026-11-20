@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createRef } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { copyPath, revealInFileExplorer } from '@/lib/workspace/path-actions'
@@ -7,20 +7,26 @@ import { FileTreeContextMenu, FileTreeRowContextMenu } from './file-tree-context
 
 const ROOT = 'C:\\Work\\notes'
 
+const { chooseTemplate, promptName, createFile } = vi.hoisted(() => ({
+    chooseTemplate: vi.fn(async () => ({ title: 'Meeting notes', fileName: 'meeting-notes.md', kind: 'markdown' as const, text: '# {{title}}\n' })),
+    promptName: vi.fn(async (): Promise<string | null> => 'standup'),
+    createFile: vi.fn(async () => {}),
+}))
+
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => ({
         workspaceRoot: ROOT,
         openFile: vi.fn(),
         duplicateFile: vi.fn(),
-        createFile: vi.fn(),
+        createFile,
         createFolder: vi.fn(),
-        suggestName: vi.fn(),
-        getNameError: vi.fn(),
+        suggestName: (_folder: string, name: string) => name,
+        getNameError: vi.fn(() => null),
     }),
 }))
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete: vi.fn() }) }))
-vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName: vi.fn() }) }))
-vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate: vi.fn(async () => null) }) }))
+vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
+vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate }) }))
 vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: vi.fn() }) }))
 vi.mock('@/lib/workspace/path-actions', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/workspace/path-actions')>()),
@@ -62,6 +68,39 @@ describe('FileTreeRowContextMenu', () => {
 
         await chooseFromRowMenu('plan.md', 'Copy Relative Path')
         expect(copyPath).toHaveBeenLastCalledWith('docs\\plan.md', 'relative')
+    })
+
+    it("offers New from Template… in a folder's menu, and makes the file in that folder", async () => {
+        renderRow(folder)
+
+        await chooseFromRowMenu('docs', 'New from Template…')
+
+        expect(chooseTemplate).toHaveBeenCalledOnce()
+        await waitFor(() => expect(promptName).toHaveBeenCalledOnce())
+        expect(promptName).toHaveBeenCalledWith(
+            expect.objectContaining({
+                kind: 'new-from-template',
+                folder: folder.path,
+                template: { title: 'Meeting notes', extension: '.md' },
+                defaultValue: 'meeting-notes.md',
+            })
+        )
+        await waitFor(() => expect(createFile).toHaveBeenCalledExactlyOnceWith(folder.path, 'standup.md', '# Standup\n'))
+    })
+
+    it("offers New from Template… from a folder's ... button too", async () => {
+        render(<FileTreeContextMenu node={folder} rowRef={createRef()} />)
+
+        fireEvent.click(screen.getByLabelText('Actions for docs'))
+        const menu = await screen.findByRole('menu')
+        expect(
+            within(menu)
+                .getAllByRole('menuitem')
+                .map((item) => item.textContent)
+        ).toEqual(expect.arrayContaining(['New Diagram…', 'New Document…', 'New Folder…', 'New from Template…']))
+        fireEvent.click(within(menu).getByRole('menuitem', { name: 'New from Template…' }))
+
+        await waitFor(() => expect(promptName).toHaveBeenCalledWith(expect.objectContaining({ kind: 'new-from-template', folder: folder.path })))
     })
 
     it('does the same for a folder', async () => {

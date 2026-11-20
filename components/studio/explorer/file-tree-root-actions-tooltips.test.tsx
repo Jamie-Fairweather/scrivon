@@ -7,9 +7,19 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => ({ workspaceRoot: 'C:\\work', refreshTree: async () => {} }),
     useWorkspaceCoordinator: () => ({ reloadChangedTabs: { current: async () => {} } }),
 }))
-vi.mock('@/components/studio/explorer/use-file-tree-actions', () => ({
-    useFileTreeActions: () => ({ createMermaidFileInParent: vi.fn(), createMarkdownFileInParent: vi.fn(), createFolderInParent: vi.fn() }),
-}))
+const { useFileTreeActions, createFromTemplateInParent } = vi.hoisted(() => {
+    const createFromTemplateInParent = vi.fn(async () => {})
+    return {
+        createFromTemplateInParent,
+        useFileTreeActions: vi.fn<(folder: string | null) => unknown>(() => ({
+            createMermaidFileInParent: vi.fn(),
+            createMarkdownFileInParent: vi.fn(),
+            createFolderInParent: vi.fn(),
+            createFromTemplateInParent,
+        })),
+    }
+})
+vi.mock('@/components/studio/explorer/use-file-tree-actions', () => ({ useFileTreeActions }))
 
 describe('FileTreeRootActions tooltips', () => {
     it('labels Refresh in a tooltip that shows on keyboard focus, not a title', async () => {
@@ -38,5 +48,15 @@ describe('FileTreeRootActions tooltips', () => {
 
         fireEvent.click(newButton)
         expect(await screen.findByRole('menuitem', { name: 'New Folder…' })).toBeInTheDocument()
+    })
+
+    it('offers New from Template… in the New menu, for the top of the open folder', async () => {
+        render(<FileTreeRootActions />)
+        fireEvent.click(screen.getByRole('button', { name: 'New file or folder' }))
+
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'New from Template…' }))
+
+        expect(createFromTemplateInParent).toHaveBeenCalledOnce()
+        expect(useFileTreeActions).toHaveBeenLastCalledWith('C:\\work')
     })
 })

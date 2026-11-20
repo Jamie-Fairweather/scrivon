@@ -1,6 +1,14 @@
 import { titleFromFileName } from '@/lib/default-markdown'
 import { errorMessage } from '@/lib/notify'
-import { getWorkspaceFileSize, isFileMissingError, joinPath, listFolderEntries, readWorkspaceFile } from '@/lib/tauri/fs'
+import {
+    getWorkspaceFileSize,
+    isFileMissingError,
+    joinPath,
+    listFolderEntries,
+    readEntryKind,
+    readWorkspaceFile,
+    type FolderEntry,
+} from '@/lib/tauri/fs'
 import { documentKind, type DocumentKind } from '@/lib/workspace/file-types'
 
 /** Where a folder keeps its own templates, from the top of the folder, as the picker's hint shows it. */
@@ -34,8 +42,19 @@ export function compareTemplateTitles(a: WorkspaceTemplate, b: WorkspaceTemplate
 }
 
 /**
- * The documents and diagrams directly in the open folder's templates folder, sorted by title, from one listing. Folders
- * and other files are left out. A missing templates folder lists none; any other error is thrown.
+ * Whether a document or diagram's name in the templates folder is a file to list: a plain file, or a symlink or
+ * junction to one, as the explorer shows it. A link whose target can't be looked up is kept, so picking it says why
+ * it can't be read rather than it going missing without a word.
+ */
+async function isTemplateFile(entry: FolderEntry, path: string): Promise<boolean> {
+    if (entry.isFile) return true
+    if (entry.isDirectory || !entry.isSymlink) return false
+    return (await readEntryKind(path).catch(() => 'file')) === 'file'
+}
+
+/**
+ * The documents and diagrams directly in the open folder's templates folder (links to them too), sorted by title, from
+ * one listing. Folders and other files are left out. A missing templates folder lists none; any other error is thrown.
  */
 export async function listWorkspaceTemplates(root: string): Promise<WorkspaceTemplateList> {
     const folder = templatesFolderPath(root)
@@ -46,12 +65,15 @@ export async function listWorkspaceTemplates(root: string): Promise<WorkspaceTem
         if (isFileMissingError(err)) return { templates: [], folderFound: false }
         throw err
     }
-    const templates: WorkspaceTemplate[] = []
-    for (const entry of entries) {
-        const kind = documentKind(entry.name)
-        if (!entry.isFile || entry.isDirectory || !kind) continue
-        templates.push({ path: joinPath(folder, entry.name), fileName: entry.name, title: titleFromFileName(entry.name) || entry.name, kind })
-    }
+    const found = await Promise.all(
+        entries.map(async (entry): Promise<WorkspaceTemplate | null> => {
+            const kind = documentKind(entry.name)
+            const path = joinPath(folder, entry.name)
+            if (!kind || !(await isTemplateFile(entry, path))) return null
+            return { path, fileName: entry.name, title: titleFromFileName(entry.name) || entry.name, kind }
+        })
+    )
+    const templates = found.filter((template): template is WorkspaceTemplate => template !== null)
     return { templates: templates.sort(compareTemplateTitles), folderFound: true }
 }
 

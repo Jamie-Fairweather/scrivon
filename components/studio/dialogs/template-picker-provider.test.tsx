@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { CommandDialog, CommandDialogPopup, CommandDialogPrimitive } from '@/components/ui/command'
+import { isFocusInMenu } from '@/components/ui/context-menu'
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import type { FolderEntry } from '@/lib/tauri/fs'
 import type { UnsavedText } from '@/lib/tauri/fs'
 import { TemplatePickerProvider, useTemplatePicker, type ChosenTemplate } from './template-picker-provider'
@@ -21,7 +24,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceCoordinator: () => ({ getUnsavedContent: { current: unsaved } }),
 }))
 
-const file = (name: string): FolderEntry => ({ name, isFile: true, isDirectory: false })
+const file = (name: string): FolderEntry => ({ name, isFile: true, isDirectory: false, isSymlink: false })
 
 /** Asks for a template when its button is clicked, and shows the answer. */
 function Asker() {
@@ -35,6 +38,63 @@ function Asker() {
             <output data-testid="answer">{answer === 'none yet' ? 'none yet' : JSON.stringify(answer)}</output>
         </>
     )
+}
+
+/** The editor, as a plain field that is focused before a menu or the palette opens. */
+const editor = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Editor"]')!
+
+/**
+ * A menu bar with File → New from Template…, built as studio-menu-bar.tsx is: a chosen command gives focus back to
+ * where it was, unless the command took it (the picker).
+ */
+function MenuBarAsker() {
+    const { chooseTemplate } = useTemplatePicker()
+    return (
+        <>
+            <textarea aria-label="Editor" />
+            <div role="menubar">
+                <Menu>
+                    <MenuTrigger>File</MenuTrigger>
+                    <MenuPopup finalFocus={() => (isFocusInMenu() ? editor() : false)}>
+                        <MenuItem onClick={() => void chooseTemplate()}>New from Template…</MenuItem>
+                    </MenuPopup>
+                </Menu>
+            </div>
+        </>
+    )
+}
+
+/** A palette built as command-palette-dialog.tsx is: Enter closes it, then runs the command. */
+function PaletteAsker() {
+    const { chooseTemplate } = useTemplatePicker()
+    const [open, setOpen] = useState(false)
+    return (
+        <>
+            <textarea aria-label="Editor" onKeyDown={(e) => e.key === 'F1' && setOpen(true)} />
+            <CommandDialog open={open} onOpenChange={setOpen}>
+                <CommandDialogPopup>
+                    <CommandDialogPrimitive.Title>Palette</CommandDialogPrimitive.Title>
+                    <input
+                        aria-label="Command"
+                        onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return
+                            setOpen(false)
+                            void Promise.resolve().then(chooseTemplate)
+                        }}
+                    />
+                </CommandDialogPopup>
+            </CommandDialog>
+        </>
+    )
+}
+
+async function escapeFromPicker() {
+    const input = await screen.findByRole('combobox', { name: 'Template to start from' })
+    await waitFor(() => expect(input).toHaveFocus())
+    await act(async () => {
+        fireEvent.keyDown(input, { key: 'Escape' })
+    })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 }
 
 async function openPicker() {
@@ -178,6 +238,115 @@ describe('New from Template picker', () => {
         await waitFor(() => expect(answer()).toBeNull())
         await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
         await waitFor(() => expect(ask).toHaveFocus())
+    })
+
+    it("doesn't slip a folder template under the highlight once the user has moved it, and shows them when they next type", async () => {
+        const finishListing = pendingListing()
+        const { input } = await openPicker()
+
+        fireEvent.keyDown(input, { key: 'ArrowDown' })
+        const decision = screen.getByRole('option', { name: /Decision record/ })
+        await waitFor(() => expect(decision).toHaveAttribute('data-highlighted'))
+
+        await finishListing([file('a.md'), file('b.md')])
+
+        // Held back, so the highlighted row is still the one the user moved to, and they are told why.
+        expect(optionTitles()).toEqual(['Meeting notes', 'Decision record', 'Project brief', 'Process flowchart'])
+        expect(decision).toHaveAttribute('data-highlighted')
+        expect(input).toHaveAttribute('aria-activedescendant', decision.id)
+        expect(status()).toHaveTextContent('4 templates. 2 templates from this folder will show when you next type.')
+        expect(screen.getByText('2 templates from this folder will show when you next type.', { selector: 'p' })).toBeInTheDocument()
+
+        fireEvent.keyDown(input, { key: 'Enter' })
+        await waitFor(() => expect(answer()).toMatchObject({ title: 'Decision record', fileName: 'decision-record.md' }))
+        expect(fsMock.readWorkspaceFile).not.toHaveBeenCalled()
+    })
+
+    it('shows the held-back folder templates when the search next changes', async () => {
+        const finishListing = pendingListing()
+        const { input } = await openPicker()
+        fireEvent.keyDown(input, { key: 'ArrowDown' })
+        await waitFor(() => expect(screen.getByRole('option', { name: /Decision record/ })).toHaveAttribute('data-highlighted'))
+        await finishListing([file('brief-notes.md'), file('b.md')])
+        expect(groupLabels()).toEqual(['Built-in'])
+
+        fireEvent.change(input, { target: { value: 'brief' } })
+
+        await waitFor(() => expect(optionTitles()).toEqual(['Brief notes', 'Project brief']))
+        expect(groupLabels()).toEqual(['This folder', 'Built-in'])
+        expect(screen.queryByText(/will show when you next type/)).not.toBeInTheDocument()
+        expect(status()).toHaveTextContent('2 templates')
+
+        fireEvent.change(input, { target: { value: '' } })
+        await waitFor(() =>
+            expect(optionTitles()).toEqual(['B', 'Brief notes', 'Meeting notes', 'Decision record', 'Project brief', 'Process flowchart'])
+        )
+    })
+
+    it('holds the folder templates back after typing too, but not when nothing typed matches', async () => {
+        let finishListing = pendingListing()
+        const { input } = await openPicker()
+        fireEvent.change(input, { target: { value: 'notes' } })
+        await waitFor(() => expect(screen.getByRole('option', { name: /Meeting notes/ })).toHaveAttribute('data-highlighted'))
+
+        await finishListing([file('weekly-notes.md')])
+
+        expect(optionTitles()).toEqual(['Meeting notes'])
+        expect(screen.getByRole('option', { name: /Meeting notes/ })).toHaveAttribute('data-highlighted')
+        await act(async () => {
+            fireEvent.keyDown(input, { key: 'Escape' })
+        })
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+        // Nothing highlighted, so nothing can slip under it: they show as soon as they are listed.
+        finishListing = pendingListing()
+        fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+        const again = await screen.findByRole('combobox', { name: 'Template to start from' })
+        fireEvent.change(again, { target: { value: 'weekly' } })
+        expect(await screen.findByText('No templates match.')).toBeInTheDocument()
+
+        await finishListing([file('weekly-notes.md')])
+
+        expect(optionTitles()).toEqual(['Weekly notes'])
+    })
+
+    it('gives focus back to the editor on Escape when opened from a menu bar menu, not to the menu title', async () => {
+        render(
+            <TemplatePickerProvider>
+                <MenuBarAsker />
+            </TemplatePickerProvider>
+        )
+        editor().focus()
+        const fileTitle = screen.getByRole('button', { name: 'File' })
+        // A click on a menu title focuses it, as in the app.
+        fileTitle.focus()
+        fireEvent.click(fileTitle)
+        const item = await screen.findByRole('menuitem', { name: 'New from Template…' })
+        item.focus()
+        fireEvent.click(item)
+
+        await escapeFromPicker()
+
+        await waitFor(() => expect(editor()).toHaveFocus())
+    })
+
+    it('gives focus back to the editor on Escape when opened from the palette', async () => {
+        render(
+            <TemplatePickerProvider>
+                <PaletteAsker />
+            </TemplatePickerProvider>
+        )
+        editor().focus()
+        fireEvent.keyDown(editor(), { key: 'F1' })
+        const command = await screen.findByRole('textbox', { name: 'Command' })
+        command.focus()
+        await act(async () => {
+            fireEvent.keyDown(command, { key: 'Enter' })
+        })
+
+        await escapeFromPicker()
+
+        await waitFor(() => expect(editor()).toHaveFocus())
     })
 
     it('lets a built-in template be picked while the folder ones are still being listed', async () => {

@@ -440,9 +440,9 @@ describe('workspace fs (Tauri)', () => {
             { name: 'link', isDirectory: false, isFile: false, isSymlink: true },
         ])
         await expect(listFolderEntries('/ws')).resolves.toEqual([
-            { name: 'a.md', isFile: true, isDirectory: false },
-            { name: 'sub', isFile: false, isDirectory: true },
-            { name: 'link', isFile: false, isDirectory: false },
+            { name: 'a.md', isFile: true, isDirectory: false, isSymlink: false },
+            { name: 'sub', isFile: false, isDirectory: true, isSymlink: false },
+            { name: 'link', isFile: false, isDirectory: false, isSymlink: true },
         ])
         expect(readDirMock).toHaveBeenCalledExactlyOnceWith('/ws')
 

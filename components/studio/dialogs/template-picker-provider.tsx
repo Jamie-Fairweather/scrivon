@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon, FileTextIcon, NetworkIcon } from 'lucide-react'
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import {
     Command,
@@ -94,6 +94,27 @@ function matchesQuery(option: TemplateOption, query: string): boolean {
 
 const optionTitle = (option: unknown) => (option as TemplateOption | null)?.title ?? ''
 
+/**
+ * Menus, the menu bar and dialogs (the palette among them). A command chosen in one of them runs as it closes, so the
+ * picker can't give focus back there: it goes back to where focus was before.
+ */
+const PASSING_FOCUS = '[data-slot="menu-popup"], [role="menubar"], [data-slot$="dialog-popup"]'
+
+function isPassingFocus(el: Element): boolean {
+    return el.closest(PASSING_FOCUS) !== null
+}
+
+/** True when `el` can take focus now: still on the page, drawn, and not in a hidden (inert) pane. */
+function canTakeFocus(el: HTMLElement | null): el is HTMLElement {
+    if (!el?.isConnected || el.closest('[inert]')) return false
+    return typeof el.checkVisibility !== 'function' || el.checkVisibility({ visibilityProperty: true })
+}
+
+/** How many folder templates are waiting to be shown, as the picker says it. */
+function heldBackMessage(count: number): string {
+    return `${count === 1 ? '1 template' : `${count} templates`} from this folder will show when you next type.`
+}
+
 function KindIcon({ kind }: { kind: DocumentKind }) {
     const Icon = kind === 'mermaid' ? NetworkIcon : FileTextIcon
     return <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground in-data-highlighted:text-accent-foreground" />
@@ -118,6 +139,24 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
     // Where the keyboard was when the picker opened, and whether a template was picked.
     const returnFocusRef = useRef<HTMLElement | null>(null)
     const pickedRef = useRef(false)
+    // Where focus last rested outside a menu, the menu bar or a dialog, for when the picker is opened from one of them.
+    const restingFocusRef = useRef<HTMLElement | null>(null)
+    // The folder's templates come in above the built-ins, and Base UI keeps the highlight on the same row number. So once
+    // the user has moved the highlight with the keys or typed, they are held back until the search next changes (which
+    // moves the highlight to the first match anyway), rather than slipping a different template under the highlight.
+    const [revealed, setRevealed] = useState(false)
+    const highlightedRef = useRef<TemplateOption | undefined>(undefined)
+    const movedHighlightRef = useRef(false)
+    const queryRef = useRef('')
+
+    useEffect(() => {
+        const onFocusIn = (event: FocusEvent) => {
+            const target = event.target
+            if (target instanceof HTMLElement && target !== document.body && !isPassingFocus(target)) restingFocusRef.current = target
+        }
+        document.addEventListener('focusin', onFocusIn)
+        return () => document.removeEventListener('focusin', onFocusIn)
+    }, [])
 
     const finish = useCallback((template: ChosenTemplate | null) => {
         openingRef.current += 1
@@ -132,7 +171,7 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
     const finalFocus = useCallback(() => {
         if (pickedRef.current) return false
         const previous = returnFocusRef.current
-        return previous?.isConnected ? previous : true
+        return canTakeFocus(previous) ? previous : true
     }, [])
 
     const chooseTemplate = useCallback(() => {
@@ -140,12 +179,17 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
             pendingRef.current?.(null)
             pendingRef.current = resolve
             const active = document.activeElement
-            returnFocusRef.current = active instanceof HTMLElement && active !== document.body ? active : null
+            returnFocusRef.current =
+                active instanceof HTMLElement && active !== document.body && !isPassingFocus(active) ? active : restingFocusRef.current
             pickedRef.current = false
             const opening = ++openingRef.current
             pickRef.current += 1
+            highlightedRef.current = undefined
+            movedHighlightRef.current = false
+            queryRef.current = ''
             setQuery('')
             setPickError(null)
+            setRevealed(false)
             setOpen(true)
             if (!workspaceRoot) {
                 setListing({ status: 'listed', templates: [], folderFound: true })
@@ -155,7 +199,10 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
             // Listed afresh each time, so templates added or changed since show up.
             listWorkspaceTemplates(workspaceRoot).then(
                 ({ templates, folderFound }) => {
-                    if (openingRef.current === opening) setListing({ status: 'listed', templates, folderFound })
+                    if (openingRef.current !== opening) return
+                    const userChoseHighlight = movedHighlightRef.current || queryRef.current !== ''
+                    setRevealed(templates.length === 0 || !userChoseHighlight || highlightedRef.current === undefined)
+                    setListing({ status: 'listed', templates, folderFound })
                 },
                 (err: unknown) => {
                     console.warn("Couldn't list the folder's templates", err)
@@ -188,7 +235,7 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
     )
 
     const groups = useMemo(() => {
-        const workspaceItems = listing.status === 'listed' ? listing.templates.map(workspaceOption) : []
+        const workspaceItems = listing.status === 'listed' && revealed ? listing.templates.map(workspaceOption) : []
         const all: TemplateGroup[] = [
             { value: 'workspace', label: 'This folder', items: workspaceItems },
             { value: 'built-in', label: 'Built-in', items: BUILT_IN_OPTIONS },
@@ -196,11 +243,14 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
         return all
             .map((group) => ({ ...group, items: group.items.filter((item) => matchesQuery(item, query)) }))
             .filter((group) => group.items.length > 0)
-    }, [listing, query])
+    }, [listing, query, revealed])
 
     const count = groups.reduce((total, group) => total + group.items.length, 0)
+    const heldBack = listing.status === 'listed' && !revealed ? listing.templates.length : 0
+    const countMessage = count === 0 ? '' : count === 1 ? '1 template' : `${count} templates`
     // The empty message announces itself.
-    const statusMessage = listing.status === 'loading' ? 'Loading templates…' : count === 0 ? '' : count === 1 ? '1 template' : `${count} templates`
+    const statusMessage =
+        listing.status === 'loading' ? 'Loading templates…' : heldBack > 0 ? `${countMessage}. ${heldBackMessage(heldBack)}` : countMessage
 
     const value = useMemo(() => ({ chooseTemplate }), [chooseTemplate])
 
@@ -222,9 +272,16 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
                         items={groups}
                         itemToStringValue={optionTitle}
                         mode="none"
+                        onItemHighlighted={(option, details) => {
+                            highlightedRef.current = option as TemplateOption | undefined
+                            if (details.reason === 'keyboard') movedHighlightRef.current = true
+                        }}
                         onValueChange={(next, details) => {
                             // Picking a row leaves what was typed, in case the template can't be used and the user picks again.
-                            if (details.reason !== 'item-press') setQuery(next)
+                            if (details.reason === 'item-press') return
+                            queryRef.current = next
+                            setQuery(next)
+                            setRevealed(true)
                         }}
                         value={query}
                     >
@@ -240,6 +297,11 @@ export function TemplatePickerProvider({ children }: { children: ReactNode }) {
                                 {listing.status === 'loading' ? (
                                     <p aria-hidden className="text-xs text-muted-foreground">
                                         Loading templates…
+                                    </p>
+                                ) : null}
+                                {heldBack > 0 ? (
+                                    <p aria-hidden className="text-xs text-muted-foreground">
+                                        {heldBackMessage(heldBack)}
                                     </p>
                                 ) : null}
                                 {listing.status === 'failed' ? (
