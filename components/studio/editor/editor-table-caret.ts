@@ -8,10 +8,11 @@ export type TableCaretSource = Pick<
 
 /**
  * Says whether the caret is in a Markdown table, for the table commands, each time the caret moves,
- * the text changes (Replace All or a Local History restore can turn the lines round a caret that stays
- * put into a table, with no caret event) or another file shows. `onChange` runs only when the answer changes. It has to stay cheap on every caret
- * move (#189): a caret line with no `|` is the only line it reads, and in a table it reads only the
- * table and the line each side. It never looks for code blocks; the commands do that when they run.
+ * the text changes or another file shows. Replace All or a Local History restore can turn the lines
+ * round a caret that stays put into a table, with no caret event. `onChange` runs only when the answer
+ * changes. It has to stay cheap on every caret move and keystroke (#189): a caret line with no `|` is
+ * the only line it reads, and in a table it reads only the table and the line each side. It never
+ * looks for code blocks; the commands do that when they run.
  */
 export function trackCaretInTable(
     source: TableCaretSource,
