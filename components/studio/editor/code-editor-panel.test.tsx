@@ -2,6 +2,7 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-li
 import { Suspense, lazy, useEffect, type ComponentType } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
+import { applyLinkUpdates, scanLinkUpdates } from '@/lib/workspace/link-update'
 import { remapTabsAfterRename } from '@/lib/workspace/tab-paths'
 import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -893,6 +894,64 @@ describe('CodeEditorPanel applyTabEdits', () => {
         // Shown again, the buffer catches up with the tab.
         setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'XReloaded\r\nfrom disk')], activeTabId: b })
         expect(editor.getModel()!.getValue(EOL_PREFERENCE.LF)).toBe('XReloaded\nfrom disk')
+    })
+
+    it('takes a link update after a move as one undo step in the tab on screen and in a background tab', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A [s](docs/setup.md)'), tab(b, 'B [s](docs/setup.md)')], activeTabId: b }
+        const { view, editor } = await mountEditor()
+        act(() => editor.type(' typed'))
+        const modelB = editor.getModel()!
+        setTabs(view, { tabs: [tab(a, 'A [s](docs/setup.md)'), tab(b, 'B [s](docs/setup.md) typed')], activeTabId: a })
+        const modelA = editor.getModel()!
+
+        const move = {
+            root: '/w',
+            oldPath: '/w/docs/setup.md',
+            newPath: '/w/guides/setup.md',
+            isDirectory: false,
+            tree: [
+                {
+                    kind: 'directory' as const,
+                    name: 'docs',
+                    path: '/w/docs',
+                    children: [{ kind: 'file' as const, name: 'setup.md', path: '/w/docs/setup.md' }],
+                },
+                { kind: 'file' as const, name: 'a.md', path: a },
+                { kind: 'file' as const, name: 'b.md', path: b },
+            ],
+        }
+        // The tabs as the panel has them: the files are only read from their tabs.
+        const getTabs = () => tabsState.tabs
+        const io = { readTextFile: vi.fn(), writeTextFile: vi.fn(), readStamp: async () => null }
+        const scan = await scanLinkUpdates({ move, getTabs, readTextFile: io.readTextFile, readStamp: io.readStamp, yieldToUi: async () => {} })
+        expect(scan.files.map((file) => file.path)).toEqual([a, b])
+
+        let outcome: Awaited<ReturnType<typeof applyLinkUpdates>> | undefined
+        await act(async () => {
+            outcome = await applyLinkUpdates({
+                scan,
+                getTabs,
+                applyTabEdits: (tabId, edits) => coordinatorHandlers.applyTabEdits!(tabId, edits),
+                readTextFile: io.readTextFile,
+                writeTextFile: io.writeTextFile,
+                yieldToUi: async () => {},
+            })
+        })
+
+        expect(outcome!.updated.map((file) => file.path)).toEqual([a, b])
+        expect(io.writeTextFile).not.toHaveBeenCalled()
+        expect(modelA.getValue()).toBe('A [s](guides/setup.md)')
+        expect(modelB.getValue()).toBe('B [s](guides/setup.md) typed')
+        // Ctrl+Z on screen takes the link change back in one step.
+        act(() => modelA.undo())
+        expect(modelA.getValue()).toBe('A [s](docs/setup.md)')
+        // So does it in the background tab, and the typing before it is still there to undo.
+        act(() => modelB.undo())
+        expect(modelB.getValue()).toBe('B [s](docs/setup.md) typed')
+        act(() => modelB.undo())
+        expect(modelB.getValue()).toBe('B [s](docs/setup.md)')
     })
 
     it('keeps the tab’s encoding: only its text changes', async () => {
