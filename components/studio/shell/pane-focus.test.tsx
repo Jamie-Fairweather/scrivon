@@ -438,6 +438,37 @@ describe('focusPane', () => {
         expect(focused()).toBe(screen.getByRole('textbox', { name: 'Editor' }))
     })
 
+    it('focuses the empty editor region itself in focus mode, where it has a tabIndex, but not outside it', () => {
+        // No file open: no Monaco, so the editor panel can't take focus.
+        const view = render(
+            <>
+                <button type="button">Notification</button>
+                <div data-pane="editor" role="region" aria-label="Editor" tabIndex={-1} />
+            </>
+        )
+        expect(focusPane('editor')).toBe(true)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Editor' }))
+
+        // F6 and Shift+F6 reach it from elsewhere too, when it is the only pane on screen.
+        screen.getByRole('button', { name: 'Notification' }).focus()
+        expect(cyclePaneFocus(1)).toBe(true)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Editor' }))
+        screen.getByRole('button', { name: 'Notification' }).focus()
+        expect(cyclePaneFocus(-1)).toBe(true)
+        expect(focused()).toBe(screen.getByRole('region', { name: 'Editor' }))
+
+        // Out of focus mode the empty editor has no tabIndex, so focus doesn't stop on it.
+        view.rerender(
+            <>
+                <button type="button">Notification</button>
+                <div data-pane="editor" />
+            </>
+        )
+        screen.getByRole('button', { name: 'Notification' }).focus()
+        expect(focusPane('editor')).toBe(false)
+        expect(focused()).toBe(screen.getByRole('button', { name: 'Notification' }))
+    })
+
     it('says no for a pane that is closed, hidden or has nothing to focus', () => {
         render(
             <>

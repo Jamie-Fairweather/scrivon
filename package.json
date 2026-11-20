@@ -50,6 +50,7 @@
         "dictionary-en": "^4.0.0",
         "dictionary-en-gb": "^3.0.0",
         "docx": "^9.15.3",
+        "get-east-asian-width": "1.7.0",
         "hast-util-to-html": "^9.0.6",
         "lucide-react": "^1.70.0",
         "mdast-util-math": "^3.0.0",

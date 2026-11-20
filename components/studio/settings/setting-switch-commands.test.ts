@@ -29,7 +29,24 @@ describe('buildSettingSwitchCommands', () => {
             { id: 'toggle-scroll-sync', label: 'Scroll Editor with Preview', checked: false },
             { id: 'toggle-jump-from-preview', label: 'Jump to Editor on Double-Click', checked: true },
             { id: 'toggle-check-links', label: 'Check Links', checked: true },
+            { id: 'toggle-dim-other-paragraphs', label: 'Dim Other Paragraphs', checked: false },
         ])
+    })
+
+    it('shows the status bar as off in focus mode, and leaves focus mode to show it', () => {
+        const settings = createDefaultSettings()
+        settings.layout.focusMode = true
+        settings.statusBar.visible = true
+        expect(buildSettingSwitchCommands(settings, vi.fn()).find((c) => c.id === 'toggle-status-bar')?.checked).toBe(false)
+
+        const shown = runOn(settings, 'toggle-status-bar')
+        expect(shown.statusBar.visible).toBe(true)
+        expect(shown.layout).toEqual({ ...settings.layout, focusMode: false })
+    })
+
+    it('leaves focus mode alone when hiding the status bar', () => {
+        const settings = createDefaultSettings()
+        expect(runOn(settings, 'toggle-status-bar').layout).toBe(settings.layout)
     })
 
     it('flips each setting and leaves the rest alone', () => {
@@ -49,6 +66,8 @@ describe('buildSettingSwitchCommands', () => {
 
         const links = runOn(settings, 'toggle-check-links')
         expect(links.editor).toEqual({ ...settings.editor, checkLinks: false })
+        const dim = runOn(settings, 'toggle-dim-other-paragraphs')
+        expect(dim.editor).toEqual({ ...settings.editor, dimOtherParagraphs: !settings.editor.dimOtherParagraphs })
     })
 
     it('flips the setting as saved, not as it was when the list was built', () => {
@@ -70,6 +89,8 @@ describe('buildSettingSwitchCommands', () => {
         ['status bar', 'toggle-status-bar'],
         ['scroll', 'toggle-scroll-sync'],
         ['double click', 'toggle-jump-from-preview'],
+        ['dim', 'toggle-dim-other-paragraphs'],
+        ['fade paragraph', 'toggle-dim-other-paragraphs'],
     ])('is found in the palette by typing "%s"', (query, id) => {
         const items = buildSettingSwitchCommands(createDefaultSettings(), vi.fn()).map((command) => commandToPaletteItem(command))
         expect(searchActions(items, query)[0]?.value).toBe(`action:${id}`)

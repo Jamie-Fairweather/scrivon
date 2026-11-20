@@ -666,10 +666,34 @@ describe('SettingsProvider persistence', () => {
             editorWidth: 600,
             restorePanelsOnOpen: false,
             outlineOpen: false,
+            focusMode: false,
         })
         // Hiding a panel still works, and is still saved.
         act(() => result.current.updateSettings(hideEditor))
         waitForSave()
         expect(stored().layout.editorOpen).toBe(false)
+    })
+
+    it('is still in focus mode after a restart', () => {
+        const first = renderSettings()
+        act(() => first.result.current.updateSettings((current) => ({ ...current, layout: { ...current.layout, focusMode: true } })))
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout.focusMode).toBe(true)
+    })
+
+    it('starts out of focus mode while Restore panel layout is off', () => {
+        const first = renderSettings()
+        act(() =>
+            first.result.current.updateSettings((current) => ({
+                ...current,
+                layout: { ...current.layout, restorePanelsOnOpen: false, focusMode: true },
+            }))
+        )
+        first.unmount()
+
+        const { result } = renderSettings()
+        expect(result.current.settings.layout.focusMode).toBe(false)
     })
 })

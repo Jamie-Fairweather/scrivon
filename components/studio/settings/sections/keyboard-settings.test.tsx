@@ -57,6 +57,18 @@ describe('KeyboardSettings recording', () => {
         expect(document.activeElement).toBe(within(editor).getByRole('button', { name: /^Edit shortcut/ }))
     })
 
+    it('shows Toggle focus mode on F11 with no warning, and says it is taken when another action is given F11', () => {
+        renderKeyboardSettings()
+        const focusMode = row('Toggle focus mode')
+        expect(within(focusMode).getByText('F11')).toBeInTheDocument()
+        expect(within(focusMode).queryByText(/Same shortcut|is used by/)).not.toBeInTheDocument()
+
+        const present = row('Present Markdown as slides')
+        fireEvent.click(within(present).getByRole('button', { name: /^Edit shortcut/ }))
+        press('F11', { code: 'F11' })
+        expect(screen.getByText('F11 is already assigned to Toggle focus mode')).toBeInTheDocument()
+    })
+
     it('treats Tab as cancel and returns focus to the Edit button', () => {
         renderKeyboardSettings()
         const editor = row('Toggle editor')

@@ -55,6 +55,7 @@ const KEYBIND_ACTION_META = {
     'view.togglePreview': { label: 'Toggle preview', category: 'View', when: 'workspace' },
     'view.previewOnly': { label: 'Preview only layout', category: 'View', when: 'workspace' },
     'view.present': { label: 'Present Markdown as slides', category: 'View', when: 'workspace' },
+    'view.toggleFocusMode': { label: 'Toggle focus mode', category: 'View', when: 'workspace' },
     'view.fitDiagram': { label: 'Fit diagram to screen', category: 'View', when: 'workspace' },
     'view.appZoomIn': { label: 'Zoom in', ...APP_ZOOM_META },
     'view.appZoomOut': { label: 'Zoom out', ...APP_ZOOM_META },
@@ -72,6 +73,8 @@ const KEYBIND_ACTION_META = {
     'format.italic': { label: 'Italic', category: 'Markdown', when: 'editor' },
     'format.code': { label: 'Inline code', category: 'Markdown', when: 'editor' },
     'format.link': { label: 'Link', category: 'Markdown', when: 'editor' },
+    'format.insertTable': { label: 'Insert table', category: 'Markdown', when: 'editor' },
+    'format.table': { label: 'Format table', category: 'Markdown', when: 'editor' },
 } satisfies Record<KeybindActionId, Omit<KeybindActionMeta, 'id'>>
 
 export const KEYBIND_ACTIONS: KeybindActionMeta[] = (Object.keys(KEYBIND_ACTION_META) as KeybindActionId[]).map((id) => ({
