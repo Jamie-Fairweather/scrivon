@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useId } from 'react'
 import { MenuItem, MenuSeparator } from '@/components/ui/menu'
 import { ContextMenuAtPoint, useContextMenuAtPoint } from '@/components/ui/context-menu'
 import { useFileHistory } from '@/components/studio/dialogs/file-history-provider'
@@ -25,6 +25,7 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
     const groupActions = useTabGroupActions(tabId, group)
     const { open, anchor, openAt, onOpenChange } = useContextMenuAtPoint()
     const { showFileHistory } = useFileHistory()
+    const moveReasonId = useId()
 
     // The menu doesn't switch tabs, so closing a background tab leaves you on the one you were in.
     const onContextMenu = useCallback(
@@ -73,9 +74,19 @@ export function EditorTabRowContextMenu({ tabId, children }: { tabId: string; ch
                         <MenuSeparator />
                         {/* This tab, in the group beside its own (made first when there is one group). */}
                         <MenuItem onClick={groupActions.split}>Split Editor</MenuItem>
-                        <MenuItem disabled={!groupActions.canMove} onClick={groupActions.move}>
+                        <MenuItem
+                            disabled={!groupActions.canMove}
+                            aria-describedby={groupActions.moveDisabledReason ? moveReasonId : undefined}
+                            onClick={groupActions.move}
+                        >
                             Move Tab to Other Group
                         </MenuItem>
+                        {/* Why it is off, as the View menu and the palette say (and the explorer's menu does). */}
+                        {groupActions.moveDisabledReason ? (
+                            <p id={moveReasonId} className="px-2 py-1 text-xs text-muted-foreground">
+                                {groupActions.moveDisabledReason}
+                            </p>
+                        ) : null}
                         <MenuSeparator />
                     </>
                 )}

@@ -22,6 +22,8 @@ export type GroupCommandsContext = {
 }
 
 const NO_FOLDER = 'No folder open'
+/** Why a tab can't move to the other group: it is the only tab, in the only group. */
+export const ONLY_ONE_TAB = 'Only one tab open'
 const KEYWORDS = 'editor group split side by side two columns pane'
 
 /**
@@ -54,7 +56,7 @@ export function buildGroupCommands(ctx: GroupCommandsContext): AppCommand[] {
             keywords: `${KEYWORDS} move tab across`,
             keybind: 'view.moveTabToOtherGroup',
             disabled: !canMove,
-            disabledReason: activeTabId === null ? tabReason : 'Only one tab open',
+            disabledReason: activeTabId === null ? tabReason : ONLY_ONE_TAB,
             run: () => {
                 ctx.moveTabToOtherGroup()
                 ctx.focusGroupSoon(activeTabId, !split)
@@ -124,15 +126,20 @@ export function useGroupCommands(): void {
     useRegisterCommands(commands)
 }
 
-/** For a tab's right-click menu: whether it can move to the other group, and how to split or move it. */
+/**
+ * For a tab's right-click menu: whether it can move to the other group (and why not, as the palette says), and how
+ * to split or move it.
+ */
 export function useTabGroupActions(tabId: string, groupIndex: number) {
     const { groups } = useDocumentTabs()
     const { splitEditor, moveTabToOtherGroup } = useDocumentTabActions()
     const { layout } = useStudioLayout()
     const focusGroupSoon = useFocusGroupSoon(layout.editorOpen)
     const split = groups.groups.length > 1
+    const canMove = canMoveTabToOtherGroup(groups, tabId, groupIndex)
     return {
-        canMove: canMoveTabToOtherGroup(groups, tabId, groupIndex),
+        canMove,
+        moveDisabledReason: canMove ? null : ONLY_ONE_TAB,
         split: () => {
             splitEditor(tabId, groupIndex)
             focusGroupSoon(tabId, !split)

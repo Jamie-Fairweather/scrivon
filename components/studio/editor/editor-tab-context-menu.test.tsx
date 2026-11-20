@@ -100,14 +100,21 @@ describe('EditorTabRowContextMenu', () => {
         expect(groupActions.splitEditor).toHaveBeenCalledExactlyOnceWith('C:/w/b.md', 0)
 
         rightClickTab()
-        fireEvent.click(await screen.findByRole('menuitem', { name: 'Move Tab to Other Group' }))
+        const move = await screen.findByRole('menuitem', { name: 'Move Tab to Other Group' })
+        // Nothing to explain while it can run.
+        expect(move).not.toHaveAccessibleDescription()
+        expect(screen.queryByText('Only one tab open')).not.toBeInTheDocument()
+        fireEvent.click(move)
         expect(groupActions.moveTabToOtherGroup).toHaveBeenCalledExactlyOnceWith('C:/w/b.md', 0)
     })
 
-    it('turns off Move Tab to Other Group for the only tab of the only group', async () => {
+    it('turns off Move Tab to Other Group for the only tab of the only group, and says why', async () => {
         tabs = [tab('C:/w/a.md')]
         openMenuFor('C:/w/a.md')
-        expect(await screen.findByRole('menuitem', { name: 'Move Tab to Other Group' })).toHaveAttribute('aria-disabled', 'true')
+        const move = await screen.findByRole('menuitem', { name: 'Move Tab to Other Group' })
+        expect(move).toHaveAttribute('aria-disabled', 'true')
+        expect(move).toHaveAccessibleDescription('Only one tab open')
+        expect(screen.getByText('Only one tab open')).toBeVisible()
         expect(screen.getByRole('menuitem', { name: 'Split Editor' })).not.toHaveAttribute('aria-disabled')
         groups = null
     })
