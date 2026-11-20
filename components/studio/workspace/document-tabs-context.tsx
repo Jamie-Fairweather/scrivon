@@ -31,7 +31,7 @@ import {
     stampChanged,
 } from '@/lib/tauri/fs'
 import { setWorkspaceTabSession, addRecentFile, removeRecentFiles } from '@/lib/tauri/store'
-import { formatFileSize, isLargeFile, tabFromFile } from '@/lib/workspace/document-tab'
+import { formatFileSize, isLargeFile, moveItem, tabFromFile } from '@/lib/workspace/document-tab'
 import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import { DEFAULT_TEXT_FORMAT } from '@/lib/workspace/text-encoding'
 import { remapPathAfterRename, remapTabsAfterRename, tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
@@ -63,6 +63,13 @@ type DocumentTabsContextValue = {
     /** Shows the next tab (1) or the one before (-1), going round from the last to the first. */
     switchTab: (step: 1 | -1) => Promise<void>
     /**
+     * Moves a tab so it ends up at `toIndex` in the strip (kept inside it), and remembers the new order for the
+     * folder. The tab shown stays the same. A move that leaves the order as it was does nothing.
+     */
+    moveTab: (id: string, toIndex: number) => void
+    /** The tab moved last, a new object for each move, so the tab strip can say where it went. Null before any move. */
+    lastTabMove: TabMove | null
+    /**
      * Lets the user edit a tab that opened read-only for a reason they may accept: a file that isn't UTF-8
      * (saved as UTF-8 from then on) or a very large one. Does nothing for a file that looks binary.
      */
@@ -84,8 +91,12 @@ export type DocumentTabActions = Pick<
     | 'reopenClosedTab'
     | 'revertTab'
     | 'switchTab'
+    | 'moveTab'
     | 'makeTabEditable'
 >
+
+/** A tab that was moved along the strip. */
+export type TabMove = { id: string }
 
 /** Why a tab opened read-only, and the label of the button that lets the user edit it anyway, if there is one. */
 export type ReadOnlyReason = { text: string; editLabel: string | null }
@@ -623,6 +634,33 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
         [setActiveTab, tabsRef]
     )
 
+    const [lastTabMove, setLastTabMove] = useState<TabMove | null>(null)
+
+    const moveTab = useCallback(
+        (id: string, toIndex: number) => {
+            const moved = (list: DocumentTab[]) =>
+                moveItem(
+                    list,
+                    list.findIndex((t) => t.id === id),
+                    toIndex
+                )
+            const prev = tabsRef.current
+            const nextTabs = moved(prev)
+            if (nextTabs === prev) return
+            // The ref changes straight away and the state with an update, so a keystroke queued meanwhile is kept.
+            tabsRef.current = nextTabs
+            setTabs(moved)
+            setLastTabMove({ id })
+            // Examples aren't remembered, so moving one past the others leaves nothing new to save.
+            const savedIds = (list: readonly DocumentTab[]) => list.flatMap((t) => (isExampleTabId(t.id) ? [] : [t.id]))
+            const before = savedIds(prev)
+            if (savedIds(nextTabs).some((tabId, i) => tabId !== before[i])) {
+                void persistTabSession({ tabs: nextTabs, activeTabId: activeTabIdRef.current })
+            }
+        },
+        [persistTabSession, setTabs, tabsRef]
+    )
+
     const updateTabContent = useCallback(
         (id: string, content: string) => {
             const tab = tabsRef.current.find((t) => t.id === id)
@@ -856,6 +894,7 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             reopenClosedTab,
             revertTab,
             switchTab,
+            moveTab,
             makeTabEditable,
         }),
         [
@@ -871,13 +910,14 @@ export function DocumentTabsProvider({ children, coordinator, workspaceRoot, tab
             reopenClosedTab,
             revertTab,
             switchTab,
+            moveTab,
             makeTabEditable,
         ]
     )
 
     const value = useMemo(
-        () => ({ ...actions, tabs, activeTabId, activeTab, canReopenClosedTab }),
-        [actions, tabs, activeTabId, activeTab, canReopenClosedTab]
+        () => ({ ...actions, tabs, activeTabId, activeTab, canReopenClosedTab, lastTabMove }),
+        [actions, tabs, activeTabId, activeTab, canReopenClosedTab, lastTabMove]
     )
 
     // Split up so a part of the screen that only opens files or marks the open one, such as each row of the

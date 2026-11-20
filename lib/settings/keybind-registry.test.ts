@@ -93,14 +93,29 @@ describe('keybind registry', () => {
         expect(shown('tabs.close')).toBe('Ctrl+W')
         expect(shown('tabs.next')).toBe('Ctrl+Tab or Ctrl+PageDown')
         expect(shown('tabs.previous')).toBe('Ctrl+Shift+Tab or Ctrl+PageUp')
+        expect(shown('tabs.moveLeft')).toBe('Ctrl+Shift+PageUp')
+        expect(shown('tabs.moveRight')).toBe('Ctrl+Shift+PageDown')
         expect(shown('tabs.reopenClosed')).toBe('Ctrl+Shift+T')
 
         const tabActions = KEYBIND_ACTIONS.filter((action) => action.category === 'Tabs')
-        expect(tabActions.map((action) => action.label)).toEqual(['Close tab', 'Next tab', 'Previous tab', 'Reopen closed tab'])
+        expect(tabActions.map((action) => action.label)).toEqual([
+            'Close tab',
+            'Next tab',
+            'Previous tab',
+            'Move tab left',
+            'Move tab right',
+            'Reopen closed tab',
+        ])
         // Tabs only show while a folder is open.
         expect(tabActions.every((action) => action.when === 'workspace')).toBe(true)
-        // Holding the keys keeps moving through the tabs; nothing else repeats, so Ctrl+W closes one tab at a time.
-        expect(KEYBIND_ACTIONS.filter((action) => action.allowRepeat).map((action) => action.id)).toEqual(['tabs.next', 'tabs.previous'])
+        // Holding the keys keeps moving through the tabs, or moving the tab along; nothing else repeats, so Ctrl+W
+        // closes one tab at a time.
+        expect(KEYBIND_ACTIONS.filter((action) => action.allowRepeat).map((action) => action.id)).toEqual([
+            'tabs.next',
+            'tabs.previous',
+            'tabs.moveLeft',
+            'tabs.moveRight',
+        ])
     })
 
     it('gives no two actions the same default shortcut', () => {
@@ -124,5 +139,23 @@ describe('keybind registry', () => {
         expect(press({ key: 'T', ctrlKey: true, shiftKey: true })).toBe('tabs.reopenClosed')
         // Plain Tab still indents.
         expect(press({ key: 'Tab' })).toBeNull()
+    })
+
+    it('moves the tab with Ctrl+Shift+PageUp and PageDown even while typing in the editor, and keeps moving it while held', () => {
+        const target = { tagName: 'TEXTAREA', closest: (selector: string) => (selector === '.monaco-editor' ? {} : null) }
+        const press = (init: Partial<KeyboardEvent>) => {
+            const event = { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, repeat: false, target, ...init } as KeyboardEvent
+            return matchKeybind(event, createDefaultKeybinds(false), { hasWorkspace: true })
+        }
+
+        expect(press({ key: 'PageUp', ctrlKey: true, shiftKey: true })).toBe('tabs.moveLeft')
+        expect(press({ key: 'PageDown', ctrlKey: true, shiftKey: true })).toBe('tabs.moveRight')
+        expect(press({ key: 'PageDown', ctrlKey: true, shiftKey: true, repeat: true })).toBe('tabs.moveRight')
+        // Shift+PageUp alone still selects a page of text.
+        expect(press({ key: 'PageUp', shiftKey: true })).toBeNull()
+        expect(createDefaultKeybinds(true)).toMatchObject({
+            'tabs.moveLeft': [{ key: 'PageUp', meta: true, shift: true }],
+            'tabs.moveRight': [{ key: 'PageDown', meta: true, shift: true }],
+        })
     })
 })
