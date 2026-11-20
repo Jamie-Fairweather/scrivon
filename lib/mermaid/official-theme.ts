@@ -1,6 +1,6 @@
 import type { MermaidConfig } from 'mermaid'
 import { getDiagramColors, isLightTheme, type AppThemeId } from '@/lib/theme/catalog'
-import { contrastRatio, hexColorMix, parseHexColor, rotateHue } from '@/lib/theme/color-mix'
+import { contrastRatio, ensureContrast, hexColorMix, parseHexColor, rotateHue } from '@/lib/theme/color-mix'
 import type { DiagramColors } from '@/lib/theme/types'
 
 /**
@@ -59,9 +59,16 @@ function hasHue(hex: string): boolean {
     return Math.max(rgb.r, rgb.g, rgb.b) - Math.min(rgb.r, rgb.g, rgb.b) >= 24
 }
 
-/** Of the theme's text and background, the one that reads better on `fill`. */
+/** WCAG AA for normal text: slice, section and branch labels are small. */
+const LABEL_CONTRAST = 4.5
+
+/**
+ * Of the theme's text and background, the one that reads better on `fill`, taken on towards black or white when
+ * even that isn't clear enough (a mid-tone branch colour, or a low-contrast theme like Solarized).
+ */
 function textOn(fill: string, colors: CompleteDiagramColors): string {
-    return contrastRatio(colors.fg, fill) >= contrastRatio(colors.bg, fill) ? colors.fg : colors.bg
+    const better = contrastRatio(colors.fg, fill) >= contrastRatio(colors.bg, fill) ? colors.fg : colors.bg
+    return ensureContrast(better, better, [fill], LABEL_CONTRAST)
 }
 
 /**
