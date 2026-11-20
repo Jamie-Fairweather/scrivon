@@ -16,16 +16,29 @@ export type WikiLinkSource = {
     index: WikiIndex | null
     /** The file being edited, so a clash between names is settled from its folder. */
     documentPath: string | null
+    /**
+     * The editor buffer (model URI) that file is in. With the editor split, each group's editor registers its own
+     * source, and a buffer gets the one for it.
+     */
+    modelUri?: string
 }
 
-let source: WikiLinkSource = { index: null, documentPath: null }
+const NO_SOURCE: WikiLinkSource = { index: null, documentPath: null }
+const sources: WikiLinkSource[] = []
 
 /** Tells the suggestions which notes there are. Returns the function that takes them away again. */
 export function registerWikiLinkSource(next: WikiLinkSource): () => void {
-    source = next
+    sources.push(next)
     return () => {
-        if (source === next) source = { index: null, documentPath: null }
+        const index = sources.indexOf(next)
+        if (index !== -1) sources.splice(index, 1)
     }
+}
+
+/** The source for a buffer: the one registered for it, else the one registered last. */
+function sourceFor(model: { uri?: { toString(): string } }): WikiLinkSource {
+    const uri = model.uri?.toString()
+    return (uri !== undefined ? sources.findLast((s) => s.modelUri === uri) : undefined) ?? sources.at(-1) ?? NO_SOURCE
 }
 
 /** What the text before the caret is in the middle of: a note's name after `[[`, or a heading after `[[#`. */
@@ -140,9 +153,9 @@ function restOfLink(after: string): { length: number; close: boolean } {
 
 /** The suggestions at a place in a Markdown model, with the range each replaces. */
 export function provideWikiLinkCompletions(
-    model: Pick<editor.ITextModel, 'getLineContent' | 'getValue'>,
+    model: Pick<editor.ITextModel, 'getLineContent' | 'getValue'> & { uri?: { toString(): string } },
     position: { lineNumber: number; column: number },
-    current: WikiLinkSource = source
+    current: WikiLinkSource = sourceFor(model)
 ): { suggestions: WikiLinkSuggestion[]; range: IRange } | null {
     const line = model.getLineContent(position.lineNumber)
     const typing = wikiLinkTyping(line.slice(0, position.column - 1))

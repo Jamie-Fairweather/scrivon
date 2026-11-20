@@ -11,11 +11,12 @@ import type { DocumentTab } from '@/lib/workspace/types'
 /**
  * Tells the editor's wiki-link suggestions (lib/monaco/wiki-link-completion.ts) which notes the open folder has and
  * which file is being edited, as the preview and the explorer see them. No notes for a file outside the folder.
+ * `modelUri` is the editor buffer the file is in, so each group's editor gets suggestions for its own file.
  */
-export function useWikiLinkSource(activeTab: DocumentTab | null): void {
+export function useWikiLinkSource(activeTab: DocumentTab | null, modelUri?: string): void {
     const { workspaceRoot, tree } = useWorkspaceSession()
     const documentPath = activeTab && !isExampleTabId(activeTab.id) ? activeTab.path : null
     const inFolder = documentPath !== null && workspaceRoot !== null && isPathInside(documentPath, workspaceRoot)
     const index = useMemo(() => (inFolder && workspaceRoot ? wikiIndexFor(workspaceRoot, tree ?? []) : null), [inFolder, workspaceRoot, tree])
-    useEffect(() => registerWikiLinkSource({ index, documentPath }), [index, documentPath])
+    useEffect(() => registerWikiLinkSource({ index, documentPath, modelUri }), [index, documentPath, modelUri])
 }

@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardPanel } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCanvasFit, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { useEditorGroupId, useGroupPreviewSync } from '@/components/studio/workspace/editor-group-context'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { locateInMarkdown } from '@/lib/mermaid/source-locations'
 import { notifyError, notifyInfo } from '@/lib/notify'
@@ -189,8 +190,11 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const overlayRef = useRef<HTMLDivElement>(null)
     /** Where focus goes back to when the expanded diagram closes (normally the Expand button). */
     const returnFocusRef = useRef<{ blockId: string; element: HTMLElement | null } | null>(null)
-    // Scrolls with the editor, and double-click jumps to the line in it (each when its setting is on).
-    usePreviewScrollSync(scrollAreaRef, tabId, previewSource)
+    // Scrolls with the editor, and double-click jumps to the line in it (each when its setting is on): its own
+    // group's editor, when the editor is split.
+    const previewSync = useGroupPreviewSync()
+    usePreviewScrollSync(scrollAreaRef, tabId, previewSource, previewSync)
+    const groupId = useEditorGroupId()
 
     useEffect(() => {
         const viewport = scrollViewport(scrollAreaRef.current)
@@ -401,8 +405,8 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                 const viewport = scrollViewport(scrollAreaRef.current)
                 if (viewport) scrollTopByTab.set(tabId, viewport.scrollTop)
                 setExpanded(null)
-            }),
-        [expandedKey, tabId, scrollTopByTab, setExpanded]
+            }, groupId),
+        [expandedKey, tabId, scrollTopByTab, setExpanded, groupId]
     )
 
     useEffect(() => {

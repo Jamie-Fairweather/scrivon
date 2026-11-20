@@ -1,10 +1,11 @@
-import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
-import { Suspense, lazy, useEffect, type ComponentType } from 'react'
+import { act, fireEvent, render as renderPlain, renderHook, screen, waitFor } from '@testing-library/react'
+import { Suspense, lazy, useEffect, type ComponentType, type ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import { applyLinkUpdates, scanLinkUpdates } from '@/lib/workspace/link-update'
 import { remapTabsAfterRename } from '@/lib/workspace/tab-paths'
 import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
+import type { EditorGroups } from '@/lib/workspace/editor-groups'
 import type { DocumentTab } from '@/lib/workspace/types'
 
 // --- A small stand-in for Monaco: one text buffer per URI, like the real thing. ---
@@ -28,6 +29,8 @@ const LINE_BREAKS = /\r\n|\r|\n/g
 
 class FakeModel {
     disposed = false
+    /** Goes up with every change, as Monaco's getVersionId does. */
+    versionId = 1
     /** The language the buffer is coloured with. */
     language = ''
     readonly listeners = new Set<Listener>()
@@ -60,6 +63,7 @@ class FakeModel {
         this.value = value
         this.undoStack.length = 0
         this.stepOpen = false
+        this.versionId += 1
         this.listeners.forEach((l) => l())
     }
     getEOL() {
@@ -86,6 +90,7 @@ class FakeModel {
             operations.map((op) => ({ range: op.range, text: op.text.replace(LINE_BREAKS, eol) }))
         )
         this.lines = next.split(LINE_BREAK)
+        this.versionId += 1
         this.listeners.forEach((l) => l())
         return null
     }
@@ -94,6 +99,7 @@ class FakeModel {
         this.undoStack.push(this.value)
         this.stepOpen = false
         this.lines = (this.value + text).split(LINE_BREAK)
+        this.versionId += 1
         this.listeners.forEach((l) => l())
     }
     /** Ctrl+Z: puts back the text from before the newest undo step. */
@@ -102,18 +108,21 @@ class FakeModel {
         if (before === undefined) return
         this.stepOpen = false
         this.lines = before.split(LINE_BREAK)
+        this.versionId += 1
         this.listeners.forEach((l) => l())
     }
     /** Changes only the line ending, as an undo step (Monaco tells listeners). */
     pushEOL(sequence: number) {
         this.undoCalls.push('pushEOL')
         this.eol = sequence === EOL_SEQUENCE.CRLF ? '\r\n' : '\n'
+        this.versionId += 1
         this.listeners.forEach((l) => l())
     }
     /** Real Monaco skips the undo stack here, so a later undo garbles the text. Never call it. */
     setEOL(sequence: number) {
         this.undoCalls.push('setEOL')
         this.eol = sequence === EOL_SEQUENCE.CRLF ? '\r\n' : '\n'
+        this.versionId += 1
         this.listeners.forEach((l) => l())
     }
     dispose() {
@@ -186,7 +195,9 @@ class FakeEditor {
     onKeyDown() {
         return { dispose: () => {} }
     }
-    private fire = () => this.contentListeners.forEach((l) => l())
+    // Like Monaco, every editor on a buffer hears its changes, each with the buffer's new version.
+    private fire = () =>
+        this.contentListeners.forEach((l) => (l as (event: { versionId: number }) => void)({ versionId: this.model?.versionId ?? 0 }))
     /** True once @monaco-editor/react has hooked up onChange, which happens a render after create. */
     get listening() {
         return this.contentListeners.size > 0
@@ -403,7 +414,7 @@ vi.mock('next/dynamic', () => ({
     },
 }))
 
-type TabsState = { tabs: DocumentTab[]; activeTabId: string | null }
+type TabsState = { tabs: DocumentTab[]; activeTabId: string | null; groups?: EditorGroups }
 let tabsState: TabsState = { tabs: [], activeTabId: null }
 const updateTabContent = vi.fn()
 const makeTabEditable = vi.fn()
@@ -413,6 +424,11 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         tabs: tabsState.tabs,
         activeTabId: tabsState.activeTabId,
         activeTab: tabsState.tabs.find((t) => t.id === tabsState.activeTabId) ?? null,
+        groups: tabsState.groups ?? {
+            groups: [{ id: 'group-1', tabIds: tabsState.tabs.map((t) => t.id), activeTabId: tabsState.activeTabId }],
+            focused: 0,
+            ratio: 0.5,
+        },
         updateTabContent,
     }),
     useDocumentTabActions: () => ({ makeTabEditable }),
@@ -508,6 +524,9 @@ vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({
 vi.mock('@/components/studio/editor/use-editor-link-check', () => ({ useEditorLinkCheck: () => () => ({ dispose: () => {} }) }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
+const { EditorModelsProvider } = await import('@/components/studio/editor/editor-models')
+/** The panel with the shared editor buffers it needs above it, as in the app. */
+const render = (ui: ReactElement) => renderPlain(ui, { wrapper: EditorModelsProvider })
 const { CommandRegistryProvider, useCommands } = await import('@/components/studio/commands/command-registry')
 const { bindEditorScrollSync } = await import('@/components/studio/editor/editor-scroll-sync')
 const markdownEditing = await import('@/lib/monaco/markdown-editing')
@@ -1282,6 +1301,8 @@ describe('CodeEditorPanel Markdown lists', () => {
         expect(wikiLinkCompletion.registerWikiLinkSource).toHaveBeenLastCalledWith({
             index: expect.objectContaining({ root: '/w' }),
             documentPath: b,
+            // The editor's own buffer, so the other group's editor gets suggestions for its own file.
+            modelUri: expect.stringMatching(/^inmemory:\/\/scrivon\/document-/),
         })
     })
 })
@@ -1714,12 +1735,14 @@ describe('CodeEditorPanel search hits', () => {
         const a = '/w/a.md'
         const b = '/w/b.md'
         tabsState = { tabs: [tab(a, 'A')], activeTabId: a }
-        const { editor } = await mountEditor()
+        const { view, editor } = await mountEditor()
 
         // The open has finished but the panel hasn't drawn its tab yet; the jump's render shows both.
         act(() => {
             tabsState = { tabs: [tab(a, 'A'), tab(b, 'x\ny\n find me')], activeTabId: b }
             coordinatorHandlers.revealInEditor!(b, 3, 2, 6)
+            // The new tab reaches the shared buffers (above the panel) in the same render.
+            view.rerender(<Panel />)
         })
         expect(editor.getValue()).toBe('x\ny\n find me')
         expect(editor.selection).toEqual({ startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 })
@@ -2134,5 +2157,149 @@ describe('CodeEditorPanel Edit commands', () => {
 
         expect(await screen.findByRole('dialog', { name: 'Insert table' })).toBeInTheDocument()
         expect(screen.getByLabelText('Columns')).toHaveValue('3')
+    })
+})
+
+describe('CodeEditorPanel with the editor split', async () => {
+    const { EditorGroupProvider } = await import('@/components/studio/workspace/editor-group-context')
+    const { setFocusedEditorGroupId } = await import('@/components/studio/workspace/focused-editor-group')
+    const a = '/w/a.md'
+    const b = '/w/b.md'
+
+    let shown: ReturnType<typeof useCommands> = []
+    function CommandsProbe() {
+        const commands = useCommands()
+        useEffect(() => {
+            shown = commands
+        }, [commands])
+        return null
+    }
+
+    /** Both groups' panels, under the one owner of the buffers, as the studio lays them out. */
+    function SplitPanels() {
+        return (
+            <CommandRegistryProvider>
+                <EditorGroupProvider index={0}>
+                    <CodeEditorPanel width={400} onWidthChange={() => {}} />
+                </EditorGroupProvider>
+                {tabsState.groups && tabsState.groups.groups.length > 1 ? (
+                    <EditorGroupProvider index={1}>
+                        <CodeEditorPanel width={400} onWidthChange={() => {}} />
+                    </EditorGroupProvider>
+                ) : null}
+                <CommandsProbe />
+            </CommandRegistryProvider>
+        )
+    }
+
+    function split(left: string[], leftActive: string, right: string[], rightActive: string, focused: number): EditorGroups {
+        return {
+            groups: [
+                { id: 'group-1', tabIds: left, activeTabId: leftActive },
+                { id: 'group-2', tabIds: right, activeTabId: rightActive },
+            ],
+            focused,
+            ratio: 0.5,
+        }
+    }
+
+    async function mountSplit(groups: EditorGroups, tabs: DocumentTab[]) {
+        tabsState = { tabs, activeTabId: groups.groups[groups.focused]!.activeTabId, groups }
+        setFocusedEditorGroupId(groups.groups[groups.focused]!.id)
+        const view = render(<SplitPanels />)
+        await waitFor(() => expect(editors.filter((e) => e.listening)).toHaveLength(2))
+        return { view, left: editors[0]!, right: editors[1]! }
+    }
+
+    function refocus(view: ReturnType<typeof render>, groups: EditorGroups) {
+        tabsState = { ...tabsState, activeTabId: groups.groups[groups.focused]!.activeTabId, groups }
+        setFocusedEditorGroupId(groups.groups[groups.focused]!.id)
+        view.rerender(<SplitPanels />)
+    }
+
+    beforeEach(() => {
+        shown = []
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0)
+            return 0
+        })
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
+        setFocusedEditorGroupId(null)
+    })
+
+    it('shows one buffer in both groups: typing in one shows in the other at once, updates the tab once, and shares one undo history', async () => {
+        const { left, right } = await mountSplit(split([a], a, [a], a, 1), [tab(a, 'start')])
+
+        expect(left.getModel()).toBe(right.getModel())
+        act(() => right.type('!'))
+
+        expect(left.getValue()).toBe('start!')
+        expect(updateTabContent).toHaveBeenCalledExactlyOnceWith(a, 'start!')
+
+        // Ctrl+Z in either group takes back the same step.
+        act(() => left.getModel()!.undo())
+        expect(right.getValue()).toBe('start')
+        expect(updateTabContent).toHaveBeenLastCalledWith(a, 'start')
+        expect(updateTabContent).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the buffer the other group shows when a group closes', async () => {
+        const { view, left } = await mountSplit(split([a, b], a, [a], a, 1), [tab(a, 'A text'), tab(b, 'B')])
+        const shared = left.getModel()!
+
+        // The right group's only tab closes, so the group goes, while the left group still has the file.
+        refocus(view, { groups: [{ id: 'group-1', tabIds: [a, b], activeTabId: a }], focused: 0, ratio: 0.5 })
+
+        expect(shared.disposed).toBe(false)
+        expect(left.getModel()).toBe(shared)
+    })
+
+    it('runs the Edit menu and the palette editor commands in the focused group’s editor', async () => {
+        const { view, left, right } = await mountSplit(split([a], a, [b], b, 0), [tab(a, 'A'), tab(b, 'B')])
+        await waitFor(() => expect(shown.find((c) => c.id === 'edit.find')?.disabled).toBe(false))
+        // Only one editor's commands, never the same command twice.
+        expect(shown.filter((c) => c.id === 'edit.find')).toHaveLength(1)
+
+        act(() => void shown.find((c) => c.id === 'edit.find')!.run())
+        expect(left.triggered).toEqual(['actions.find'])
+
+        refocus(view, split([a], a, [b], b, 1))
+        await waitFor(() => expect(shown.filter((c) => c.id === 'edit.find')).toHaveLength(1))
+        act(() => void shown.find((c) => c.id === 'edit.find')!.run())
+        expect(right.triggered).toEqual(['actions.find'])
+        expect(left.triggered).toEqual(['actions.find'])
+    })
+
+    it('jumps to a hit, and follows the caret for the status bar, in the focused group’s editor', async () => {
+        const { result: cursor } = renderHook(() => useEditorCursor())
+        const { view, left, right } = await mountSplit(split([a], a, [b], b, 1), [tab(a, 'A line'), tab(b, 'B line')])
+
+        act(() => coordinatorHandlers.revealInEditor!(b, 1, 3, 2))
+        expect(right.selection).toEqual({ startLineNumber: 1, startColumn: 3, endLineNumber: 1, endColumn: 5 })
+        expect(left.selection).toBeNull()
+        expect(cursor.current).toMatchObject({ line: 1, column: 5 })
+
+        refocus(view, split([a], a, [b], b, 0))
+        expect(cursor.current).toMatchObject({ line: 1, column: 1 })
+        act(() => left.setPosition({ lineNumber: 1, column: 4 }))
+        expect(cursor.current).toMatchObject({ column: 4 })
+        // The other group's caret no longer moves the status bar.
+        act(() => right.setPosition({ lineNumber: 1, column: 2 }))
+        expect(cursor.current).toMatchObject({ column: 4 })
+    })
+
+    it('focuses the editor of the group F6 lands in, and the focused group’s with Focus Editor', async () => {
+        const { left, right } = await mountSplit(split([a], a, [b], b, 0), [tab(a, 'A'), tab(b, 'B')])
+        const panes = [...document.querySelectorAll<HTMLElement>('[data-pane="editor"]')]
+        expect(panes).toHaveLength(2)
+
+        expect(focusEditorNow(panes[1])).toBe(true)
+        expect(right.focused).toBe(true)
+        expect(left.focused).toBe(false)
+        expect(focusEditorNow()).toBe(true)
+        expect(left.focused).toBe(true)
     })
 })

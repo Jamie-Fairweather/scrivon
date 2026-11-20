@@ -1,5 +1,5 @@
-import { act, render, waitFor } from '@testing-library/react'
-import { Suspense, lazy, type ComponentType } from 'react'
+import { act, render as renderPlain, waitFor } from '@testing-library/react'
+import { Suspense, lazy, type ComponentType, type ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { editor } from 'monaco-editor'
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
@@ -120,6 +120,9 @@ vi.mock('@/lib/markdown/links-reader', async () => {
 // Points the loader at the Monaco loaded above, so loader.init() below doesn't go to the CDN.
 await import('@/lib/monaco/setup-monaco')
 const { CodeEditorPanel } = await import('./code-editor-panel')
+const { EditorModelsProvider } = await import('@/components/studio/editor/editor-models')
+/** The panel with the shared editor buffers it needs above it, as in the app. */
+const render = (ui: ReactElement) => renderPlain(ui, { wrapper: EditorModelsProvider })
 const { loader } = await import('@monaco-editor/react')
 
 type MonacoApi = typeof import('monaco-editor/editor')

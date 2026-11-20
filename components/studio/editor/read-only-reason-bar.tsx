@@ -3,7 +3,8 @@
 import { Lock } from 'lucide-react'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { readOnlyReason } from '@/components/studio/workspace/document-tabs-context'
-import { useDocumentTabActions, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
+import { useDocumentTabActions } from '@/components/studio/workspace/workspace-provider'
+import { useEditorGroup } from '@/components/studio/workspace/editor-group-context'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -11,7 +12,8 @@ import { Button } from '@/components/ui/button'
  * large) with the way to edit it anyway, so neither is lost once the notice that said so is closed.
  */
 export function ReadOnlyReasonBar() {
-    const { activeTab } = useDocumentTabs()
+    // The file its own group shows.
+    const activeTab = useEditorGroup().tab
     const { makeTabEditable } = useDocumentTabActions()
     const reason = activeTab?.readOnly ? readOnlyReason(activeTab) : null
     if (!activeTab || !reason) return null

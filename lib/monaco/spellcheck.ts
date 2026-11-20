@@ -3,6 +3,10 @@ import type { IDisposable, IPosition, IRange, editor, languages } from 'monaco-e
 import type { SpellcheckLanguage } from '@/lib/spellcheck/languages'
 import type { Misspelling, SpellcheckClient } from '@/lib/spellcheck/spellcheck-client'
 import { dictionaryForm } from '@/lib/spellcheck/spellcheck-settings'
+import { createAnsweringSessions } from '@/lib/monaco/answering-session'
+
+/** Which spell check gives a buffer its quick fixes, when two editors show it. */
+const answering = createAnsweringSessions()
 
 /** Whose marks these are, so setting them leaves other marks alone. */
 export const SPELLCHECK_MARKER_OWNER = 'scrivon-spelling'
@@ -56,6 +60,8 @@ export function attachSpellcheck(
     let config = initial
     let timer: ReturnType<typeof setTimeout> | null = null
     const marks = new WeakMap<editor.ITextModel, Mark[]>()
+    const checking = () => config?.modelUri ?? null
+    const leaveAnswering = answering.add(checking)
 
     const toMarker = ({ word, range }: Mark): editor.IMarkerData => ({
         ...range,
@@ -103,6 +109,8 @@ export function attachSpellcheck(
 
     const codeActions: languages.CodeActionProvider = {
         async provideCodeActions(model, range, _context, token) {
+            // The other group's editor may show this file too, with its own check: only one of them answers.
+            if (!answering.answers(checking, model.uri.toString())) return noActions
             const mark = markAt(model, { lineNumber: range.startLineNumber, column: range.startColumn })
             const asked = config
             if (!mark || !asked) return noActions
@@ -110,15 +118,13 @@ export function attachSpellcheck(
             if (token.isCancellationRequested) return noActions
             const diagnostics = [toMarker(mark)]
             const versionId = model.getVersionId()
-            const changes = suggestions.map(
-                (suggestion, index): languages.CodeAction => ({
-                    title: `Change to “${suggestion}”`,
-                    kind: 'quickfix',
-                    diagnostics,
-                    isPreferred: index === 0,
-                    edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.range, text: suggestion } }] },
-                })
-            )
+            const changes = suggestions.map((suggestion, index): languages.CodeAction => ({
+                title: `Change to “${suggestion}”`,
+                kind: 'quickfix',
+                diagnostics,
+                isPreferred: index === 0,
+                edit: { edits: [{ resource: model.uri, versionId, textEdit: { range: mark.range, text: suggestion } }] },
+            }))
             const addTitle = `Add “${dictionaryForm(mark.word)}” to Dictionary`
             const add: languages.CodeAction = {
                 title: addTitle,
@@ -221,6 +227,7 @@ export function attachSpellcheck(
         misspeltWordAt,
         dispose() {
             if (timer !== null) clearTimeout(timer)
+            leaveAnswering()
             codeActionsRegistration.dispose()
             subscriptions.forEach((subscription) => subscription.dispose())
         },
