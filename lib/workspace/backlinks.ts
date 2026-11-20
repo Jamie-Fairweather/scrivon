@@ -1,12 +1,6 @@
-import {
-    MAX_FILE_BYTES,
-    openTabText,
-    READ_CONCURRENCY,
-    type ContentCache,
-    type OpenFileTexts,
-} from '@/components/studio/command-palette/search-content'
+import { buildPreview, MAX_FILE_BYTES, openTabText, READ_CONCURRENCY, type OpenFileTexts } from '@/components/studio/command-palette/search-content'
 import type { DocumentWikiLink } from '@/lib/markdown/document-links'
-import { comparablePath } from '@/lib/tauri/fs'
+import { comparablePath, stampChanged } from '@/lib/tauri/fs'
 import type { FileStamp } from '@/lib/workspace/types'
 import { resolveWikiTarget, type WikiIndex } from '@/lib/workspace/wiki-link-lookup'
 
@@ -24,7 +18,7 @@ export type Backlink = {
     /** Where the link is, from 1, as the editor counts. */
     line: number
     column: number
-    /** The line the link is on, without the spaces around it. */
+    /** The line the link is on, without the spaces around it (only the part around the link, on a very long line). */
     text: string
 }
 
@@ -36,8 +30,24 @@ export type BacklinksResult = {
     incomplete: boolean
 }
 
-/** A note's wiki links, kept with the text they were read from, so an unchanged note isn't read again. */
-export type ParsedLinksCache = Map<string, { text: string; links: readonly DocumentWikiLink[] }>
+/** A wiki link as a scan keeps it between scans: what it leads to, where it is and its line, not the rest of the note. */
+type KeptLink = { target: string; line: number; column: number; text: string }
+
+/**
+ * What a scan learnt about one note, so the next one needn't read or parse it again. A note read from disk keeps its
+ * stamp and the disk check it was last looked at in (see ScanBacklinksOptions.diskCheck), never its text. A note read
+ * from a tab keeps the tab's text, which the tab holds anyway, to tell when it changes.
+ */
+type KeptNote =
+    | { source: 'disk'; stamp: FileStamp | null; checked: number | undefined; links: readonly KeptLink[] }
+    | { source: 'tab'; text: string; links: readonly KeptLink[] }
+
+/** The notes' links kept between scans, by comparablePath. A finished scan forgets the notes no longer in the index. */
+export type BacklinksMemo = Map<string, KeptNote>
+
+export function createBacklinksMemo(): BacklinksMemo {
+    return new Map()
+}
 
 export type ScanBacklinksOptions = {
     /** The file whose links are wanted: the one showing. */
@@ -50,26 +60,37 @@ export type ScanBacklinksOptions = {
     readFile: (path: string) => Promise<string>
     /** A file's size and modified time, or null when they can't be read. */
     getFileStamp: (path: string) => Promise<FileStamp | null>
-    /** Disk text kept between scans, used while a file's stamp is unchanged. */
-    cache?: ContentCache
-    parsed?: ParsedLinksCache
+    /** What earlier scans learnt, used and updated by this one. */
+    memo?: BacklinksMemo
+    /**
+     * Which disk check this scan belongs to. A note on disk already looked at in the same check is taken from `memo`
+     * without asking the disk again, so a scan for a change in a tab's text doesn't stat every file. Pass a new number
+     * when the files on disk may have changed. Left out, every note on disk is stamped again.
+     */
+    diskCheck?: number
     signal: AbortSignal
     maxFileBytes?: number
     concurrency?: number
 }
 
-/** The line around `offset`, without the spaces around it. */
-function lineAround(text: string, offset: number): string {
+/** Longer lines are cut down to the part around the link, so a note written on one long line isn't kept whole. */
+const MAX_LINE_CHARS = 300
+
+/** The line around the link at `offset`, without the spaces around it. */
+function lineAround(text: string, offset: number, length: number): string {
     const start = text.lastIndexOf('\n', offset - 1) + 1
     const end = text.indexOf('\n', offset)
-    return text.slice(start, end < 0 ? text.length : end).trim()
+    const line = text.slice(start, end < 0 ? text.length : end)
+    if (line.length <= MAX_LINE_CHARS) return line.trim()
+    return buildPreview(line, offset - start, length).preview.trim()
 }
 
 /**
  * Every wiki link in the folder's other notes that leads to `target`, in the tree's order and then down each note. A
  * note open in a tab is read from the tab. The rest are read from disk `concurrency` at a time, skipping files over
- * `maxFileBytes`; one whose stamp hasn't changed comes from `cache`, and one whose text hasn't changed isn't parsed
- * again. Null once `signal` aborts: a newer scan took its place.
+ * `maxFileBytes`. With a `memo`, a note whose stamp (or tab text) hasn't changed isn't read or parsed again, and one
+ * already looked at in this `diskCheck` isn't stamped again either. Null once `signal` aborts: a newer scan took its
+ * place (what this one learnt so far stays in `memo`).
  */
 export async function scanBacklinks({
     target,
@@ -78,8 +99,8 @@ export async function scanBacklinks({
     readLinks,
     readFile,
     getFileStamp,
-    cache,
-    parsed,
+    memo,
+    diskCheck,
     signal,
     maxFileBytes = MAX_FILE_BYTES,
     concurrency = READ_CONCURRENCY,
@@ -88,27 +109,42 @@ export async function scanBacklinks({
     const notes = index.notes.filter((note) => comparablePath(note.path) !== own)
     const found: Backlink[][] = []
 
-    const textOf = async (path: string): Promise<string | null> => {
-        const inTab = openTabText(openTexts, path)
-        if (inTab !== undefined) return inTab
-        const stamp = await getFileStamp(path)
-        if (stamp !== null && stamp.size > maxFileBytes) return null
-        let text = stamp !== null ? cache?.get(path, stamp) : undefined
-        if (text === undefined) {
-            text = await readFile(path)
-            if (stamp !== null) cache?.set(path, stamp, text)
-        }
-        return text.length > maxFileBytes ? null : text
+    const linksIn = async (path: string, text: string): Promise<KeptLink[]> => {
+        // Most notes have no wiki links at all: no need to parse them.
+        if (text.length > maxFileBytes || !text.includes('[[')) return []
+        const links = await readLinks(text, path)
+        return links.map((link) => {
+            const { line, column, offset = 0 } = link.position.start
+            const length = (link.position.end.offset ?? offset) - offset
+            return { target: link.target, line, column, text: lineAround(text, offset, length) }
+        })
     }
 
-    const linksOf = async (path: string, text: string): Promise<readonly DocumentWikiLink[]> => {
-        // Most notes have no wiki links at all: no need to parse them.
-        if (!text.includes('[[')) return []
+    /** The note's links, or null when the scan was aborted before they were known. */
+    const linksOf = async (path: string): Promise<readonly KeptLink[] | null> => {
         const key = comparablePath(path)
-        const kept = parsed?.get(key)
-        if (kept && kept.text === text) return kept.links
-        const links = await readLinks(text, path)
-        parsed?.set(key, { text, links })
+        const kept = memo?.get(key)
+        const inTab = openTabText(openTexts, path)
+        if (inTab !== undefined) {
+            if (kept?.source === 'tab' && kept.text === inTab) return kept.links
+            const links = await linksIn(path, inTab)
+            memo?.set(key, { source: 'tab', text: inTab, links })
+            return links
+        }
+        if (kept?.source === 'disk' && diskCheck !== undefined && kept.checked === diskCheck) return kept.links
+        const stamp = await getFileStamp(path)
+        if (signal.aborted) return null
+        if (kept?.source === 'disk' && kept.stamp !== null && stamp !== null && !stampChanged(kept.stamp, stamp)) {
+            memo?.set(key, { ...kept, checked: diskCheck })
+            return kept.links
+        }
+        let links: KeptLink[] = []
+        if (stamp === null || stamp.size <= maxFileBytes) {
+            const text = await readFile(path)
+            if (signal.aborted) return null
+            links = await linksIn(path, text)
+        }
+        memo?.set(key, { source: 'disk', stamp, checked: diskCheck, links })
         return links
     }
 
@@ -119,16 +155,14 @@ export async function scanBacklinks({
             const note = notes[at]
             if (!note) return
             try {
-                const text = await textOf(note.path)
-                if (text === null || signal.aborted) continue
-                const links = await linksOf(note.path, text)
+                const links = await linksOf(note.path)
+                if (links === null || signal.aborted) continue
                 const leading: Backlink[] = []
                 for (const link of links) {
                     if (!link.target) continue
                     const lookup = resolveWikiTarget(index, link.target, note.path)
                     if (lookup.kind !== 'found' || comparablePath(lookup.path) !== own) continue
-                    const { line, column, offset } = link.position.start
-                    leading.push({ path: note.path, relative: note.relative, line, column, text: lineAround(text, offset ?? 0) })
+                    leading.push({ path: note.path, relative: note.relative, line: link.line, column: link.column, text: link.text })
                 }
                 found[at] = leading
             } catch {
@@ -138,6 +172,11 @@ export async function scanBacklinks({
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, notes.length) }, work))
     if (signal.aborted) return null
+    if (memo) {
+        // Notes deleted, renamed or moved out of the folder are forgotten.
+        const listed = new Set(notes.map((note) => comparablePath(note.path)))
+        for (const key of memo.keys()) if (!listed.has(key)) memo.delete(key)
+    }
     return { target, links: found.flat(), incomplete: index.incomplete }
 }
 

@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readStamp } from '@/lib/tauri/fs'
 import { BACKLINKS_DELAY_MS } from '@/lib/workspace/backlinks'
 import { notifyWorkspaceDiskChange } from '@/lib/workspace/disk-changes'
 import type { DocumentTab, FileNode } from '@/lib/workspace/types'
@@ -80,6 +81,37 @@ describe('useBacklinks', () => {
         act(() => notifyWorkspaceDiskChange())
         await settle()
         expect(listed(result.current)).toEqual(['other:1'])
+    })
+
+    it('doesn’t scan for typing in the file itself, and doesn’t ask the disk again for typing in another note', async () => {
+        const THIRD = `${ROOT}\\third.md`
+        workspace.tree = [file(GUIDE), file(OTHER), file(THIRD)]
+        workspace.disk = { [OTHER]: 'See [[guide]].', [THIRD]: 'Nothing.' }
+        workspace.tabs = [tab(GUIDE, '# Guide'), tab(THIRD, 'Nothing.')]
+        const { result, rerender } = renderHook(({ active }) => useBacklinks(active), { initialProps: { active: workspace.tabs[0]! } })
+        await settle()
+        expect(listed(result.current)).toEqual(['other:1'])
+        const stats = vi.mocked(readStamp).mock.calls.length
+        const ready = result.current.kind === 'ready' && result.current.result
+
+        // Typing in the file showing: its own links never count, so nothing is worked out again.
+        workspace.tabs = [tab(GUIDE, '# Guide\n\nMore [[guide]]'), workspace.tabs[1]!]
+        rerender({ active: workspace.tabs[0]! })
+        await settle()
+        expect(result.current.kind === 'ready' && result.current.result).toBe(ready)
+        expect(readStamp).toHaveBeenCalledTimes(stats)
+
+        // Typing in another note: that tab is read again, the note on disk isn't stamped again.
+        workspace.tabs = [workspace.tabs[0]!, tab(THIRD, 'Now [[guide]].')]
+        rerender({ active: workspace.tabs[0]! })
+        await settle()
+        expect(listed(result.current)).toEqual(['other:1', 'third:1'])
+        expect(readStamp).toHaveBeenCalledTimes(stats)
+
+        // A change on disk asks again.
+        act(() => notifyWorkspaceDiskChange())
+        await settle()
+        expect(readStamp).toHaveBeenCalledTimes(stats + 1)
     })
 
     it('never shows another file’s list, and says when there is no folder or no Markdown file', async () => {

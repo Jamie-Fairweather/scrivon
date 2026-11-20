@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createContentCache } from '@/components/studio/command-palette/search-content'
 import { documentLinks } from '@/lib/markdown/document-links'
+import { comparablePath } from '@/lib/tauri/fs'
 import {
     BACKLINKS_DELAY_MS,
+    createBacklinksMemo,
     createBacklinksScanner,
     scanBacklinks,
     type BacklinksResult,
-    type ParsedLinksCache,
     type ScanBacklinksOptions,
 } from '@/lib/workspace/backlinks'
 import type { FileNode, FileStamp } from '@/lib/workspace/types'
@@ -77,18 +77,80 @@ describe('scanBacklinks', () => {
         expect(readLinks.mock.calls.map(([text]) => text)).not.toContain('No links here.')
     })
 
-    it('takes unchanged files from the stamp-keyed cache, and parses unchanged text once', async () => {
-        const cache = createContentCache()
-        const parsed: ParsedLinksCache = new Map()
-        const readFile = vi.fn(async (path: string) => DISK[path] ?? '')
+    it('neither reads nor parses a file again while its stamp is unchanged, and reads it again once it changes', async () => {
+        const memo = createBacklinksMemo()
+        const disk = { ...DISK }
+        const readFile = vi.fn(async (path: string) => disk[path] ?? '')
         const readLinks = vi.fn(async (text: string) => documentLinks(text).wikiLinks)
-        await scanBacklinks(options({ cache, parsed, readFile, readLinks }))
+        const getFileStamp = vi.fn(async (path: string): Promise<FileStamp> => ({ mtimeMs: 1, size: (disk[path] ?? '').length }))
+        await scanBacklinks(options({ memo, readFile, readLinks, getFileStamp }))
         const reads = readFile.mock.calls.length
         const parses = readLinks.mock.calls.length
-        const again = await scanBacklinks(options({ cache, parsed, readFile, readLinks }))
+        const again = await scanBacklinks(options({ memo, readFile, readLinks, getFileStamp }))
         expect(readFile).toHaveBeenCalledTimes(reads)
         expect(readLinks).toHaveBeenCalledTimes(parses)
         expect(again!.links).toHaveLength(3)
+
+        disk[`${ROOT}\\Home.md`] = 'Now nothing.'
+        const changed = await scanBacklinks(options({ memo, readFile, readLinks, getFileStamp }))
+        expect(readFile).toHaveBeenCalledWith(`${ROOT}\\Home.md`)
+        expect(changed!.links.map((link) => link.relative)).toEqual(['work/Today', 'work/Today'])
+    })
+
+    it('asks the disk about each note once per disk check, so a change in a tab’s text stats nothing else', async () => {
+        const memo = createBacklinksMemo()
+        const getFileStamp = vi.fn(async (path: string): Promise<FileStamp> => ({ mtimeMs: 1, size: (DISK[path] ?? '').length }))
+        const readLinks = vi.fn(async (text: string) => documentLinks(text).wikiLinks)
+        await scanBacklinks(options({ memo, getFileStamp, readLinks, diskCheck: 1 }))
+        const stats = getFileStamp.mock.calls.length
+        expect(stats).toBe(4)
+
+        // Only the tab's text changes: the notes on disk come from the memo, without a stat.
+        const openTexts = [{ path: `${ROOT}\\Quiet.md`, content: 'Now [[Plan]].' }]
+        const typed = await scanBacklinks(options({ memo, getFileStamp, readLinks, diskCheck: 1, openTexts }))
+        expect(getFileStamp).toHaveBeenCalledTimes(stats)
+        expect(typed!.links.map((link) => link.relative)).toEqual(['work/Today', 'work/Today', 'Home', 'Quiet'])
+        // The same tab text isn't parsed twice.
+        const parses = readLinks.mock.calls.length
+        await scanBacklinks(options({ memo, getFileStamp, readLinks, diskCheck: 1, openTexts }))
+        expect(readLinks).toHaveBeenCalledTimes(parses)
+
+        // A new check (a change on disk, or to the folder) stats them all again.
+        await scanBacklinks(options({ memo, getFileStamp, readLinks, diskCheck: 2, openTexts }))
+        expect(getFileStamp).toHaveBeenCalledTimes(stats + 3)
+    })
+
+    it('carries on an aborted disk check where it stopped', async () => {
+        const memo = createBacklinksMemo()
+        const controller = new AbortController()
+        const getFileStamp = vi.fn(async (path: string): Promise<FileStamp> => {
+            if (getFileStamp.mock.calls.length === 2) controller.abort()
+            return { mtimeMs: 1, size: (DISK[path] ?? '').length }
+        })
+        expect(await scanBacklinks(options({ memo, getFileStamp, diskCheck: 1, signal: controller.signal, concurrency: 1 }))).toBeNull()
+        await scanBacklinks(options({ memo, getFileStamp, diskCheck: 1, concurrency: 1 }))
+        // The first note was finished before the abort, so only the other three are stamped again.
+        expect(getFileStamp).toHaveBeenCalledTimes(2 + 3)
+    })
+
+    it('keeps no note’s text from disk, and forgets notes no longer in the folder', async () => {
+        const memo = createBacklinksMemo()
+        await scanBacklinks(options({ memo }))
+        expect(JSON.stringify([...memo.values()])).not.toContain('in code is not a link')
+        expect(memo.size).toBe(4)
+
+        const index = buildWikiIndex(ROOT, [folder('work', [file('work\\Plan.md'), file('work\\Today.md')])])
+        await scanBacklinks(options({ memo, index }))
+        expect([...memo.keys()]).toEqual([comparablePath(`${ROOT}\\work\\Today.md`)])
+    })
+
+    it('shows only the part of a very long line around the link', async () => {
+        const long = `${'word '.repeat(200)}[[Plan]]${' more'.repeat(200)}`
+        const result = await scanBacklinks(options({ openTexts: [{ path: `${ROOT}\\Quiet.md`, content: long }], maxFileBytes: 10_000 }))
+        const text = result!.links.find((link) => link.relative === 'Quiet')!.text
+        expect(text.length).toBeLessThan(110)
+        expect(text).toContain('[[Plan]]')
+        expect(text.startsWith('…')).toBe(true)
     })
 
     it('reads at most `concurrency` files at a time', async () => {
