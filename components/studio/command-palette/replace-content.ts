@@ -1,4 +1,5 @@
 import { DiskChangedError, getBaseName, isFileMissingError, samePath, type TextFileRead, type WriteWorkspaceFileOptions } from '@/lib/tauri/fs'
+import type { TextDecodeIssue } from '@/lib/workspace/text-encoding'
 import type { TextEdit } from '@/lib/workspace/text-edits'
 import type { FileStamp } from '@/lib/workspace/types'
 import { REGEX_FILE_TIME_LIMIT_MS, replaceFile as defaultReplaceFile, type ReplaceFile } from '@/components/studio/command-palette/regex-match-client'
@@ -65,7 +66,7 @@ export function describeSkip(skip: Pick<ReplaceSkip, 'reason' | 'detail'>): stri
 }
 
 /** An open tab, as far as Replace needs to know. */
-export type ReplaceTab = { id: string; path: string; content: string; readOnly?: boolean }
+export type ReplaceTab = { id: string; path: string; content: string; readOnly?: boolean; encodingIssue?: TextDecodeIssue }
 
 /** The open tab for `path`, however either spells it (C:\Notes\A.md and c:/notes/a.md are one file). */
 export function findOpenTab<T extends { path: string }>(tabs: readonly T[], path: string): T | undefined {
@@ -75,8 +76,10 @@ export function findOpenTab<T extends { path: string }>(tabs: readonly T[], path
 /** Why an open tab can't take a replacement, or null when it can. */
 export function tabSkipReason(tab: ReplaceTab, isExample: (tabId: string) => boolean): ReplaceSkipReason | null {
     if (isExample(tab.id)) return 'example'
-    if (tab.readOnly) return 'read-only'
-    return null
+    if (!tab.readOnly) return null
+    // Opened read-only to keep it as it is stored: saying why tells the user more than 'read-only'.
+    if (tab.encodingIssue) return tab.encodingIssue === 'binary' ? 'binary' : 'encoding'
+    return 'read-only'
 }
 
 export type ComputeReplacementsOptions = {
@@ -193,7 +196,8 @@ export async function planWorkspaceReplace(opts: PlanWorkspaceReplaceOptions): P
 
     const countTab = async (tab: ReplaceTab): Promise<FileCount> => {
         const counted = await count(tab.path, tab.content, 'buffer')
-        if (counted.file && tab.readOnly) return { ...counted, file: undefined, skip: { path: tab.path, reason: 'read-only' } }
+        const reason = counted.file ? tabSkipReason(tab, isExample) : null
+        if (reason) return { ...counted, file: undefined, skip: { path: tab.path, reason } }
         return counted
     }
 

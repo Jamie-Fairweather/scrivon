@@ -174,16 +174,24 @@ export function usePaletteReplace({
             const chosen = at
                 ? computed.replacements.filter((r) => r.lineIndex === at.line - 1 && r.start === at.column - 1 && r.length === at.length)
                 : computed.replacements
-            if (chosen.length === 0) return { message: `That match in ${getBaseName(path)} has changed since it was found.`, details: [] }
+            if (chosen.length === 0) {
+                const message = at
+                    ? `That match in ${getBaseName(path)} has changed since it was found.`
+                    : `No matches to replace in ${getBaseName(path)}.`
+                return { message, details: [] }
+            }
             // The tab's text may have moved on while a regex was worked out in the worker.
             const now = findOpenTab(getTabs(), path)
             if (!now || now.id !== tab.id || now.content !== tab.content) return skipped(path, 'changed')
             if (!(await editTab(tab.id, replacementEdits(tab.content, chosen)))) return skipped(path, 'read-only')
-            const count = chosen.length
-            return {
-                message: `Replaced ${count === 1 ? '1 match' : `${count.toLocaleString('en-GB')} matches`} in ${getBaseName(path)}.`,
-                details: [],
-            }
+            // The true number replaced, however many the results listed, and any long lines a regex left alone.
+            return describeOutcome({
+                replaced: [{ path, count: chosen.length, route: 'buffer' }],
+                replacedMatches: chosen.length,
+                skipped: [],
+                longLinesSkipped: at ? 0 : computed.longLinesSkipped,
+                cancelled: false,
+            })
         },
         [matcher, replacement, tabFor, getTabs, editTab]
     )

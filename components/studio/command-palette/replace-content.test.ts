@@ -9,6 +9,7 @@ import {
     describeOutcome,
     findOpenTab,
     planWorkspaceReplace,
+    tabSkipReason,
     type ReplacePlan,
     type ReplaceTab,
 } from '@/components/studio/command-palette/replace-content'
@@ -386,6 +387,19 @@ describe('applyWorkspaceReplace', () => {
         expect(outcome.cancelled).toBe(true)
         expect(outcome.replaced.map((r) => r.path)).toEqual(['/w/a.md', '/w/b.md'])
         expect(disk.text('/w/c.md')).toBe('cat')
+    })
+})
+
+describe('tabSkipReason', () => {
+    it('says why an open tab is left alone, the encoding first for a file that opened read-only for it', () => {
+        expect(tabSkipReason({ id: 'example:flow', path: 'flow', content: '' }, isExample)).toBe('example')
+        expect(tabSkipReason({ id: '/w/a.md', path: '/w/a.md', content: '', readOnly: true }, isExample)).toBe('read-only')
+        expect(tabSkipReason({ id: '/w/a.md', path: '/w/a.md', content: '', readOnly: true, encodingIssue: 'legacy-encoding' }, isExample)).toBe(
+            'encoding'
+        )
+        expect(tabSkipReason({ id: '/w/a.md', path: '/w/a.md', content: '', readOnly: true, encodingIssue: 'binary' }, isExample)).toBe('binary')
+        // Made editable since (saved as UTF-8 from then on): the user chose that.
+        expect(tabSkipReason({ id: '/w/a.md', path: '/w/a.md', content: '', encodingIssue: 'legacy-encoding' }, isExample)).toBeNull()
     })
 })
 
