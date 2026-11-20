@@ -65,6 +65,27 @@ describe('normaliseOfficialSvg', () => {
         expect(svg).not.toMatch(/id="linearGradient-1"/)
     })
 
+    it("keeps the root's accessible name and description pointing at its title and desc", () => {
+        // As Mermaid 11 writes accTitle and accDescr (addSVGa11yTitleDescription): the ids end with the root's own.
+        const id = 'scrivon-mermaid-abc-1'
+        const source =
+            `<svg id="${id}" viewBox="0 0 10 10" aria-describedby="chart-desc-${id}" aria-labelledby="chart-title-${id}">` +
+            `<title id="chart-title-${id}">Pets owned</title><desc id="chart-desc-${id}">How many</desc><g id="legend"/></svg>`
+        const svg = normaliseOfficialSvg(source, { id, background: null })
+        const ids = new Set([...svg.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]))
+        const labelledBy = / aria-labelledby="([^"]+)"/.exec(svg)![1]!
+        const describedBy = / aria-describedby="([^"]+)"/.exec(svg)![1]!
+        expect(ids).toContain(labelledBy)
+        expect(ids).toContain(describedBy)
+        expect(svg).toContain(`<title id="${labelledBy}">Pets owned</title>`)
+        expect(svg).toContain(`<desc id="${describedBy}">How many</desc>`)
+    })
+
+    it('points every id in an id list at its new name, and leaves ids it never renamed', () => {
+        const source = '<svg id="m5" viewBox="0 0 10 10" aria-labelledby="t  m5-own elsewhere"><title id="t">T</title></svg>'
+        expect(normaliseOfficialSvg(source, { id: 'm5', background: null })).toContain('aria-labelledby="m5-t  m5-own elsewhere"')
+    })
+
     it('leaves a picture without a viewBox at the size Mermaid gave it', () => {
         expect(normaliseOfficialSvg('<svg id="m4" width="30" height="40"></svg>', { id: 'm4', background: null })).toBe(
             '<svg id="m4" width="30" height="40"></svg>'

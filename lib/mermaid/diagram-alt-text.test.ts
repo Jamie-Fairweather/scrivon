@@ -199,6 +199,7 @@ describe('diagramName', () => {
         ['---\ntitle: Orders\n---\ngraph TD\n  A --> B', { name: 'Orders', kind: 'Flowchart' }],
         ['pie title Pets\n  "Dogs" : 386', { name: 'Pets', kind: 'Pie chart' }],
         ['pie\n  "Dogs" : 386', { name: 'Pie chart', kind: 'Pie chart' }],
+        ['%%{\n  init: { "pie": { "textPosition": 0.5 } }\n}%%\npie title Pets\n  "Dogs" : 386', { name: 'Pets', kind: 'Pie chart' }],
         ['gantt\n  title Release plan', { name: 'Release plan', kind: 'Gantt chart' }],
         ['', { name: 'Diagram', kind: 'Diagram' }],
     ])('names %j as the alt text does', (source, expected) => {

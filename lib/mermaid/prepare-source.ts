@@ -113,10 +113,21 @@ export function readFrontMatterTitle(source: string): string | null {
     return line?.slice('title:'.length).trim() || null
 }
 
-/** `%%` comments and `%%{init}%%` settings. The renderer skips them, but not when they come before the header. */
+/**
+ * `%%` comments and `%%{init}%%` settings. The renderer skips them, but not when they come before the header. A
+ * directive may run over several lines (`%%{` … `}%%`), as Mermaid reads it, so every line up to its close goes.
+ */
 function blankComments(lines: string[]): void {
     for (let i = 0; i < lines.length; i++) {
-        if (lines[i]!.trimStart().startsWith('%%')) lines[i] = ''
+        const line = lines[i]!.trimStart()
+        if (!line.startsWith('%%')) continue
+        lines[i] = ''
+        if (!line.startsWith('%%{') || line.includes('}%%', 3)) continue
+        // A directive that never closes is left to the renderer's error, from the line after it.
+        const close = lines.findIndex((next, j) => j > i && next.includes('}%%'))
+        if (close === -1) continue
+        lines.fill('', i + 1, close + 1)
+        i = close
     }
 }
 

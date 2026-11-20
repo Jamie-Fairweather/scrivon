@@ -64,6 +64,9 @@ describe('chooseDiagramEngine', () => {
         ['treemap-beta\n  "A": 1', 'Treemaps'],
         ['accTitle: Pets\naccDescr: Who has which\npie\n  "Dogs" : 386', 'Pie charts'],
         ['%%{init: {"theme": "dark"}}%%\npie\n  "Dogs" : 386', 'Pie charts'],
+        // Mermaid reads a directive over several lines too.
+        ['%%{\n  init: { "pie": { "textPosition": 0.5 } }\n}%%\npie\n  "A" : 1', 'Pie charts'],
+        ['%%{init: {\n  "gantt": { "barHeight": 30 }\n}}%%\ngantt\n  title Plan', 'Gantt charts'],
     ])('sends %j to the official mermaid package', (source, name) => {
         expect(chooseDiagramEngine(source)).toEqual({ engine: 'mermaid', name })
     })
@@ -149,6 +152,12 @@ describe('prepareMermaidSource', () => {
         expect(prepareMermaidSource('%% Login steps\n%%{init: {"theme": "dark"}}%%\nsequenceDiagram\n  A->>B: hi')).toBe(
             '\n\nsequenceDiagram\n  A->>B: hi'
         )
+    })
+
+    it('leaves out a directive that runs over several lines, up to its close', () => {
+        expect(prepareMermaidSource('%%{\n  init: { "theme": "dark" }\n}%%\ngraph LR\n  A --> B')).toBe('\n\n\ngraph LR\n  A --> B')
+        // One that never closes leaves the lines after it alone, so the renderer can say what's wrong.
+        expect(prepareMermaidSource('%%{\n  init: {}\ngraph LR\n  A --> B')).toBe('\n  init: {}\ngraph LR\n  A --> B')
     })
 
     it('blanks accessibility lines, as the renderer would draw them as nodes', () => {

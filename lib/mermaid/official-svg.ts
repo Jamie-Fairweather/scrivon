@@ -12,6 +12,11 @@ const STYLE_ATTRIBUTE = /\sstyle="([^"]*)"/
 const ID_ATTRIBUTE = /(\sid=")([^"]+)(")/g
 /** Where one element points at another: `url(#x)` in an attribute or CSS, and `href="#x"`. */
 const ID_REFERENCE = /(url\(\s*['"]?#)([^)'"\s]+)|((?:xlink:)?href="#)([^"]+)/g
+/**
+ * And by a list of ids: the root's `aria-labelledby` and `aria-describedby` name its `<title>` and `<desc>`
+ * (`chart-title-<id>`), which a screen reader reads, in the app and in an exported file.
+ */
+const ID_LIST_REFERENCE = /(\saria-(?:labelledby|describedby|controls|owns|flowto|details|activedescendant|errormessage)=")([^"]*)(")/g
 
 function viewBoxSize(openTag: string): { width: number; height: number } | null {
     const parts = VIEW_BOX.exec(openTag)?.[1]
@@ -46,14 +51,19 @@ function scopeIds(svg: string, rootId: string): string {
         return `${start}${scoped}${end}`
     })
     if (renamed.size === 0) return withIds
-    return withIds.replace(ID_REFERENCE, (all, urlStart?: string, urlId?: string, hrefStart?: string, hrefId?: string) => {
-        if (urlStart !== undefined) {
-            const scoped = renamed.get(urlId!)
-            return scoped ? `${urlStart}${scoped}` : all
-        }
-        const scoped = renamed.get(hrefId!)
-        return scoped ? `${hrefStart}${scoped}` : all
-    })
+    return withIds
+        .replace(ID_REFERENCE, (all, urlStart?: string, urlId?: string, hrefStart?: string, hrefId?: string) => {
+            if (urlStart !== undefined) {
+                const scoped = renamed.get(urlId!)
+                return scoped ? `${urlStart}${scoped}` : all
+            }
+            const scoped = renamed.get(hrefId!)
+            return scoped ? `${hrefStart}${scoped}` : all
+        })
+        .replace(ID_LIST_REFERENCE, (_all, start: string, ids: string, end: string) => {
+            const scoped = ids.replace(/\S+/g, (id) => renamed.get(id) ?? id)
+            return `${start}${scoped}${end}`
+        })
 }
 
 export type NormaliseOptions = {
