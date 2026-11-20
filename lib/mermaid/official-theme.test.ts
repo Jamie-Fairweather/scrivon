@@ -68,6 +68,15 @@ describe('officialThemeVariables', () => {
         for (let i = 0; i < 12; i++) expect(contrastRatio(vars[`cScaleLabel${i}`]!, vars[`cScale${i}`]!)).toBeGreaterThanOrEqual(4.5)
         for (let i = 0; i < 8; i++) expect(contrastRatio(vars[`gitBranchLabel${i}`]!, vars[`git${i}`]!)).toBeGreaterThanOrEqual(4.5)
     })
+
+    it.each(APP_THEME_IDS)("writes %s's pie percentages so they read on every slice, as Mermaid draws it", (themeId) => {
+        const { themeVariables } = officialMermaidConfig(themeId)
+        const vars = themeVariables as Record<string, string>
+        // Mermaid draws the slices at pieOpacity (0.7 unless set) over the background, and every label in one colour.
+        const opacity = Number(vars.pieOpacity ?? '0.7')
+        const shown = Array.from({ length: 12 }, (_, i) => hexColorMix(vars[`pie${i + 1}`]!, vars.background!, opacity * 100))
+        for (const slice of shown) expect(contrastRatio(vars.pieSectionTextColor!, slice)).toBeGreaterThanOrEqual(4.5)
+    })
 })
 
 describe('officialMermaidConfig', () => {
@@ -81,7 +90,12 @@ describe('officialMermaidConfig', () => {
             darkMode: !isLightTheme(themeId),
             fontFamily: DIAGRAM_FONT_FAMILY,
             htmlLabels: false,
-            themeVariables: { ...officialThemeVariables(themeId), darkMode: !isLightTheme(themeId), fontFamily: DIAGRAM_FONT_FAMILY },
+            themeVariables: {
+                ...officialThemeVariables(themeId),
+                darkMode: !isLightTheme(themeId),
+                fontFamily: DIAGRAM_FONT_FAMILY,
+                pieOpacity: '1',
+            },
             secure: expect.any(Array),
         })
         // Mermaid's own list, so setting it doesn't let a diagram turn security off, and Scrivon's theme on top.

@@ -72,6 +72,29 @@ function textOn(fill: string, colors: CompleteDiagramColors): string {
 }
 
 /**
+ * Pie slices drawn solid. Mermaid's default (0.7) lets the background through, which no label colour is chosen
+ * against, and fades the slices in a dark theme.
+ */
+export const PIE_OPACITY = '1'
+
+/** How much of its series colour a pie slice starts with, mixed into the background, and the least it may fade to. */
+const PIE_TINT = 80
+const PIE_MIN_TINT = 30
+
+/**
+ * A pie slice in `color`, faded towards the background only as far as the theme's text needs to read on it: Mermaid
+ * writes every slice's percentage in the one `pieSectionTextColor`. Never fainter than PIE_MIN_TINT, so the slices
+ * still tell apart; the label colour makes up the rest (see officialThemeVariables).
+ */
+function pieSlice(color: string, { fg, bg }: CompleteDiagramColors): string {
+    for (let percent = PIE_TINT; percent > PIE_MIN_TINT; percent -= 5) {
+        const fill = hexColorMix(color, bg, percent)
+        if (contrastRatio(fg, fill) >= LABEL_CONTRAST) return fill
+    }
+    return hexColorMix(color, bg, PIE_MIN_TINT)
+}
+
+/**
  * Mermaid's `themeVariables` for the `base` theme, built from the diagram theme: plain hex colours only, every one
  * Mermaid would otherwise work out itself (or leave as its own light defaults, like a white Gantt section in a dark
  * theme). Slices, sections and branches take turns round the colour wheel from the theme's accent, or from
@@ -147,7 +170,6 @@ export function officialThemeVariables(themeId: AppThemeId): Record<string, stri
         vertLineColor: accent,
         // Pie charts
         pieTitleTextColor: fg,
-        pieSectionTextColor: fg,
         pieLegendTextColor: fg,
         pieStrokeColor: bg,
         pieOuterStrokeColor: border,
@@ -194,7 +216,10 @@ export function officialThemeVariables(themeId: AppThemeId): Record<string, stri
         scaleLabelColor: fg,
     }
 
-    for (let i = 0; i < PIE_COLORS; i++) vars[`pie${i + 1}`] = tint(series(i), 80)
+    // Drawn solid (PIE_OPACITY), so the label sits on exactly these colours.
+    const slices = Array.from({ length: PIE_COLORS }, (_, i) => pieSlice(series(i), colors))
+    slices.forEach((slice, i) => (vars[`pie${i + 1}`] = slice))
+    vars.pieSectionTextColor = ensureContrast(fg, fg, slices, LABEL_CONTRAST)
     for (let i = 0; i < SCALE_COLORS; i++) {
         const fill = tint(series(i), 45)
         vars[`cScale${i}`] = fill
@@ -241,7 +266,7 @@ export function officialMermaidConfig(themeId: AppThemeId): MermaidConfig {
         darkMode,
         fontFamily: DIAGRAM_FONT_FAMILY,
         htmlLabels: false,
-        themeVariables: { ...officialThemeVariables(themeId), darkMode, fontFamily: DIAGRAM_FONT_FAMILY },
+        themeVariables: { ...officialThemeVariables(themeId), darkMode, fontFamily: DIAGRAM_FONT_FAMILY, pieOpacity: PIE_OPACITY },
         // Without its defaults, setting this would let a diagram turn security off.
         secure: [...MERMAID_DEFAULT_SECURE_KEYS, ...SCRIVON_SECURE_KEYS],
     }
