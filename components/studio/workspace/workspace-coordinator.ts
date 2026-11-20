@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react'
 
 import type { UnsavedText } from '@/lib/tauri/fs'
+import type { LinkMove } from '@/lib/workspace/link-update'
 import type { TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
 
@@ -107,6 +108,12 @@ export type WorkspaceCoordinatorRefs = {
      */
     getTabs: MutableRefObject<() => readonly DocumentTab[]>
     getEditorSelectedText: MutableRefObject<() => string | null>
+    /**
+     * After a rename or move in the explorer has finished (tabs moved, saves released, folder read again): looks
+     * for Markdown links it broke and, if there are any, asks whether to update them (LinkUpdateProvider). Not
+     * awaited by the move, so the move, the tree and the explorer's focus never wait on the scan or the question.
+     */
+    offerLinkUpdates: MutableRefObject<(move: LinkMove) => Promise<void>>
 }
 
 export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
@@ -144,5 +151,6 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         hasTabBuffer: { current: () => false },
         getTabs: { current: () => [] },
         getEditorSelectedText: { current: () => null },
+        offerLinkUpdates: { current: async () => {} },
     }
 }

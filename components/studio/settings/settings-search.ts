@@ -52,6 +52,12 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
         keywords: 'modified untracked added status files version control',
         desktopOnly: true,
     },
+    {
+        section: 'general',
+        label: 'Offer to update links when files move',
+        keywords: 'rename move markdown links images paths fix broken relative explorer',
+        desktopOnly: true,
+    },
 
     { section: 'appearance', label: 'Zoom', keywords: 'bigger smaller scale text size', desktopOnly: true },
     { section: 'appearance', label: 'Preview text size', keywords: 'markdown font bigger smaller zoom' },

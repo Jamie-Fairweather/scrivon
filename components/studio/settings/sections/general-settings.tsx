@@ -99,6 +99,19 @@ export function GeneralSettings() {
                     }
                 />
             ) : null}
+            {isTauri() ? (
+                <SwitchSetting
+                    label="Offer to update links when files move"
+                    description="After you rename or move a file or folder in the explorer, list the links and images in Markdown files that it breaks, and offer to fix them."
+                    checked={settings.workspace.offerLinkUpdates}
+                    onChange={(offerLinkUpdates) =>
+                        updateSettings((current) => ({
+                            ...current,
+                            workspace: { ...current.workspace, offerLinkUpdates },
+                        }))
+                    }
+                />
+            ) : null}
         </div>
     )
 }

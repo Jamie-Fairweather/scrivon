@@ -46,6 +46,16 @@ describe('GeneralSettings', () => {
         expect(toggle).toBeChecked()
     })
 
+    it('offers to update links when files move unless the user turns it off', () => {
+        renderSection()
+        const toggle = screen.getByRole('switch', { name: 'Offer to update links when files move' })
+        expect(toggle).toBeChecked()
+
+        fireEvent.click(toggle)
+        expect(toggle).not.toBeChecked()
+        expect((JSON.parse(store.get(SETTINGS_STORAGE_KEY)!) as AppSettings).workspace.offerLinkUpdates).toBe(false)
+    })
+
     it('leaves git changes out in a browser, where there is no git to ask', () => {
         vi.mocked(isTauri).mockReturnValue(false)
         renderSection()
