@@ -55,6 +55,12 @@ describe('searchSettings', () => {
         expect(searchSettings('body', BROWSER).map((entry) => entry.label)).toContain('Number pages from the body')
     })
 
+    it('finds the link check by the words people use for it', () => {
+        for (const query of ['check links', 'broken', 'anchors']) {
+            expect(searchSettings(query, BROWSER)).toContainEqual(expect.objectContaining({ section: 'editor', label: 'Check links' }))
+        }
+    })
+
     it('lists settings whose name starts with the search first', () => {
         const labels = searchSettings('margin', BROWSER).map((entry) => entry.label)
         expect(labels.slice(0, 4)).toEqual(['Margin top (mm)', 'Margin right (mm)', 'Margin bottom (mm)', 'Margin left (mm)'])

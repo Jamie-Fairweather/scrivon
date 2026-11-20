@@ -78,6 +78,7 @@ const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'editor', label: 'Scroll with the preview', keywords: 'sync together' },
     { section: 'editor', label: 'Double-click the preview to jump to the editor', keywords: 'sync source line cursor' },
     { section: 'editor', label: 'Editor width', keywords: 'pane panel size reset' },
+    { section: 'editor', label: 'Check links', keywords: 'broken links images anchors headings paths missing underline' },
     { section: 'editor', group: 'Spelling', label: 'Check spelling', keywords: 'spellcheck mistakes underline' },
     { section: 'editor', group: 'Spelling', label: 'Spelling language', keywords: 'spellcheck dictionary english' },
     { section: 'editor', group: 'Spelling', label: 'Your dictionary', keywords: 'spellcheck words added remove' },

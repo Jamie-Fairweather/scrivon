@@ -47,6 +47,13 @@ const SWITCHES: SettingSwitch[] = [
         isOn: (s) => s.editor.jumpFromPreview,
         set: (s, jumpFromPreview) => ({ ...s, editor: { ...s.editor, jumpFromPreview } }),
     },
+    {
+        id: 'toggle-check-links',
+        label: 'Check Links',
+        keywords: 'broken links images anchors headings paths missing underline markdown',
+        isOn: (s) => s.editor.checkLinks,
+        set: (s, checkLinks) => ({ ...s, editor: { ...s.editor, checkLinks } }),
+    },
 ]
 
 /** On/off settings that are handy to flip without opening Settings. */

@@ -168,6 +168,14 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ editor: { jumpFromPreview: 1 } }, false).editor.jumpFromPreview).toBe(true)
     })
 
+    it('checks links by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.checkLinks).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.checkLinks).toBe(true)
+        expect(mergeStoredSettings({ editor: { checkLinks: false } }, false).editor.checkLinks).toBe(false)
+        expect(mergeStoredSettings({ editor: { checkLinks: 'off' } }, false).editor.checkLinks).toBe(true)
+    })
+
     it('reopens the last folder by default, and reads a saved choice', () => {
         expect(createDefaultSettings(false).workspace.reopenLastFolder).toBe(true)
         // Settings saved before the option existed.

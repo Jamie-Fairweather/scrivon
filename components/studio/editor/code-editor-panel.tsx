@@ -23,6 +23,7 @@ import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio
 import { attachEditorImages, imageDocumentFor, pasteClipboardPicture } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { useEditorLinkCheck } from '@/components/studio/editor/use-editor-link-check'
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
 import { EditorContextMenu } from '@/components/studio/editor/editor-context-menu'
 import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
@@ -428,13 +429,15 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
     const { attach: attachEditorSpellcheck, misspeltWordAt } = useEditorSpellcheck(activeTab, editorPath)
+    const attachEditorLinkCheck = useEditorLinkCheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     // Monaco sets up Ctrl+. (the quick fix list) for a file when the file is put in the editor, and only if the
     // editor can be edited at that moment. @monaco-editor/react puts the new file in first and passes on the new
     // options after, so without this, after a read-only tab (an example, say) Ctrl+. would do nothing in the next
     // file. A layout effect runs before those, so the editor is already editable, or not, when the file goes in.
     // Turning read-only off with the same file still showing (Edit as UTF-8, Edit Anyway, a reload) doesn't make
-    // Monaco set it up again either; the spell check does that when it turns on (setConfig in lib/monaco/spellcheck.ts).
+    // Monaco set it up again either; the spell check and the link check do that when they turn on (setConfig in
+    // lib/monaco/spellcheck.ts and lib/monaco/link-check.ts).
     useLayoutEffect(() => {
         editorRef.current?.updateOptions({ readOnly: isReadOnly, domReadOnly: isReadOnly })
     }, [isReadOnly])
@@ -702,6 +705,9 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             editor.onDidDispose(() => paste.dispose())
             const spelling = attachEditorSpellcheck(editor, monaco)
             editor.onDidDispose(() => spelling.dispose())
+            // Links, images and #anchors that lead nowhere are underlined too, with their own Ctrl+. fixes.
+            const links = attachEditorLinkCheck(editor, monaco)
+            editor.onDidDispose(() => links.dispose())
             // Enter continues (or ends) a list in Markdown files.
             bindMarkdownListEnter(editor, monaco, () => isMarkdownTab(activeTabRef.current))
             // Scrolls the Markdown preview with the editor, and the other way round.
@@ -727,7 +733,7 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck, attachEditorLinkCheck]
     )
 
     useEffect(() => {

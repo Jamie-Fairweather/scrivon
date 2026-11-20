@@ -124,6 +124,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
             tabMovesFocus: false,
             scrollSync: true,
             jumpFromPreview: true,
+            checkLinks: true,
         },
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,

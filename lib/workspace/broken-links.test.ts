@@ -151,7 +151,7 @@ describe('findBrokenLinks', () => {
         expect(await broken(source, { openText })).toEqual([{ text: 'docs/other.md#gone', message: 'other.md has no heading for #gone.' }])
     })
 
-    it('reads the disk zero times for 1,000 links that all resolve, and never walks the tree again', async () => {
+    it('reads the disk zero times for 1,000 links that all resolve in a 50,000-entry tree, and never walks the tree again', async () => {
         // Counts every time a folder's contents are looked at.
         let walks = 0
         const counted = (node: FileNode): FileNode => {
@@ -168,10 +168,11 @@ describe('findBrokenLinks', () => {
         const many = Array.from({ length: 50 }, (_, i) =>
             folder(
                 `C:\\notes\\f${i}`,
-                Array.from({ length: 20 }, (_, j) => file(`C:\\notes\\f${i}\\n${j}.md`))
+                Array.from({ length: 999 }, (_, j) => file(`C:\\notes\\f${i}\\n${j}.md`))
             )
         )
         const index = buildLinkIndex(ROOT, many.map(counted))
+        expect(index.list).toHaveLength(50_000)
         walks = 0
         const checkOnDisk = vi.fn(async () => 'file' as const)
         const source = Array.from({ length: 1000 }, (_, k) => `[x](f${k % 50}/n${k % 20}.md)`).join('\n')

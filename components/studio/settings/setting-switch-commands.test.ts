@@ -28,6 +28,7 @@ describe('buildSettingSwitchCommands', () => {
             { id: 'toggle-spellcheck', label: 'Spell Check', checked: true },
             { id: 'toggle-scroll-sync', label: 'Scroll Editor with Preview', checked: false },
             { id: 'toggle-jump-from-preview', label: 'Jump to Editor on Double-Click', checked: true },
+            { id: 'toggle-check-links', label: 'Check Links', checked: true },
         ])
     })
 
@@ -45,6 +46,9 @@ describe('buildSettingSwitchCommands', () => {
 
         const jump = runOn(settings, 'toggle-jump-from-preview')
         expect(jump.editor).toEqual({ ...settings.editor, jumpFromPreview: !settings.editor.jumpFromPreview })
+
+        const links = runOn(settings, 'toggle-check-links')
+        expect(links.editor).toEqual({ ...settings.editor, checkLinks: false })
     })
 
     it('flips the setting as saved, not as it was when the list was built', () => {

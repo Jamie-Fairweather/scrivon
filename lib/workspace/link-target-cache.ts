@@ -20,8 +20,10 @@ const listeners = new Set<() => void>()
  * at all), so the answers are forgotten when the tab changes, the window gets focus again, a link is edited, or the
  * watcher does see a change ({@link forgetLinkTargets}).
  */
-export function checkLinkTarget(path: string, readKind: ReadKind = readEntryKind): Promise<DiskAnswer> {
+export function checkLinkTarget(path: string, readKind: ReadKind = readEntryKind, { fresh = false }: { fresh?: boolean } = {}): Promise<DiskAnswer> {
     const key = comparablePath(path)
+    // A link just edited: ask again, without telling anyone (the check asking is already under way).
+    if (fresh) answers.delete(key)
     const known = answers.get(key)
     if (known !== undefined) return Promise.resolve(known)
     const asked = readKind(path).then(
