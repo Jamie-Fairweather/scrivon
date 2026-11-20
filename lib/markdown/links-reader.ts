@@ -22,7 +22,7 @@ export class LinksReadSuperseded extends Error {
     }
 }
 
-const NOTHING: DocumentLinks = { links: [], anchors: [] }
+const NOTHING: DocumentLinks = { links: [], wikiLinks: [], anchors: [] }
 
 type Job = { source: string; key: string | undefined; resolve: (links: DocumentLinks) => void; reject: (error: Error) => void }
 

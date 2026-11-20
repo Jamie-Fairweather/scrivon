@@ -124,4 +124,14 @@ describe('findProseWords', () => {
         const text = '## Hedding\n\n- itme one\n\n> quoet\n\n| Colum |\n| --- |\n| cel |\n\n**bld** and _itlic_'
         expect(words(text)).toEqual(['Hedding', 'itme', 'one', 'quoet', 'Colum', 'cel', 'bld', 'and', 'itlic'])
     })
+
+    it('checks a wiki link’s label but not its target, and skips a link with no label', () => {
+        const text = 'See [[Meetng notes|the meetng]] and [[Projct plan]] or [[Othr#Sectin]].\n\n| A |\n| - |\n| [[Tabel\\|labl]] |'
+        expect(words(text)).toEqual(['See', 'the', 'meetng', 'and', 'or', 'labl'])
+        for (const { word, offset } of findProseWords(text)) expect(text.slice(offset, offset + word.length)).toBe(word)
+    })
+
+    it('reads [[a]] as a wiki link when the block defines [a]', () => {
+        expect(words('[Wrd]: https://example.com\nGo to [[Wrd]] now.')).toEqual(['Go', 'to', 'now'])
+    })
 })

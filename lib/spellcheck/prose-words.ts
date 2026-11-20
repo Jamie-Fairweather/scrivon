@@ -3,6 +3,7 @@ import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { parsePdfExportFrontMatter } from '@/lib/markdown/export-metadata'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
+import { applyWikiLinks } from '@/lib/markdown/wiki-links'
 
 /** A word of prose and where it starts in the document (a UTF-16 offset, as Monaco counts). */
 export type ProseWord = { word: string; offset: number }
@@ -66,9 +67,13 @@ function wordsOfBlock(block: string): ProseWord[] {
             return
         }
         if (isAutolink(node)) return
+        // A wiki link's label is prose; its target is a file name, and so is all a link with no label shows.
+        if (node.type === 'wikiLink' && !node.label) return
         if ('children' in node) node.children.forEach(visit)
     }
-    visit(parser.parse(block))
+    const tree = parser.parse(block)
+    applyWikiLinks(tree, block)
+    visit(tree)
     return found
 }
 
