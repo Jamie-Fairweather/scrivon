@@ -421,12 +421,12 @@ describe('searchWorkspaceContent', () => {
     })
 
     it("limits each file's hits so one busy file can't hide the rest", async () => {
-        const busy = Array.from({ length: 50 }, () => 'A --> B').join('\n')
+        const busy = Array.from({ length: 50 }, () => 'A --- B').join('\n')
         const result = await searchWorkspaceContent({
-            matcher: plain('-->'),
+            matcher: plain('---'),
             paths: ['/busy.mmd', '/other.mmd'],
             openBuffers: new Map(),
-            readFile: async (path) => (path === '/busy.mmd' ? busy : 'C --> D'),
+            readFile: async (path) => (path === '/busy.mmd' ? busy : 'C --- D'),
             signal: new AbortController().signal,
             maxHitsPerFile: 10,
         })
@@ -439,10 +439,10 @@ describe('searchWorkspaceContent', () => {
 
     it('limits hits from a busy open tab too', async () => {
         const result = await searchWorkspaceContent({
-            matcher: plain('-->'),
+            matcher: plain('---'),
             paths: ['/other.mmd'],
-            openBuffers: new Map([['/open.mmd', Array.from({ length: 200 }, () => 'A --> B').join('\n')]]),
-            readFile: async () => 'C --> D',
+            openBuffers: new Map([['/open.mmd', Array.from({ length: 200 }, () => 'A --- B').join('\n')]]),
+            readFile: async () => 'C --- D',
             signal: new AbortController().signal,
         })
 
