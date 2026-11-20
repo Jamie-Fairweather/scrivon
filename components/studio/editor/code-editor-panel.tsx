@@ -442,12 +442,18 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
     }, [isReadOnly])
     // Whether the caret is in a Markdown table, for the table commands (set by trackCaretInTable).
     const [caretInTable, setCaretInTable] = useState(false)
+    const tableCaretRef = useRef<ReturnType<typeof trackCaretInTable> | null>(null)
+    const activeIsMarkdown = isMarkdownTab(activeTab)
+    // The editor swaps in a tab's buffer before activeTabRef follows the tab, so look again once it has.
+    useEffect(() => {
+        tableCaretRef.current?.update()
+    }, [activeTab?.id, activeIsMarkdown])
     const { askTableSize, dialog: insertTableDialog } = useTableSizePrompt()
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
     useEditorCommands(editorPath ? mountedEditor : null, {
         shown: open,
         readOnly: isReadOnly,
-        markdown: isMarkdownTab(activeTab),
+        markdown: activeIsMarkdown,
         inTable: caretInTable,
         askTableSize,
     })
@@ -717,8 +723,10 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             bindMarkdownListEnter(editor, monaco, () => isMarkdownTab(activeTabRef.current))
             // Turns the table commands on and off as the caret moves in and out of a table.
             const tableCaret = trackCaretInTable(editor, () => isMarkdownTab(activeTabRef.current), setCaretInTable)
+            tableCaretRef.current = tableCaret
             editor.onDidDispose(() => {
                 tableCaret.dispose()
+                if (tableCaretRef.current === tableCaret) tableCaretRef.current = null
                 setCaretInTable(false)
             })
             // Scrolls the Markdown preview with the editor, and the other way round.

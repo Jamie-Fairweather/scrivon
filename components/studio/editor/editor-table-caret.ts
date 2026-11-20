@@ -9,7 +9,11 @@ export type TableCaretSource = Pick<editor.ICodeEditor, 'getModel' | 'getPositio
  * move (#189): a caret line with no `|` is the only line it reads, and in a table it reads only the
  * table and the line each side. It never looks for code blocks; the commands do that when they run.
  */
-export function trackCaretInTable(source: TableCaretSource, isMarkdown: () => boolean, onChange: (inTable: boolean) => void): IDisposable {
+export function trackCaretInTable(
+    source: TableCaretSource,
+    isMarkdown: () => boolean,
+    onChange: (inTable: boolean) => void
+): IDisposable & { /** Looks again, as when the open file becomes Markdown or stops being it. */ update: () => void } {
     let last = false
     const update = () => {
         const model = source.getModel()
@@ -25,5 +29,5 @@ export function trackCaretInTable(source: TableCaretSource, isMarkdown: () => bo
     }
     const subscriptions = [source.onDidChangeCursorPosition(update), source.onDidChangeModel(update)]
     update()
-    return { dispose: () => subscriptions.forEach((subscription) => subscription.dispose()) }
+    return { update, dispose: () => subscriptions.forEach((subscription) => subscription.dispose()) }
 }

@@ -6,7 +6,7 @@ import { commandShortcut, type AppCommand } from '@/components/studio/commands/a
 import { buildEditorCommands, useEditorCommands, type EditorCommandsContext } from '@/components/studio/editor/editor-commands'
 import type { TableSize } from '@/lib/markdown/markdown-table'
 import { canInsertMarkdownTable, editMarkdownTable, insertMarkdownTable } from '@/lib/monaco/markdown-editing'
-import { findKeybindConflicts } from '@/lib/settings/conflicts'
+import { describeEditorChordClash, findKeybindConflicts, wouldChordConflict } from '@/lib/settings/conflicts'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 
 vi.mock('@/lib/monaco/markdown-editing', () => ({
@@ -226,6 +226,9 @@ describe('buildEditorCommands table helpers', () => {
     it('has no key clash in the default keys, Shift+Alt+F included', () => {
         expect(findKeybindConflicts(createDefaultKeybinds(false))).toEqual([])
         expect(findKeybindConflicts(createDefaultKeybinds(true))).toEqual([])
+        const shiftAltF = { key: 'f', shift: true, alt: true }
+        expect(describeEditorChordClash(shiftAltF, false, 'format.table')).toBeNull()
+        expect(wouldChordConflict(createDefaultKeybinds(false), 'format.table', shiftAltF)).toBeNull()
     })
 })
 
