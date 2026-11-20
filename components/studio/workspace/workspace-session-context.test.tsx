@@ -3891,11 +3891,64 @@ describe('git changes in the explorer', () => {
         const { result } = renderHook(useHarness, { wrapper: createWrapper() })
         await open(result)
         await open(result, 'C:\\other')
-        await waitFor(() => expect(readGitStatus).toHaveBeenCalledWith('C:\\other'))
+        // The old folder's git is still running: the new one's waits for it, so two never run at once.
+        await act(async () => pause(GIT_REFRESH_WAIT_MS))
+        expect(readGitStatus).not.toHaveBeenCalledWith('C:\\other')
 
         await act(async () => answer(modified('notes.md')))
+        await waitFor(() => expect(readGitStatus).toHaveBeenCalledWith('C:\\other'))
 
         expect(result.current.session.gitChanges).toBe(NO_GIT_CHANGES)
+    })
+
+    it('turning the setting off and on while git runs starts no second git until that one ends', async () => {
+        let answer!: (reply: GitStatusReply) => void
+        vi.mocked(readGitStatus).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+        const { result, rerender } = renderHook(useHarness, { wrapper: createWrapper() })
+        await open(result)
+        await waitFor(() => expect(gitRuns()).toBe(1))
+
+        for (const showGitChanges of [false, true, false, true]) {
+            settingsState.workspace = { maxRecentFolders: 10, showGitChanges }
+            rerender()
+        }
+        await act(async () => pause(GIT_REFRESH_WAIT_MS))
+        expect(gitRuns()).toBe(1)
+
+        await act(async () => answer(modified('docs/a.md')))
+        // One more run, for the setting as it is now; the turned-off ones never run git.
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\notes.md')).toBe('M'))
+        expect(gitRuns()).toBe(2)
+        expect(markOf(result, 'C:\\ws\\docs\\a.md')).toBe('')
+    })
+
+    it('still follows saves and window focus where the folder can’t be watched', async () => {
+        vi.mocked(watchImmediate).mockReset()
+        vi.mocked(watchImmediate).mockRejectedValue('Access is denied. (os error 5)')
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const { result } = renderHook(useHarness, { wrapper: createWrapper(coordinatorOut) })
+        await open(result)
+        await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining("Can't watch"), expect.anything()))
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\notes.md')).toBe('M'))
+        await act(async () => {
+            await result.current.tabs.openFile('C:\\ws\\docs\\a.md')
+        })
+        act(() => result.current.tabs.updateTabContent('C:\\ws\\docs\\a.md', 'edited'))
+
+        vi.mocked(readGitStatus).mockResolvedValue(modified('docs/a.md'))
+        await act(async () => {
+            await coordinatorOut.current!.flushSave.current('C:\\ws\\docs\\a.md')
+        })
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\docs\\a.md')).toBe('M'))
+        expect(gitRuns()).toBe(2)
+
+        vi.mocked(readGitStatus).mockResolvedValue({ state: 'none' })
+        await act(async () => {
+            windowFocus.handler!({ payload: true })
+        })
+        await waitFor(() => expect(markOf(result, 'C:\\ws\\docs\\a.md')).toBe(''))
+        expect(gitRuns()).toBe(3)
+        warn.mockRestore()
     })
 
     it('after git times out, reads them again only on the next window focus', async () => {

@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitStatusReply } from '@/lib/tauri/git'
-import { createGitStatusRefresher, GIT_REFRESH_WAIT_MS } from '@/lib/workspace/git-status-refresh'
+import { createGitStatusRefresher, GIT_READ_WAIT_LIMIT_MS, GIT_REFRESH_WAIT_MS } from '@/lib/workspace/git-status-refresh'
 
 const CHANGES: GitStatusReply = { state: 'changes', entries: [{ kind: 'changed', xy: '.M', path: 'a.md', dir: false }] }
+
+/** Reads a test left unanswered, answered after it: the next test's first read would wait for them. */
+const unanswered: Array<(reply: GitStatusReply) => void> = []
 
 /** A git status that answers only when told to. */
 function controlledRead() {
@@ -11,6 +14,7 @@ function controlledRead() {
         () =>
             new Promise<GitStatusReply>((resolve) => {
                 pending.push(resolve)
+                unanswered.push(resolve)
             })
     )
     const answer = async (reply: GitStatusReply = CHANGES) => {
@@ -24,7 +28,9 @@ describe('createGitStatusRefresher', () => {
     beforeEach(() => {
         vi.useFakeTimers()
     })
-    afterEach(() => {
+    afterEach(async () => {
+        for (const resolve of unanswered.splice(0)) resolve({ state: 'none' })
+        await vi.advanceTimersByTimeAsync(0)
         vi.useRealTimers()
     })
 
@@ -109,6 +115,45 @@ describe('createGitStatusRefresher', () => {
         refresher.request('watch')
         await vi.advanceTimersByTimeAsync(GIT_REFRESH_WAIT_MS)
         expect(read).toHaveBeenCalledTimes(3)
+    })
+
+    it('waits for a read another refresher still has going, and skips its own if stopped meanwhile', async () => {
+        const { read, answer, running } = controlledRead()
+        const old = createGitStatusRefresher({ read, apply: vi.fn() })
+        old.request('open')
+        expect(read).toHaveBeenCalledTimes(1)
+        // Another folder opened, or the setting was turned off and on, while that git still runs.
+        old.dispose()
+
+        const toggled = createGitStatusRefresher({ read, apply: vi.fn() })
+        toggled.request('open')
+        toggled.dispose()
+        const apply = vi.fn()
+        const current = createGitStatusRefresher({ read, apply })
+        current.request('open')
+        await vi.advanceTimersByTimeAsync(0)
+        expect(read).toHaveBeenCalledTimes(1)
+
+        await answer()
+        // Only the refresher still in use reads, once the old read is done.
+        expect(read).toHaveBeenCalledTimes(2)
+        expect(running()).toBe(1)
+        await answer()
+        expect(apply).toHaveBeenCalledExactlyOnceWith(CHANGES)
+    })
+
+    it('stops waiting for another refresher’s read that never ends', async () => {
+        const { read, running } = controlledRead()
+        createGitStatusRefresher({ read, apply: vi.fn() }).request('open')
+
+        const apply = vi.fn()
+        const next = createGitStatusRefresher({ read: async () => CHANGES, apply })
+        next.request('open')
+        await vi.advanceTimersByTimeAsync(GIT_READ_WAIT_LIMIT_MS - 1)
+        expect(apply).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(1)
+        expect(apply).toHaveBeenCalledExactlyOnceWith(CHANGES)
+        expect(running()).toBe(1)
     })
 
     it('takes a read that fails for no changes', async () => {
