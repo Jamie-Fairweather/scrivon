@@ -1,7 +1,8 @@
 'use client'
 
-import { Copy, FolderInput, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Copy, FolderInput, ImageDown, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, type RefObject } from 'react'
+import { useBatchExport } from '@/components/studio/batch-export/batch-export-provider'
 import { NewItemMenuItems } from '@/components/studio/explorer/new-item-menu-items'
 import { PathMenuItems } from '@/components/studio/explorer/path-menu-items'
 import { useRowEntryActions } from '@/components/studio/explorer/use-file-tree-actions'
@@ -11,6 +12,23 @@ import { ContextMenuAtPoint, isFocusInMenu, useContextMenuAtPoint } from '@/comp
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import { isSupportedDocument } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
+
+/** Export Diagrams…: every diagram in the folder, as SVG or PNG. Only where the folder export is set up (BatchExportProvider). */
+function ExportDiagramsItem({ folder }: { folder: string }) {
+    const batch = useBatchExport()
+    if (!batch) return null
+    const { availability, exportFolder } = batch
+    return (
+        <>
+            <MenuSeparator />
+            <MenuItem disabled={availability.disabled} onClick={() => exportFolder(folder)}>
+                <ImageDown />
+                Export Diagrams…
+            </MenuItem>
+            {availability.disabled && availability.reason ? <p className="px-2 py-1 text-xs text-muted-foreground">{availability.reason}</p> : null}
+        </>
+    )
+}
 
 function FileTreeMenuItems({ node }: { node: FileNode }) {
     const { openFile, duplicateFile } = useWorkspaceSession()
@@ -56,6 +74,7 @@ function FileTreeMenuItems({ node }: { node: FileNode }) {
                 Rename
             </MenuItem>
             {moveTo}
+            <ExportDiagramsItem folder={node.path} />
             <MenuSeparator />
             <PathMenuItems path={node.path} />
             <MenuSeparator />

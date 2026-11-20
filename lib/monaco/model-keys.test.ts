@@ -46,6 +46,13 @@ describe('syncModelKeys', () => {
         expect(syncModelKeys(state, ['/w/a.md'], counter())).toBe(state)
     })
 
+    it('keeps every key when the tabs are put in another order, so the editor keeps its text, cursor and undo', () => {
+        const newKey = counter()
+        const before = syncModelKeys(EMPTY_MODEL_KEYS, ['/w/a.md', '/w/b.md', '/w/c.md'], newKey)
+        const after = syncModelKeys(before, ['/w/b.md', '/w/c.md', '/w/a.md'], newKey)
+        expect(after.keys).toEqual(before.keys)
+    })
+
     it('gives a file a new key when its tab is closed and opened again', () => {
         const newKey = counter()
         const open = syncModelKeys(EMPTY_MODEL_KEYS, ['/w/a.md', '/w/b.md'], newKey)

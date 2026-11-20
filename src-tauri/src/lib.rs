@@ -2,6 +2,7 @@ mod atomic_write;
 mod close_watchdog;
 mod crash_report;
 mod diagnostics;
+mod git_status;
 mod launch_paths;
 mod legacy_profile;
 mod navigation_guard;
@@ -348,7 +349,8 @@ pub fn run() {
             match event {
                 tauri::WindowEvent::CloseRequested { .. } => {
                     // Saved even if the page then keeps the window open: it is where the window is now.
-                    window_state::save(window);
+                    // Full screen (present mode), once the page has put it back.
+                    window_state::save_on_close(window);
                     close_watchdog::on_close_requested(window);
                 }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
@@ -361,11 +363,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             allow_workspace,
             forget_workspace,
+            atomic_write::create_workspace_file,
             atomic_write::rename_workspace_path,
             atomic_write::save_workspace_file,
             close_watchdog::close_ack,
             diagnostics::open_logs_folder,
             diagnostics::system_info,
+            git_status::git_status,
             launch_paths::take_launch_paths,
             pdf_export::export_html_to_pdf,
             pdf_export::preview::preview_html_pdf,

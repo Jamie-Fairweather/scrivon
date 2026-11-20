@@ -49,10 +49,14 @@ vi.mock('@tauri-apps/api/core', async () => {
                 await fs.rename(oldPath, newPath)
                 return undefined
             }
-            if (command !== 'save_workspace_file' || !ArrayBuffer.isView(args)) return undefined
+            const creating = command === 'create_workspace_file'
+            if ((command !== 'save_workspace_file' && !creating) || !ArrayBuffer.isView(args)) return undefined
             const body = new Uint8Array(args.buffer, args.byteOffset, args.byteLength)
             const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true)
-            await fs.writeFile(new TextDecoder().decode(body.subarray(4, 4 + length)), body.slice(4 + length))
+            // The create command (createWorkspaceBinaryFile) is a writeFile that never replaces a file.
+            const path = new TextDecoder().decode(body.subarray(4, 4 + length))
+            if (creating) await fs.writeFile(path, body.slice(4 + length), { createNew: true })
+            else await fs.writeFile(path, body.slice(4 + length))
             return undefined
         }),
         isTauri: vi.fn(() => false),

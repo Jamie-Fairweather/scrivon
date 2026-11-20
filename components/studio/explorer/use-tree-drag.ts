@@ -3,11 +3,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { notifyError } from '@/lib/notify'
 import { registerFileDropTarget } from '@/lib/tauri/file-drop'
+import { DRAG_START_PX, swallowNextClick } from '@/lib/ui/pointer-drag'
 import { moveRefusal } from '@/lib/workspace/move-entry'
 import type { FileNode } from '@/lib/workspace/types'
-
-/** How far (px) the pointer moves with the button held before a row is dragged rather than clicked. */
-const DRAG_START_PX = 4
 
 /**
  * The folder something let go at the point goes into: the folder row under it, the folder of the file row under
@@ -20,23 +18,6 @@ export function dropFolderAt(x: number, y: number): string | null {
 
 /** A row being dragged: where the pointer is, and the folder it would go into there (null where it can't go). */
 export type TreeDrag = { node: FileNode; x: number; y: number; target: string | null }
-
-/** Stops the click the browser sends as the button is let go after a drag, which would open the row under it. */
-function swallowNextClick() {
-    const swallow = (event: MouseEvent) => {
-        event.stopPropagation()
-        event.preventDefault()
-        stop()
-    }
-    const stop = () => {
-        document.removeEventListener('click', swallow, true)
-        document.removeEventListener('pointerdown', stop, true)
-    }
-    document.addEventListener('click', swallow, true)
-    // When no click comes (let go over another row), the next press and its click are new ones.
-    document.addEventListener('pointerdown', stop, true)
-    setTimeout(stop, 0)
-}
 
 /**
  * Dragging rows of the tree onto folders with the mouse. Pointer events, not the browser's drag and drop: the

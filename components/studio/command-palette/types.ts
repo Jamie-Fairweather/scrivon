@@ -50,8 +50,10 @@ export type TextPaletteItem = {
     column: number
     length: number
     preview: string
-    /** Where the match starts inside `preview`; `length` is how long it is. */
+    /** Where the match starts inside `preview`. */
     previewMatchStart: number
+    /** How much of the match `preview` shows: less than `length` for a match longer than the preview. */
+    previewMatchLength: number
     source: 'buffer' | 'disk'
     /** Set on the last search's hits while a new search runs, so they stay in place but can't be opened. */
     disabled?: boolean
@@ -136,7 +138,9 @@ export type TextSearchHit = {
     column: number
     length: number
     preview: string
-    /** Where the match starts inside `preview`; `length` is how long it is. */
+    /** Where the match starts inside `preview`. */
     previewMatchStart: number
+    /** How much of the match `preview` shows: less than `length` for a match longer than the preview. */
+    previewMatchLength: number
     source: 'buffer' | 'disk'
 }

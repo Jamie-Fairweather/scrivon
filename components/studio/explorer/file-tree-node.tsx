@@ -6,6 +6,7 @@ import { FileTreeContextMenu, FileTreeRowContextMenu } from '@/components/studio
 import { isMarkdownFile, isMermaidFile, isSupportedDocument } from '@/lib/tauri/fs'
 import { supportedExtensionsLabel } from '@/lib/workspace/file-types'
 import type { VisibleTreeRow } from '@/lib/workspace/flatten-file-tree'
+import { GIT_MARK_LABELS, type GitRowMark } from '@/lib/workspace/git-status'
 import type { FileNode } from '@/lib/workspace/types'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +14,19 @@ const UNSUPPORTED_HINT = `Scrivon supports ${supportedExtensionsLabel('and')} fi
 const UNREADABLE_HINT = "Can't be read. Scrivon may not have permission to open it."
 const LINKS_OUTSIDE_HINT = "Links to a folder outside the open one, which Scrivon can't open yet."
 const TRUNCATED_HINT = 'Not read: the open folder has too many files and folders to list them all.'
+
+/**
+ * Each git mark's colour: the status text colours, which every theme keeps at 4.5:1 on the sidebar and on a
+ * hovered or open row. Contrast themes draw them in the system's text colour, and the letter or dot still shows.
+ */
+const GIT_MARK_COLORS: Record<Exclude<GitRowMark, ''>, string> = {
+    M: 'text-warning-foreground',
+    A: 'text-success-foreground',
+    U: 'text-success-foreground',
+    R: 'text-info-foreground',
+    C: 'text-destructive-foreground',
+    changes: 'text-warning-foreground',
+}
 
 // The row's fields one by one, not the row object, so a row that didn't change isn't drawn again.
 type FileTreeNodeProps = Omit<VisibleTreeRow, 'parentPath'> & {
@@ -28,6 +42,8 @@ type FileTreeNodeProps = Omit<VisibleTreeRow, 'parentPath'> & {
     isActive: boolean
     /** The one row the Tab key lands on; the arrow keys move between rows. */
     isTabStop: boolean
+    /** What git sees changed: a file's letter, `changes` for a folder holding changes, or ''. A string, so only rows whose mark changed draw again. */
+    gitMark: GitRowMark
     onActivate: (node: FileNode, expanded: boolean | undefined) => void
     onFocusRow: (path: string) => void
 }
@@ -47,11 +63,13 @@ export const FileTreeNode = memo(function FileTreeNode({
     isDragged,
     isActive,
     isTabStop,
+    gitMark,
     onActivate,
     onFocusRow,
 }: FileTreeNodeProps) {
     const rowRef = useRef<HTMLDivElement>(null)
     const hintId = useId()
+    const gitId = useId()
     const isMermaid = node.kind === 'file' && isMermaidFile(node.name)
     const isMarkdown = node.kind === 'file' && isMarkdownFile(node.name)
     const isUnsupported = node.kind === 'file' && !isSupportedDocument(node.name)
@@ -61,6 +79,8 @@ export const FileTreeNode = memo(function FileTreeNode({
     const isTruncated = node.kind === 'directory' && node.truncated === true
     const folderHint = isUnreadable ? (linksOutside ? LINKS_OUTSIDE_HINT : UNREADABLE_HINT) : isTruncated ? TRUNCATED_HINT : null
     const hint = isUnsupported ? UNSUPPORTED_HINT : folderHint
+    const gitLabel = gitMark ? GIT_MARK_LABELS[gitMark] : null
+    const describedBy = [hint && hintId, gitLabel && gitId].filter(Boolean).join(' ')
 
     return (
         <FileTreeRowContextMenu node={node}>
@@ -89,10 +109,11 @@ export const FileTreeNode = memo(function FileTreeNode({
                     aria-expanded={expanded}
                     aria-selected={isActive || undefined}
                     // Not aria-disabled: an unsupported file can still be renamed, duplicated and deleted. It just won't open.
-                    aria-describedby={hint ? hintId : undefined}
+                    aria-describedby={describedBy || undefined}
                     tabIndex={isTabStop ? 0 : -1}
-                    // The full name for names cut off by the narrow sidebar, plus why an unsupported file or an unread folder won't open.
-                    title={hint ? `${node.name}\n${hint}` : node.name}
+                    // The full name for names cut off by the narrow sidebar, plus why an unsupported file or an unread folder won't
+                    // open, and its git mark in words.
+                    title={[node.name, hint, gitLabel].filter(Boolean).join('\n')}
                     className={cn(
                         `flex min-w-0 flex-1 cursor-default items-center gap-1 rounded-md px-2 py-1 text-left text-sm outline-none select-none
                         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`,
@@ -117,7 +138,7 @@ export const FileTreeNode = memo(function FileTreeNode({
                     ) : (
                         <FileText className="size-4 shrink-0 text-muted-foreground" />
                     )}
-                    <span dir="auto" className="truncate">
+                    <span dir="auto" className={cn('truncate', node.kind === 'file' && gitMark && GIT_MARK_COLORS[gitMark])}>
                         {node.name}
                     </span>
                     {isUnreadable &&
@@ -131,6 +152,25 @@ export const FileTreeNode = memo(function FileTreeNode({
                         <span id={hintId} hidden>
                             {hint}
                         </span>
+                    )}
+                    {gitMark && (
+                        <>
+                            {/* Said in words by the description below: a letter alone means little to a screen reader. */}
+                            <span
+                                aria-hidden
+                                data-git-mark={gitMark}
+                                className={cn(
+                                    'ms-auto shrink-0 ps-1 text-center font-medium',
+                                    gitMark === 'changes' ? 'text-[0.5rem] leading-none' : 'w-4 text-xs',
+                                    GIT_MARK_COLORS[gitMark]
+                                )}
+                            >
+                                {gitMark === 'changes' ? '●' : gitMark}
+                            </span>
+                            <span id={gitId} hidden>
+                                {gitLabel}
+                            </span>
+                        </>
                     )}
                 </div>
                 <FileTreeContextMenu node={node} rowRef={rowRef} />

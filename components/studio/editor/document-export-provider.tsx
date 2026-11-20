@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
+import { useExportRunning } from '@/components/studio/batch-export/batch-export-provider'
 import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { diagramExportThemeId } from '@/components/studio/editor/diagram-export-theme'
@@ -72,7 +73,8 @@ function useDiagramExport(job: DiagramJob, setExporting: (exporting: boolean) =>
 
 /**
  * Export for the active tab, from anywhere: the tab bar's menu, the File menu, the palette and the
- * shortcut. Holds whether an export is running (only one runs at a time) and the export dialog.
+ * shortcut. Holds the export dialog. Whether an export is running (only one runs at a time) is shared with the
+ * folder export in BatchExportProvider.
  */
 export function DocumentExportProvider({ children }: { children: ReactNode }) {
     const { activeTab, activeTabId } = useDocumentTabs()
@@ -93,7 +95,8 @@ export function DocumentExportProvider({ children }: { children: ReactNode }) {
     const diagramCanvasKey = isMarkdownTab ? (expanded?.canvasKey ?? null) : activeTabId
     const { currentError, isPending, isStale, isEmpty } = useMermaidSvg(diagramSource, diagramCanvasKey)
 
-    const [exporting, setExporting] = useState(false)
+    // Shared with Export All Diagrams in Folder…, so a single export can't start while it runs, nor it during one.
+    const { exporting, setExporting } = useExportRunning()
     const [dialogOpen, setDialogOpen] = useState(false)
     const [format, setFormat] = useState<ExportFormat>('pdf')
     const [menuOpen, setMenuOpen] = useState(false)

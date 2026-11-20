@@ -7,8 +7,10 @@ import { commandToPaletteItem } from '@/components/studio/command-palette/comman
 import { CommandRegistryProvider, useCommands, useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { PresentModeProvider, usePresentMode } from '@/components/studio/present/present-mode-provider'
 import { exportAvailability, type ExportState } from '@/components/studio/editor/export-availability'
 import { buildExportCommands } from '@/components/studio/editor/export-commands'
+import { batchExportAvailability, buildBatchExportCommands, type BatchExportState } from '@/components/studio/batch-export/batch-export-commands'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { StudioCommands } from '@/components/studio/shell/studio-commands'
 import { useAppTheme } from '@/components/theme/app-theme-provider'
@@ -161,7 +163,7 @@ function EditorCommands({ state }: { state: EditorState }) {
 }
 
 /** The palette's rows, from the same list: label, shortcut and whether it can run. */
-let paletteRows: Array<{ label: string; shortcut?: string; disabled?: boolean }> = []
+let paletteRows: Array<{ label: string; shortcut?: string; disabled?: boolean; disabledReason?: string }> = []
 function PaletteRows() {
     const commands = useCommands()
     useEffect(() => {
@@ -399,6 +401,8 @@ describe('StudioMenuBar File menu', () => {
             'Reopen Closed TabCtrl+Shift+T',
             'Next TabCtrl+Tab or Ctrl+PageDown',
             'Previous TabCtrl+Shift+Tab or Ctrl+PageUp',
+            'Move Tab LeftCtrl+Shift+PageUp',
+            'Move Tab RightCtrl+Shift+PageDown',
             'ExitAlt+F4',
         ])
         for (const name of [
@@ -416,6 +420,8 @@ describe('StudioMenuBar File menu', () => {
         }
         // Only one tab is open.
         expect(within(file).getByRole('menuitem', { name: /^Next Tab/ })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(file).getByRole('menuitem', { name: /^Move Tab Left/ })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(file).getByRole('menuitem', { name: /^Move Tab Right/ })).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('reverts the open file and reopens the last closed tab', async () => {
@@ -529,6 +535,17 @@ function ExportCommands({ state }: { state: ExportState }) {
     return null
 }
 
+const exportOpenFolder = vi.fn()
+
+/** Stands in for the folder export provider, which registers Export All Diagrams in Folder…. */
+function FolderExportCommand({ state }: { state: BatchExportState }) {
+    const commands = useMemo(() => buildBatchExportCommands({ availability: batchExportAvailability(state), exportOpenFolder }), [state])
+    useRegisterCommands(commands)
+    return null
+}
+
+const FOLDER_OPEN: BatchExportState = { isDesktop: true, hasFolder: true, exporting: false }
+
 async function openExportMenu() {
     const user = userEvent.setup()
     const file = await openMenu('File')
@@ -562,6 +579,58 @@ describe('StudioMenuBar File → Export', () => {
             'Copy Diagram as SVG',
             'Copy Diagram as PNG',
         ])
+    })
+
+    it('ends with the export of every diagram in the open folder', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={MARKDOWN} />
+                <FolderExportCommand state={FOLDER_OPEN} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        expect(menuLabels(exportMenu).at(-1)).toBe('All Diagrams in Folder…')
+        fireEvent.click(within(exportMenu).getByRole('menuitem', { name: 'All Diagrams in Folder…' }))
+        expect(exportOpenFolder).toHaveBeenCalled()
+    })
+
+    it('is on with a folder open and no tab, for the export of every diagram in the folder', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={{ ...MARKDOWN, tabKind: null, hasMarkdown: false }} />
+                <FolderExportCommand state={FOLDER_OPEN} />
+            </Studio>
+        )
+
+        const { exportMenu } = await openExportMenu()
+        expect(within(exportMenu).getByRole('menuitem', { name: 'PDF…' })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(exportMenu).getByRole('menuitem', { name: 'All Diagrams in Folder…' })).not.toHaveAttribute('aria-disabled')
+    })
+
+    it('is left out on the welcome screen, where the folder export is only in the palette, greyed out', async () => {
+        mockContexts({ isDesktop: true, workspaceRoot: null, openingWorkspace: null, recentWorkspaces: [] })
+        render(
+            <Studio>
+                <FolderExportCommand state={{ ...FOLDER_OPEN, hasFolder: false }} />
+            </Studio>
+        )
+
+        const file = await openMenu('File')
+        expect(within(file).getByRole('menuitem', { name: /^Save Ctrl/ })).toBeInTheDocument()
+        expect(within(file).queryByRole('menuitem', { name: 'Export' })).not.toBeInTheDocument()
+    })
+
+    it('greys out the folder export while another export runs', async () => {
+        render(
+            <Studio>
+                <ExportCommands state={{ ...MARKDOWN, exporting: true }} />
+                <FolderExportCommand state={{ ...FOLDER_OPEN, exporting: true }} />
+            </Studio>
+        )
+
+        const file = await openMenu('File')
+        expect(within(file).getByRole('menuitem', { name: 'Export' })).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('turns on only what the active tab can export', async () => {
@@ -735,11 +804,53 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(55)
+        expect(compared).toBe(58)
     })
 })
 
 describe('StudioMenuBar View menu', () => {
+    describe('Present', () => {
+        function PresentState() {
+            return <p data-testid="presenting">{usePresentMode().presentingTabId ?? 'off'}</p>
+        }
+
+        function renderWithPresentMode() {
+            const fullscreen = { enter: vi.fn(async () => {}), leave: vi.fn(async () => {}) }
+            render(
+                <PresentModeProvider fullscreen={fullscreen}>
+                    <Studio>
+                        <PresentState />
+                    </Studio>
+                </PresentModeProvider>
+            )
+        }
+
+        it('presents the open Markdown document, with F5', async () => {
+            const activeTab = { id: 'C:/work/a.md', name: 'a.md', content: '# Talk', isDirty: false }
+            mockContexts({ workspaceRoot: 'C:/work', activeTabId: activeTab.id, activeTab })
+            renderWithPresentMode()
+
+            const present = within(await openMenu('View')).getByRole('menuitem', { name: /^Present/ })
+            expect(present).toHaveTextContent('PresentF5')
+            expect(present).not.toHaveAttribute('aria-disabled', 'true')
+            await userEvent.setup().click(present)
+
+            expect(screen.getByTestId('presenting')).toHaveTextContent('C:/work/a.md')
+        })
+
+        it('is greyed out, with the reason in the palette, when the open document isn’t Markdown or is empty', async () => {
+            const diagram = { id: 'C:/work/flow.mmd', name: 'flow.mmd', content: 'flowchart TD', isDirty: false }
+            mockContexts({ workspaceRoot: 'C:/work', activeTabId: diagram.id, activeTab: diagram })
+            renderWithPresentMode()
+
+            expect(within(await openMenu('View')).getByRole('menuitem', { name: /^Present/ })).toHaveAttribute('aria-disabled', 'true')
+            expect(paletteRows.find((row) => row.label === 'Present')).toMatchObject({
+                disabled: true,
+                disabledReason: 'Only Markdown documents can be presented',
+            })
+        })
+    })
+
     it('lists the panels with the Status Bar, the layouts, and the explorer helpers', async () => {
         mockContexts({ workspaceRoot: 'C:/work' })
         render(<Studio />)

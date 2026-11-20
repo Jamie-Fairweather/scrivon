@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EmbeddedMermaidBlock } from './embedded-mermaid-block'
+import { DiagramHeightLimitContext, EmbeddedMermaidBlock } from './embedded-mermaid-block'
 
 type HookResult = {
     svgForDisplay: string | null
@@ -82,6 +82,60 @@ describe('EmbeddedMermaidBlock', () => {
         // 532px wide, minus 32px of padding, leaves 500px for a 1000px-wide diagram.
         expect(seen.scales.length).toBeGreaterThan(0)
         expect(new Set(seen.scales)).toEqual(new Set(['scale(0.5)']))
+    })
+
+    describe('on a slide', () => {
+        function slideBlock(heightLimit: number | null) {
+            return (
+                <DiagramHeightLimitContext.Provider value={heightLimit}>
+                    <EmbeddedMermaidBlock
+                        source={'flowchart LR\n  A --> B'}
+                        blockId="block-0"
+                        ordinal={0}
+                        tabId="doc.md:present"
+                        onExpand={() => {}}
+                        expandable={false}
+                    />
+                </DiagramHeightLimitContext.Provider>
+            )
+        }
+
+        it('has no Expand button', () => {
+            render(slideBlock(null))
+
+            expect(screen.queryByRole('button', { name: /Expand/ })).not.toBeInTheDocument()
+            expect(screen.getByTestId('diagram')).toBeInTheDocument()
+        })
+
+        it('scales the diagram down to fit the height it is given as well as its width', () => {
+            width = 2032
+            // 234px less 32px of padding and the 2px border leaves 200px for a 400px-tall diagram, though the width
+            // would fit it whole.
+            render(slideBlock(234))
+
+            expect(seen.scales.at(-1)).toBe('scale(0.5)')
+        })
+
+        it('keeps its padding in pixels, so a slide’s larger text spacing doesn’t push the fitted diagram past its box', () => {
+            const { container } = render(slideBlock(234))
+
+            const padded = container.querySelector('[data-testid="diagram"]')?.closest('.justify-center')
+            expect(padded).toHaveClass('px-[16px]', 'pt-[16px]', 'pb-[16px]')
+            expect(padded?.className).not.toMatch(/(px|pt|pb)-4/)
+        })
+
+        it('still fits the width when that is the tighter of the two', () => {
+            render(slideBlock(10_000))
+
+            expect(seen.scales.at(-1)).toBe('scale(0.5)')
+        })
+
+        it('is never drawn larger than it is', () => {
+            width = 4032
+            render(slideBlock(10_000))
+
+            expect(seen.scales.at(-1)).toBe('scale(1)')
+        })
     })
 
     it('holds the placeholder instead of drawing while the preview has no width', () => {

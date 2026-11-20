@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, type FocusEvent } from 'react'
+import { BatchExportProvider } from '@/components/studio/batch-export/batch-export-provider'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { usePanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { MarkdownDocumentViewer } from '@/components/studio/markdown/markdown-document-viewer'
@@ -11,6 +12,7 @@ import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
 import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
 import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explorer'
 import { OutlinePanel } from '@/components/studio/outline/outline-panel'
+import { PresentModeView } from '@/components/studio/present/present-mode-view'
 import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { StudioStatusBar } from '@/components/studio/shell/studio-status-bar'
@@ -86,57 +88,63 @@ export function StudioLayout() {
     return (
         <div ref={rootRef} className="flex min-h-0 flex-1 flex-col overflow-hidden" onFocus={onFocus}>
             <div className="flex min-h-0 flex-1">
-                {/* Shown whenever it is switched on, at any window width, so the toggles always match the screen. */}
-                {layout.explorerOpen && <WorkspaceExplorer />}
-                {layout.outlineOpen && <OutlinePanel />}
+                {/* Export All Diagrams in Folder…, from the explorer's folder menu as well as the File menu and the palette.
+                    It also holds whether any export is running, which the tab bar's export below reads. */}
+                <BatchExportProvider>
+                    {/* Shown whenever it is switched on, at any window width, so the toggles always match the screen. */}
+                    {layout.explorerOpen && <WorkspaceExplorer />}
+                    {layout.outlineOpen && <OutlinePanel />}
 
-                <MarkdownExpandProvider tabId={activeTabId}>
-                    {/* The page's one main landmark: the tabs, the editor and the preview.
+                    <MarkdownExpandProvider tabId={activeTabId}>
+                        {/* The page's one main landmark: the tabs, the editor and the preview.
                         data-find-overflow-host here and below: the editor's find box tooltips may pass these clips. */}
-                    <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
-                        {/* Export for the active tab, from the tab bar, the File menu, the palette and the shortcut. */}
-                        <DocumentExportProvider>
-                            <EditorTabBar />
-                        </DocumentExportProvider>
+                        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-find-overflow-host>
+                            {/* Export for the active tab, from the tab bar, the File menu, the palette and the shortcut. */}
+                            <DocumentExportProvider>
+                                <EditorTabBar />
+                            </DocumentExportProvider>
 
-                        {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
-                        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>
-                            {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position. */}
-                            {editorLayout.hydrated && (
-                                <CodeEditorPanel
-                                    open={layout.editorOpen}
-                                    fill={!layout.previewOpen}
-                                    width={editorLayout.width}
-                                    onWidthChange={editorLayout.onWidthChange}
-                                    onResetWidth={editorLayout.resetEditorWidth}
-                                />
-                            )}
+                            {/* relative: the hidden editor is laid over this row (see CodeEditorPanel). */}
+                            <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host>
+                                {/* Hidden rather than unmounted, so hiding the editor keeps its undo history and position. */}
+                                {editorLayout.hydrated && (
+                                    <CodeEditorPanel
+                                        open={layout.editorOpen}
+                                        fill={!layout.previewOpen}
+                                        width={editorLayout.width}
+                                        onWidthChange={editorLayout.onWidthChange}
+                                        onResetWidth={editorLayout.resetEditorWidth}
+                                    />
+                                )}
 
-                            {/* A pane of its own for F6 and Focus Preview (pane-focus.ts). They go to the diagram canvas,
+                                {/* A pane of its own for F6 and Focus Preview (pane-focus.ts). They go to the diagram canvas,
                                 else its scroll box when it scrolls, else this region itself. Unmounted while hidden, so it
                                 doesn't draw on every keystroke. */}
-                            {layout.previewOpen && (
-                                <div
-                                    data-pane="preview"
-                                    role="region"
-                                    aria-label="Preview"
-                                    tabIndex={-1}
-                                    className="flex min-h-0 min-w-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring
-                                        focus-visible:ring-inset"
-                                >
-                                    {/* A view that breaks takes only itself down; the editor and tabs stay usable. */}
-                                    <PaneErrorBoundary resetKeys={[activeTabId, activeTab?.content]} fallback={viewerCrashNotice}>
-                                        {viewerKind === 'markdown' ? (
-                                            <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
-                                        ) : (
-                                            <MermaidCanvas source={activeTab?.content ?? ''} viewMemory={canvasViews} />
-                                        )}
-                                    </PaneErrorBoundary>
-                                </div>
-                            )}
-                        </div>
-                    </main>
-                </MarkdownExpandProvider>
+                                {layout.previewOpen && (
+                                    <div
+                                        data-pane="preview"
+                                        role="region"
+                                        aria-label="Preview"
+                                        tabIndex={-1}
+                                        className="flex min-h-0 min-w-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring
+                                            focus-visible:ring-inset"
+                                    >
+                                        {/* A view that breaks takes only itself down; the editor and tabs stay usable. */}
+                                        <PaneErrorBoundary resetKeys={[activeTabId, activeTab?.content]} fallback={viewerCrashNotice}>
+                                            {viewerKind === 'markdown' ? (
+                                                <MarkdownDocumentViewer source={activeTab?.content ?? ''} tabId={activeTabId} />
+                                            ) : (
+                                                <MermaidCanvas source={activeTab?.content ?? ''} viewMemory={canvasViews} />
+                                            )}
+                                        </PaneErrorBoundary>
+                                    </div>
+                                )}
+                            </div>
+                        </main>
+                        {/* Inside the preview's memory, so the slides follow each tab's "Load images" choice. */}
+                        <PresentModeView />
+                    </MarkdownExpandProvider>
+                </BatchExportProvider>
             </div>
             <StudioStatusBar />
         </div>
