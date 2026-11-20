@@ -4,6 +4,7 @@ import { usePaletteCommands } from '@/components/studio/command-palette/palette-
 import { useExplorerCommands } from '@/components/studio/explorer/explorer-commands'
 import { useNewItemCommands } from '@/components/studio/explorer/new-item-commands'
 import { usePathCommands } from '@/components/studio/explorer/path-commands'
+import { usePresentCommands } from '@/components/studio/present/present-commands'
 import { useSettingSwitchCommands } from '@/components/studio/settings/setting-switch-commands'
 import { usePaneFocusCommands } from '@/components/studio/shell/pane-focus-commands'
 import { useExitCommand, useSettingsCommand } from '@/components/studio/shell/shell-commands'
@@ -28,6 +29,7 @@ export function StudioCommands() {
     useNewItemCommands()
     useDocumentCommands()
     useLayoutCommands()
+    usePresentCommands()
     usePaneFocusCommands()
     useExplorerCommands()
     usePathCommands()

@@ -7,6 +7,7 @@ import { commandToPaletteItem } from '@/components/studio/command-palette/comman
 import { CommandRegistryProvider, useCommands, useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { HelpCommands } from '@/components/studio/dialogs/help-commands'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
+import { PresentModeProvider, usePresentMode } from '@/components/studio/present/present-mode-provider'
 import { exportAvailability, type ExportState } from '@/components/studio/editor/export-availability'
 import { buildExportCommands } from '@/components/studio/editor/export-commands'
 import { batchExportAvailability, buildBatchExportCommands, type BatchExportState } from '@/components/studio/batch-export/batch-export-commands'
@@ -158,7 +159,7 @@ function EditorCommands({ state }: { state: EditorState }) {
 }
 
 /** The palette's rows, from the same list: label, shortcut and whether it can run. */
-let paletteRows: Array<{ label: string; shortcut?: string; disabled?: boolean }> = []
+let paletteRows: Array<{ label: string; shortcut?: string; disabled?: boolean; disabledReason?: string }> = []
 function PaletteRows() {
     const commands = useCommands()
     useEffect(() => {
@@ -780,11 +781,53 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(56)
+        expect(compared).toBe(57)
     })
 })
 
 describe('StudioMenuBar View menu', () => {
+    describe('Present', () => {
+        function PresentState() {
+            return <p data-testid="presenting">{usePresentMode().presentingTabId ?? 'off'}</p>
+        }
+
+        function renderWithPresentMode() {
+            const fullscreen = { enter: vi.fn(async () => {}), leave: vi.fn(async () => {}) }
+            render(
+                <PresentModeProvider fullscreen={fullscreen}>
+                    <Studio>
+                        <PresentState />
+                    </Studio>
+                </PresentModeProvider>
+            )
+        }
+
+        it('presents the open Markdown document, with F5', async () => {
+            const activeTab = { id: 'C:/work/a.md', name: 'a.md', content: '# Talk', isDirty: false }
+            mockContexts({ workspaceRoot: 'C:/work', activeTabId: activeTab.id, activeTab })
+            renderWithPresentMode()
+
+            const present = within(await openMenu('View')).getByRole('menuitem', { name: /^Present/ })
+            expect(present).toHaveTextContent('PresentF5')
+            expect(present).not.toHaveAttribute('aria-disabled', 'true')
+            await userEvent.setup().click(present)
+
+            expect(screen.getByTestId('presenting')).toHaveTextContent('C:/work/a.md')
+        })
+
+        it('is greyed out, with the reason in the palette, when the open document isn’t Markdown or is empty', async () => {
+            const diagram = { id: 'C:/work/flow.mmd', name: 'flow.mmd', content: 'flowchart TD', isDirty: false }
+            mockContexts({ workspaceRoot: 'C:/work', activeTabId: diagram.id, activeTab: diagram })
+            renderWithPresentMode()
+
+            expect(within(await openMenu('View')).getByRole('menuitem', { name: /^Present/ })).toHaveAttribute('aria-disabled', 'true')
+            expect(paletteRows.find((row) => row.label === 'Present')).toMatchObject({
+                disabled: true,
+                disabledReason: 'Only Markdown documents can be presented',
+            })
+        })
+    })
+
     it('lists the panels with the Status Bar, the layouts, and the explorer helpers', async () => {
         mockContexts({ workspaceRoot: 'C:/work' })
         render(<Studio />)

@@ -12,6 +12,7 @@ import { EditorTabBar } from '@/components/studio/editor/editor-tab-bar'
 import { useEditorPanelLayout } from '@/components/studio/editor/use-editor-panel-layout'
 import { WorkspaceExplorer } from '@/components/studio/explorer/workspace-explorer'
 import { OutlinePanel } from '@/components/studio/outline/outline-panel'
+import { PresentModeView } from '@/components/studio/present/present-mode-view'
 import { useWindowCloseHandler } from '@/components/studio/hooks/use-window-close'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { StudioStatusBar } from '@/components/studio/shell/studio-status-bar'
@@ -140,6 +141,8 @@ export function StudioLayout() {
                                 )}
                             </div>
                         </main>
+                        {/* Inside the preview's memory, so the slides follow each tab's "Load images" choice. */}
+                        <PresentModeView />
                     </MarkdownExpandProvider>
                 </BatchExportProvider>
             </div>

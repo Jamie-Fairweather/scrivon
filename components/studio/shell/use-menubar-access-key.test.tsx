@@ -3,7 +3,15 @@ import { useRef } from 'react'
 import { describe, expect, it } from 'vitest'
 import { useMenubarAccessKey } from './use-menubar-access-key'
 
-function Harness({ withDialog = false, onFinalFocus }: { withDialog?: boolean; onFinalFocus?: (resolve: () => HTMLElement | boolean) => void }) {
+function Harness({
+    withDialog = false,
+    presenting = false,
+    onFinalFocus,
+}: {
+    withDialog?: boolean
+    presenting?: boolean
+    onFinalFocus?: (resolve: () => HTMLElement | boolean) => void
+}) {
     const ref = useRef<HTMLDivElement>(null)
     const finalFocus = useMenubarAccessKey(ref)
     onFinalFocus?.(finalFocus)
@@ -20,6 +28,7 @@ function Harness({ withDialog = false, onFinalFocus }: { withDialog?: boolean; o
             <input aria-label="editor" />
             <button type="button">Elsewhere</button>
             {withDialog ? <div data-slot="dialog-popup" role="dialog" /> : null}
+            {presenting ? <div data-slot="present-popup" role="dialog" /> : null}
         </>
     )
 }
@@ -117,6 +126,17 @@ describe('useMenubarAccessKey', () => {
 
     it('does nothing while a dialog is open', () => {
         render(<Harness withDialog />)
+        const editor = screen.getByLabelText('editor')
+        editor.focus()
+
+        pressAlt()
+        fireEvent.keyDown(editor, { key: 'F10' })
+
+        expect(editor).toHaveFocus()
+    })
+
+    it('does nothing while presenting slides', () => {
+        render(<Harness presenting />)
         const editor = screen.getByLabelText('editor')
         editor.focus()
 

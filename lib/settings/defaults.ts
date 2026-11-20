@@ -37,6 +37,7 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         'view.toggleEditor': [chord('e', mod)],
         'view.togglePreview': [chord('p', { ...mod, alt: true })],
         'view.previewOnly': [chord('o', { ...mod, shift: true })],
+        'view.present': [chord('F5')],
         'view.fitDiagram': [chord('r', mod)],
         // Ctrl+Plus is the number pad's plus, a plus key (German), or Ctrl+Shift+= (US, UK): see matchKeybind.
         'view.appZoomIn': [chord('=', mod), chord('+', mod)],

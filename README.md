@@ -39,6 +39,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Live Markdown preview** — [GFM](https://github.github.com/gfm/)-style rendering beside the editor (tables, task lists, strikethrough, and more)
 - **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
 - **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
+- **Present as slides** — **View → Present** (or **F5**) shows the open document full screen, one slide at a time, with a new slide at each top-level `---`. Move with the arrow keys, Page Up/Down, Space, Home and End, and leave with **Esc**. The slides follow your edits as you make them
 - **PDF, Word and HTML export** — Save the rendered document as PDF (native export on Windows via WebView2), Word (.docx) or a standalone HTML page, styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**. In Word, math (`$…$`, `$$` blocks and ` ```math ` blocks) comes out as Word equations you can click into and edit, and any math Word can't hold keeps its TeX source. Export from **File → Export**, the command palette, or **Ctrl/Cmd+Shift+X**
 
 ### General

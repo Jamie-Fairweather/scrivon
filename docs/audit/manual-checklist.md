@@ -65,6 +65,15 @@ These are the things automated tests can't cover, so they need a person using th
 - [ ] Press Tab to an Expand button and Enter: focus goes to Back, and Esc closes it and returns focus. Edit the diagram while it's open and the view follows. Deleting its block closes it.
 - [ ] Create an empty `.md` file. A centred message shows and goes away when you type.
 
+## Present mode
+
+- [ ] With the window maximised, press F5 in a `.md` file with a few `---` breaks. The window goes full screen and covers the title bar and taskbar. Press Esc: it is maximised again. Do the same with a smaller, restored window: it comes back at the same size and place. Try the Close button and closing the tab too.
+- [ ] Present from the View menu and from the F1 palette, then press Esc. Focus is back in the editor each time, and typing goes into the file.
+- [ ] On a slide with a web link and a code block, click the link, come back, and press Right twice. Tab to the Copy button and press Right. Click the "2 / 5" counter and press End. Each time the slides move.
+- [ ] Present a slide with a wide flowchart, and one with a heading above a tall sequence diagram, at 100% and 150% Windows scaling and a larger Preview text size. Each diagram shows whole, with no edge cut off, and the slide doesn't scroll.
+- [ ] With an unsaved change and autosave off, press Alt+F4 while presenting. The window leaves full screen and asks first. Cancel goes back to the editor, as the window was before presenting.
+- [ ] Maximise the window (or move it to another screen), press F5 at once, then Alt+F4 with nothing unsaved. Start Scrivon again: it opens maximised (or on the other screen), never at the size of the whole screen.
+
 ## PDF export
 
 - [ ] Export a long document. The button spins, Esc and outside clicks do nothing, and a "Saved" notice shows the path. Show in folder opens Explorer with the file selected.

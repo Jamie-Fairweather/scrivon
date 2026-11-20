@@ -267,6 +267,8 @@ export function StudioMenuBar() {
                                 {item('preview-only')}
                             </MenuGroup>
                             <MenuSeparator />
+                            {item('present')}
+                            <MenuSeparator />
                             <MenuGroup>
                                 {item('reveal-active-file')}
                                 {item('collapse-all-folders')}

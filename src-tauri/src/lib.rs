@@ -349,7 +349,8 @@ pub fn run() {
             match event {
                 tauri::WindowEvent::CloseRequested { .. } => {
                     // Saved even if the page then keeps the window open: it is where the window is now.
-                    window_state::save(window);
+                    // Full screen (present mode), once the page has put it back.
+                    window_state::save_on_close(window);
                     close_watchdog::on_close_requested(window);
                 }
                 tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {

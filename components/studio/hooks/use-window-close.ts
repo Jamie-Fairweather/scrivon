@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@/lib/tauri/platform'
+import { useOptionalPresentMode } from '@/components/studio/present/present-mode-provider'
 import { useFlushPendingSettings } from '@/components/studio/settings/settings-provider'
 import { useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 
@@ -11,6 +12,7 @@ export function useWindowCloseHandler() {
     const { workspaceRoot } = useWorkspaceSession()
     const coordinator = useWorkspaceCoordinator()
     const flushPendingSettings = useFlushPendingSettings()
+    const exitPresentMode = useOptionalPresentMode()?.exit
 
     useEffect(() => {
         if (!isTauri() || !workspaceRoot) return
@@ -26,6 +28,9 @@ export function useWindowCloseHandler() {
                 // A settings change from the last moment is still waiting to be written. The window may go
                 // without a pagehide, which would otherwise write it.
                 flushPendingSettings()
+                // Out of present mode and full screen first, so the question below shows over the editor as usual
+                // and Cancel leaves the window as it was before presenting.
+                await exitPresentMode?.()
                 // Saves every tab, or asks the user what to do with changes that can't be saved
                 // (Try Again / Close Without Saving / Cancel). A second click on X while this
                 // is still running gets the same answer from confirmCloseTabs, so it never asks twice.
@@ -46,5 +51,5 @@ export function useWindowCloseHandler() {
             disposed = true
             unlisten?.()
         }
-    }, [workspaceRoot, coordinator, flushPendingSettings])
+    }, [workspaceRoot, coordinator, flushPendingSettings, exitPresentMode])
 }

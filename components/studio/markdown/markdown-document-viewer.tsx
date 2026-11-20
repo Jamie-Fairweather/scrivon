@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ImageOff, X } from 'lucide-react'
-import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { useFrameSyncedValue } from '@/components/studio/hooks/use-frame-synced-value'
 import { lastMermaidBlockSources } from '@/components/studio/markdown/markdown-block-ordinals'
 import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
+import { openExternalLink } from '@/components/studio/markdown/open-external-link'
 import { locateMermaidBlock } from '@/components/studio/markdown/mermaid-block-sources'
 import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
 import { scrollViewport, usePreviewScrollSync } from '@/components/studio/markdown/use-preview-scroll-sync'
@@ -20,7 +21,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCanvasFit, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { notifyError, notifyInfo } from '@/lib/notify'
-import { isTauri } from '@/lib/tauri/platform'
 import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
 import { cn } from '@/lib/utils'
@@ -302,11 +302,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
                     scrollToAnchor(target.id)
                     return
                 case 'external':
-                    if (!isTauri()) {
-                        window.open(target.url, '_blank', 'noopener,noreferrer')
-                        return
-                    }
-                    openUrl(target.url).catch((err: unknown) => notifyError("Couldn't open link", err))
+                    openExternalLink(target.url)
                     return
                 case 'file': {
                     if (documentPath && isSamePath(target.path, documentPath)) {
