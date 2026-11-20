@@ -61,6 +61,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', async () => {
 })
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete }) }))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
+vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate: vi.fn(async () => null) }) }))
 vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder }) }))
 vi.mock('@/lib/tauri/file-drop', () => ({
     registerFileDropTarget: (element: Element, handler: typeof fileDrops.handler, onHover: typeof fileDrops.onHover) => {

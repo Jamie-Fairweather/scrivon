@@ -3,14 +3,18 @@
 import { createContext, useCallback, useContext, useMemo } from 'react'
 import { useDeleteConfirm } from '@/components/studio/dialogs/delete-confirm-provider'
 import { useMoveTo } from '@/components/studio/dialogs/move-to-provider'
-import { useNamePrompt, type NamePromptKind } from '@/components/studio/dialogs/name-prompt-provider'
+import { useNamePrompt, type NamePromptKind, type NamePromptSubject } from '@/components/studio/dialogs/name-prompt-provider'
+import { useTemplatePicker } from '@/components/studio/dialogs/template-picker-provider'
 import { focusEditorFor } from '@/components/studio/editor/editor-focus'
 import { useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { titleFromFileName } from '@/lib/default-markdown'
 import { getParentPath, joinPath } from '@/lib/tauri/fs'
-import { documentExtension, fileExtension, withDocumentExtension } from '@/lib/workspace/file-types'
+import { fillTemplate } from '@/lib/templates/fill-template'
+import { documentExtension, documentKind, fileExtension, withDocumentExtension, type DocumentKind } from '@/lib/workspace/file-types'
 import type { FileNode } from '@/lib/workspace/types'
 
-export type NewItemKind = Exclude<NamePromptKind, 'rename'>
+/** The plain new items. A new file from a template has its own prompt kind, as it comes after the template picker. */
+export type NewItemKind = Exclude<NamePromptKind, 'rename' | 'new-from-template'>
 
 /** The name a new file starts with, and the extension a name typed without one gets. */
 const NEW_FILE = {
@@ -18,16 +22,47 @@ const NEW_FILE = {
     'new-document': { name: 'document.md', extension: '.md' },
 } as const
 
+/** What a new file's name prompt says the file is for, when that is more than its kind. The prompt adds the folder. */
+export type NewFileSubject = Omit<Extract<NamePromptSubject, { kind: 'new-from-template' }>, 'folder'>
+
+/** How a new diagram or document starts, when that isn't the usual way. Ignored for a new folder. */
+export type NewFileOptions = {
+    /**
+     * The name the prompt starts from, made free in the folder (`plan.md`, then `plan 2.md`). Its extension is the one
+     * a name typed without one gets. Left out, the kind's own: `diagram.mmd` or `document.md`.
+     */
+    name?: string
+    /** What the prompt says the file is for. Left out, the kind's own words. */
+    subject?: NewFileSubject
+    /**
+     * The new file's text, or how to make it from the name the file gets. Left out, the usual starting text for the
+     * kind of file. Given, the name has to be for the same kind of file as the starting name (a diagram's text can't go
+     * in a `.md` file).
+     */
+    content?: string | ((fileName: string) => string)
+}
+
+/** Why `fileName` can't hold text written for `kind`, or null when it can. */
+function kindMismatchError(fileName: string, kind: DocumentKind, subject: NewFileSubject | undefined): string | null {
+    const named = documentKind(fileName)
+    if (!named || named === kind) return null
+    const [what, extensions] = kind === 'mermaid' ? ['diagram', '.mmd or .mermaid'] : ['document', '.md or .markdown']
+    return subject?.kind === 'new-from-template'
+        ? `This template makes a ${what}, so the name must end with ${extensions}.`
+        : `This file is a ${what}, so the name must end with ${extensions}.`
+}
+
 /**
  * Asks for a name, then makes a new diagram, document or folder in the folder given. A new file opens in a tab,
  * and the editor takes the keyboard so the user can start typing. Resolves to false when the prompt was cancelled.
+ * `options` start a file from a given name and text, such as a template's (see NewFileOptions).
  */
-export function useCreateNewItem(): (kind: NewItemKind, folder: string) => Promise<boolean> {
+export function useCreateNewItem(): (kind: NewItemKind, folder: string, options?: NewFileOptions) => Promise<boolean> {
     const { promptName } = useNamePrompt()
     const { createFile, createFolder, suggestName, getNameError } = useWorkspaceSession()
 
     return useCallback(
-        async (kind: NewItemKind, folder: string) => {
+        async (kind: NewItemKind, folder: string, options: NewFileOptions = {}) => {
             if (kind === 'new-folder') {
                 const name = await promptName({
                     kind,
@@ -39,17 +74,26 @@ export function useCreateNewItem(): (kind: NewItemKind, folder: string) => Promi
                 await createFolder(folder, name)
                 return true
             }
-            const { name: startName, extension } = NEW_FILE[kind]
+            const startName = options.name ?? NEW_FILE[kind].name
+            const extension = documentExtension(startName) ?? NEW_FILE[kind].extension
+            const { content, subject } = options
+            // Text written for one kind of file has to go in that kind of file.
+            const contentKind = content === undefined ? null : documentKind(extension)
+            // A name typed without an extension gets the starting name's.
+            const finalName = (value: string) => withDocumentExtension(value, extension)
             const name = await promptName({
-                kind,
+                ...(subject ?? { kind }),
                 folder,
                 defaultValue: suggestName(folder, startName),
-                // A name typed without an extension gets the one for this kind.
-                validate: (value) => getNameError(folder, withDocumentExtension(value, extension), 'file'),
+                validate: (value) => {
+                    const fileName = finalName(value)
+                    return (contentKind && kindMismatchError(fileName, contentKind, subject)) || getNameError(folder, fileName, 'file')
+                },
             })
             if (!name) return false
-            const fileName = withDocumentExtension(name, extension)
-            await createFile(folder, fileName)
+            const fileName = finalName(name)
+            if (content === undefined) await createFile(folder, fileName)
+            else await createFile(folder, fileName, typeof content === 'function' ? content(fileName) : content)
             // If the file couldn't be made, its tab never shows and focus stays where it is.
             focusEditorFor(joinPath(folder, fileName))
             return true
@@ -58,9 +102,35 @@ export function useCreateNewItem(): (kind: NewItemKind, folder: string) => Promi
     )
 }
 
+/**
+ * Asks which template to start from, then for a name, then makes the file from the template in the folder given, with
+ * its placeholders filled in, and opens it. Resolves to false when the picker or the prompt was cancelled.
+ */
+export function useCreateFromTemplate(): (folder: string) => Promise<boolean> {
+    const { chooseTemplate } = useTemplatePicker()
+    const createNewItem = useCreateNewItem()
+
+    return useCallback(
+        async (folder: string) => {
+            const template = await chooseTemplate()
+            if (!template) return false
+            const { title, fileName, kind, text } = template
+            const extension = documentExtension(fileName) ?? (kind === 'mermaid' ? '.mmd' : '.md')
+            return createNewItem(kind === 'mermaid' ? 'new-diagram' : 'new-document', folder, {
+                name: fileName,
+                subject: { kind: 'new-from-template', template: { title, extension } },
+                // The date and time are when the file is made, not when the picker opened.
+                content: (name) => fillTemplate(text, { title: titleFromFileName(name), now: new Date(), kind }),
+            })
+        },
+        [chooseTemplate, createNewItem]
+    )
+}
+
 /** New items in one folder, for that folder's menus. Does nothing while `parentPath` is null. */
 export function useFileTreeActions(parentPath: string | null) {
     const createNewItem = useCreateNewItem()
+    const createFromTemplate = useCreateFromTemplate()
 
     return useMemo(() => {
         const inParent = (kind: NewItemKind) => async () => {
@@ -70,8 +140,11 @@ export function useFileTreeActions(parentPath: string | null) {
             createMermaidFileInParent: inParent('new-diagram'),
             createMarkdownFileInParent: inParent('new-document'),
             createFolderInParent: inParent('new-folder'),
+            createFromTemplateInParent: async () => {
+                if (parentPath) await createFromTemplate(parentPath)
+            },
         }
-    }, [parentPath, createNewItem])
+    }, [parentPath, createNewItem, createFromTemplate])
 }
 
 export type FileTreeEntryActions = {

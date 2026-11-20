@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
-import { useCreateNewItem, type NewItemKind } from '@/components/studio/explorer/use-file-tree-actions'
+import { useCreateFromTemplate, useCreateNewItem, type NewItemKind } from '@/components/studio/explorer/use-file-tree-actions'
 import { useActiveTabId, useStudioLayout, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import type { KeybindActionId } from '@/lib/settings/types'
 import { newItemFolder } from '@/lib/workspace/new-item-folder'
@@ -14,6 +14,8 @@ export type NewItemCommandsContext = {
     targetFolder: () => string | null
     /** Resolves to false when the name prompt was cancelled. */
     createNewItem: (kind: NewItemKind, folder: string) => Promise<boolean>
+    /** Asks for a template, then a name, and makes the file. Resolves to false when either was cancelled. */
+    newFromTemplate: (folder: string) => Promise<boolean>
     /** Opens the explorer if it is hidden. */
     showExplorer: () => void
 }
@@ -25,15 +27,23 @@ export const NEW_ITEMS: { kind: NewItemKind; label: string; keywords: string; ke
     { kind: 'new-folder', label: 'New Folder…', keywords: 'new create directory', keybind: 'workspace.newFolder' },
 ]
 
-/** New Diagram, New Document and New Folder, for the palette, the File menu and their shortcuts. */
+/** New from Template, which the explorer's New menus show after the items above. It has no keys until the user sets some. */
+export const NEW_FROM_TEMPLATE = {
+    id: 'new-from-template',
+    label: 'New from Template…',
+    keywords: 'new create file template meeting notes decision record project brief markdown mermaid',
+    keybind: 'workspace.newFromTemplate',
+} as const satisfies { id: string; label: string; keywords: string; keybind: KeybindActionId }
+
+/** New Diagram, New Document, New Folder and New from Template, for the palette, the File menu and their shortcuts. */
 export function buildNewItemCommands(ctx: NewItemCommandsContext): AppCommand[] {
-    return NEW_ITEMS.map(({ kind, label, keywords, keybind }) => ({
+    const availability = { disabled: !ctx.hasWorkspace, disabledReason: 'Open a folder first' }
+    const plainItems = NEW_ITEMS.map(({ kind, label, keywords, keybind }): AppCommand => ({
         id: kind,
         label,
         keywords,
         keybind,
-        disabled: !ctx.hasWorkspace,
-        disabledReason: 'Open a folder first',
+        ...availability,
         run: () => {
             const folder = ctx.targetFolder()
             if (!folder) return
@@ -43,6 +53,16 @@ export function buildNewItemCommands(ctx: NewItemCommandsContext): AppCommand[] 
             })
         },
     }))
+    const fromTemplate: AppCommand = {
+        ...NEW_FROM_TEMPLATE,
+        ...availability,
+        run: () => {
+            // The folder New Document would use, worked out before the picker takes the keyboard.
+            const folder = ctx.targetFolder()
+            if (folder) void ctx.newFromTemplate(folder)
+        },
+    }
+    return [...plainItems, fromTemplate]
 }
 
 /** Where focus goes on the way to a command: the menu bar, a menu, or the palette (a dialog). */
@@ -79,6 +99,7 @@ export function useNewItemCommands(): void {
     const { workspaceRoot, tree } = useWorkspaceSession()
     const activeTabId = useActiveTabId()
     const createNewItem = useCreateNewItem()
+    const newFromTemplate = useCreateFromTemplate()
     const { layout, setExplorerOpen } = useStudioLayout()
     const lastFocusedRow = useLastFocusedRow()
 
@@ -93,8 +114,8 @@ export function useNewItemCommands(): void {
     }, [explorerOpen, setExplorerOpen])
 
     const commands = useMemo(
-        () => buildNewItemCommands({ hasWorkspace: Boolean(workspaceRoot), targetFolder, createNewItem, showExplorer }),
-        [workspaceRoot, targetFolder, createNewItem, showExplorer]
+        () => buildNewItemCommands({ hasWorkspace: Boolean(workspaceRoot), targetFolder, createNewItem, newFromTemplate, showExplorer }),
+        [workspaceRoot, targetFolder, createNewItem, newFromTemplate, showExplorer]
     )
     useRegisterCommands(commands)
 }

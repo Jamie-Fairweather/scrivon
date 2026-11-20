@@ -14,6 +14,7 @@ const { promptName, session } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
+vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate: vi.fn(async () => null) }) }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({ useWorkspaceSession: () => session }))
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete: vi.fn() }) }))
 vi.mock('@/components/studio/editor/editor-focus', () => ({ focusEditorFor: vi.fn() }))

@@ -39,6 +39,7 @@ const KEYBIND_ACTION_META = {
     'workspace.newDiagram': { label: 'New diagram', category: 'Workspace', when: 'workspace' },
     'workspace.newDocument': { label: 'New document', category: 'Workspace', when: 'workspace' },
     'workspace.newFolder': { label: 'New folder', category: 'Workspace', when: 'workspace' },
+    'workspace.newFromTemplate': { label: 'New from template', category: 'Workspace', when: 'workspace' },
     'settings.open': { label: 'Open settings', category: 'Navigation', when: 'global' },
     'palette.open': { label: 'Open command palette', category: 'Navigation', when: 'global', allowInNativeTextField: true, allowInPalette: true },
     'palette.openText': { label: 'Find in workspace', category: 'Navigation', when: 'global', allowInPalette: true },

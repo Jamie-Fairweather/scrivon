@@ -7,14 +7,18 @@ import { buildNewItemCommands, useNewItemCommands, type NewItemCommandsContext }
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
 import type { FileNode } from '@/lib/workspace/types'
 
-const { createNewItem, session, activeTab, layout } = vi.hoisted(() => ({
+const { createNewItem, newFromTemplate, session, activeTab, layout } = vi.hoisted(() => ({
     createNewItem: vi.fn(async () => true),
+    newFromTemplate: vi.fn<(folder: string) => Promise<boolean>>(async () => true),
     session: { workspaceRoot: '/ws' as string | null, tree: [] as FileNode[] },
     activeTab: { id: null as string | null },
     layout: { layout: { explorerOpen: true }, setExplorerOpen: vi.fn() },
 }))
 
-vi.mock('@/components/studio/explorer/use-file-tree-actions', () => ({ useCreateNewItem: () => createNewItem }))
+vi.mock('@/components/studio/explorer/use-file-tree-actions', () => ({
+    useCreateNewItem: () => createNewItem,
+    useCreateFromTemplate: () => newFromTemplate,
+}))
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: { keybinds: createDefaultKeybinds(false) } }),
 }))
@@ -25,21 +29,56 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 }))
 
 function context(overrides: Partial<NewItemCommandsContext> = {}): NewItemCommandsContext {
-    return { hasWorkspace: true, targetFolder: () => '/ws/docs', createNewItem: vi.fn(async () => true), showExplorer: vi.fn(), ...overrides }
+    return {
+        hasWorkspace: true,
+        targetFolder: () => '/ws/docs',
+        createNewItem: vi.fn(async () => true),
+        newFromTemplate: vi.fn(async () => true),
+        showExplorer: vi.fn(),
+        ...overrides,
+    }
 }
 
 const find = (ctx: NewItemCommandsContext, id: string) => buildNewItemCommands(ctx).find((command) => command.id === id)
 
 describe('buildNewItemCommands', () => {
-    it('offers a new diagram, document and folder, on their own shortcuts', () => {
+    it('offers a new diagram, document and folder, and a new file from a template, on their own shortcuts', () => {
         const commands = buildNewItemCommands(context())
         const keybinds = createDefaultKeybinds(false)
-        expect(commands.map((c) => [c.label, commandShortcut(c, keybinds, false)])).toEqual([
-            ['New Diagram…', 'Alt+N'],
-            ['New Document…', 'Ctrl+N'],
-            ['New Folder…', undefined],
+        expect(commands.map((c) => [c.id, c.label, commandShortcut(c, keybinds, false)])).toEqual([
+            ['new-diagram', 'New Diagram…', 'Alt+N'],
+            ['new-document', 'New Document…', 'Ctrl+N'],
+            ['new-folder', 'New Folder…', undefined],
+            ['new-from-template', 'New from Template…', undefined],
         ])
-        expect(commands.map((c) => c.keybind)).toEqual(['workspace.newDiagram', 'workspace.newDocument', 'workspace.newFolder'])
+        expect(commands.map((c) => c.keybind)).toEqual([
+            'workspace.newDiagram',
+            'workspace.newDocument',
+            'workspace.newFolder',
+            'workspace.newFromTemplate',
+        ])
+    })
+
+    it('runs New from Template on keys the user sets', () => {
+        const command = find(context(), 'new-from-template')!
+        const keybinds = { ...createDefaultKeybinds(false), 'workspace.newFromTemplate': [{ key: 't', ctrl: true, alt: true }] }
+        expect(commandShortcut(command, keybinds, false)).toBe('Ctrl+Alt+T')
+    })
+
+    it('starts a new file from a template in the folder new items go in when it runs', async () => {
+        let folder: string | null = '/ws/docs'
+        const ctx = context({ targetFolder: () => folder })
+        const command = find(ctx, 'new-from-template')!
+
+        folder = '/ws/old'
+        await act(async () => void command.run())
+        expect(ctx.newFromTemplate).toHaveBeenCalledExactlyOnceWith('/ws/old')
+        expect(ctx.createNewItem).not.toHaveBeenCalled()
+        expect(ctx.showExplorer).not.toHaveBeenCalled()
+
+        folder = null
+        await act(async () => void command.run())
+        expect(ctx.newFromTemplate).toHaveBeenCalledTimes(1)
     })
 
     it('creates in the folder new items go in when it runs', () => {
@@ -74,9 +113,9 @@ describe('buildNewItemCommands', () => {
         expect(ctx.showExplorer).not.toHaveBeenCalled()
     })
 
-    it('says to open a folder first when none is open', () => {
-        expect(find(context({ hasWorkspace: false }), 'new-document')).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
-        expect(find(context(), 'new-document')).toMatchObject({ disabled: false })
+    it.each(['new-diagram', 'new-document', 'new-folder', 'new-from-template'])('says to open a folder first when none is open (%s)', (id) => {
+        expect(find(context({ hasWorkspace: false }), id)).toMatchObject({ disabled: true, disabledReason: 'Open a folder first' })
+        expect(find(context(), id)).toMatchObject({ disabled: false })
     })
 })
 
@@ -214,11 +253,25 @@ describe('useNewItemCommands', () => {
         expect(layout.setExplorerOpen).not.toHaveBeenCalled()
     })
 
+    it('starts a new file from a template in the folder New Document would use', () => {
+        activeTab.id = '/ws/docs/notes.md'
+        const command = renderCommands()
+
+        act(() => void command('new-from-template').run())
+        expect(newFromTemplate).toHaveBeenCalledWith('/ws/docs')
+
+        row('/ws/drafts').focus()
+        act(() => void command('new-from-template').run())
+        expect(newFromTemplate).toHaveBeenLastCalledWith('/ws/drafts')
+        expect(createNewItem).not.toHaveBeenCalled()
+    })
+
     it('is off with no folder open', () => {
         session.workspaceRoot = null
         session.tree = []
         const command = renderCommands()
 
         expect(command('new-document').disabled).toBe(true)
+        expect(command('new-from-template').disabled).toBe(true)
     })
 })

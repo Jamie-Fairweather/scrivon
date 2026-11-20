@@ -32,6 +32,10 @@ vi.mock('next/image', () => ({
 }))
 const promptName = vi.hoisted(() => vi.fn(async () => null))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
+const chooseTemplate = vi.hoisted(() =>
+    vi.fn(async () => ({ title: 'Meeting notes', fileName: 'meeting-notes.md', kind: 'markdown' as const, text: '# {{title}}' }))
+)
+vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate }) }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useActiveTabId: vi.fn(),
     useCanvasFit: vi.fn(),
@@ -385,6 +389,7 @@ describe('StudioMenuBar File menu', () => {
             'New Diagram…Alt+N',
             'New Document…Ctrl+N',
             'New Folder…',
+            'New from Template…',
             'Open Folder…',
             'Close Folder',
             'SaveCtrl+S',
@@ -434,6 +439,24 @@ describe('StudioMenuBar File menu', () => {
         expect(promptName).toHaveBeenCalledWith(expect.objectContaining({ kind: 'new-document', folder: 'C:\\work\\docs' }))
     })
 
+    it('starts a new file from a template in the folder New Document would use', async () => {
+        mockContexts({ workspaceRoot: 'C:\\work', activeTabId: 'C:\\work\\docs\\a.md' })
+        render(<Studio />)
+
+        await userEvent.setup().click(within(await openMenu('File')).getByRole('menuitem', { name: 'New from Template…' }))
+
+        expect(chooseTemplate).toHaveBeenCalledTimes(1)
+        await waitFor(() =>
+            expect(promptName).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    kind: 'new-from-template',
+                    folder: 'C:\\work\\docs',
+                    template: { title: 'Meeting notes', extension: '.md' },
+                })
+            )
+        )
+    })
+
     it('asks for a new document in the explorer row clicked before the menu', async () => {
         mockContexts({ workspaceRoot: 'C:\\work', activeTabId: 'C:\\work\\docs\\a.md' })
         render(
@@ -455,7 +478,7 @@ describe('StudioMenuBar File menu', () => {
         render(<Studio />)
 
         const file = await openMenu('File')
-        for (const name of [/^New Diagram/, /^New Document/, /^New Folder/]) {
+        for (const name of [/^New Diagram/, /^New Document/, /^New Folder/, /^New from Template/]) {
             expect(within(file).getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
         }
     })
@@ -712,7 +735,7 @@ describe('StudioMenuBar and the palette', () => {
             await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
         }
         // Everything but the Open Recent and Theme submenus, which list choices rather than commands.
-        expect(compared).toBe(54)
+        expect(compared).toBe(55)
     })
 })
 

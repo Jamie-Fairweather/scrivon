@@ -3,8 +3,9 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ExplorerBackgroundMenu } from './explorer-background-menu'
 
-const { promptName, session, coordinator } = vi.hoisted(() => ({
+const { promptName, chooseTemplate, session, coordinator } = vi.hoisted(() => ({
     promptName: vi.fn(async () => null),
+    chooseTemplate: vi.fn(async () => null),
     session: {
         workspaceRoot: 'C:\\ws',
         refreshTree: vi.fn(async () => {}),
@@ -17,6 +18,7 @@ const { promptName, session, coordinator } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName }) }))
+vi.mock('@/components/studio/dialogs/template-picker-provider', () => ({ useTemplatePicker: () => ({ chooseTemplate }) }))
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useWorkspaceSession: () => session,
     useWorkspaceCoordinator: () => coordinator,
@@ -47,7 +49,7 @@ describe('ExplorerBackgroundMenu', () => {
             within(menu)
                 .getAllByRole('menuitem')
                 .map((item) => item.textContent)
-        ).toEqual(['New Diagram…', 'New Document…', 'New Folder…', 'Refresh'])
+        ).toEqual(['New Diagram…', 'New Document…', 'New Folder…', 'New from Template…', 'Refresh'])
     })
 
     it.each([
@@ -61,6 +63,17 @@ describe('ExplorerBackgroundMenu', () => {
         await userEvent.setup().click(await screen.findByRole('menuitem', { name }))
 
         expect(promptName).toHaveBeenCalledWith(expect.objectContaining({ kind, folder: 'C:\\ws' }))
+    })
+
+    it('starts a new file from a template at the top of the open folder, asking for the template first', async () => {
+        renderExplorer()
+        fireEvent.contextMenu(screen.getByText('No files in this folder.'))
+
+        await userEvent.setup().click(await screen.findByRole('menuitem', { name: 'New from Template…' }))
+
+        expect(chooseTemplate).toHaveBeenCalledTimes(1)
+        // Cancelled in the picker: no name is asked for.
+        await waitFor(() => expect(promptName).not.toHaveBeenCalled())
     })
 
     it('leaves a right-click inside the open menu alone', async () => {

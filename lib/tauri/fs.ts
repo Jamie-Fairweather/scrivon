@@ -662,6 +662,15 @@ export async function listFolderNames(dirPath: string): Promise<string[]> {
     return (await readDir(dirPath)).map((entry) => entry.name)
 }
 
+/** One thing directly in a folder, from listFolderEntries. */
+export type FolderEntry = { name: string; isFile: boolean; isDirectory: boolean }
+
+/** What is directly in a folder, from one listing. Throws as the listing does, for a missing folder too (see isFileMissingError). */
+export async function listFolderEntries(dirPath: string): Promise<FolderEntry[]> {
+    if (!isTauri()) return []
+    return (await readDir(dirPath)).map(({ name, isFile, isDirectory }) => ({ name, isFile, isDirectory }))
+}
+
 /** A tab's edits that aren't saved yet, and how its file is stored. */
 export type UnsavedText = { content: string; format?: TextFileFormat }
 
