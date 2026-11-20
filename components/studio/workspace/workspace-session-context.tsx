@@ -36,6 +36,7 @@ import {
     watchWorkspace,
     type WorkspaceChange,
 } from '@/lib/tauri/fs'
+import { readGitStatus } from '@/lib/tauri/git'
 import { onLaunchPaths, takeLaunchPaths, type LaunchPath } from '@/lib/tauri/launch'
 import { isTauri } from '@/lib/tauri/platform'
 import { allowWorkspacePath, forgetWorkspacePath } from '@/lib/tauri/scope'
@@ -57,6 +58,8 @@ import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '
 import { dismissNotification, errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
+import { gitChangesFrom, NO_GIT_CHANGES, type GitChanges } from '@/lib/workspace/git-status'
+import { createGitStatusRefresher, type GitRefreshReason } from '@/lib/workspace/git-status-refresh'
 import { planLaunchOpen } from '@/lib/workspace/launch-open'
 import { moveRefusal } from '@/lib/workspace/move-entry'
 import {
@@ -85,6 +88,11 @@ type WorkspaceSessionContextValue = {
     /** The folder being opened right now (reading a big one takes a while), or null. */
     openingWorkspace: string | null
     tree: FileNode[]
+    /**
+     * What git sees changed in the open folder, for the explorer's marks (gitRowMark). NO_GIT_CHANGES outside a
+     * repository, or with the setting off. Only a refresh that changes something gives a new object.
+     */
+    gitChanges: GitChanges
     /**
      * The folders the user opened or closed in the file tree, by path; the rest follow the tree's default.
      * Kept here rather than in the tree, so hiding the explorer or switching to Examples doesn't lose them,
@@ -259,6 +267,11 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
     const openWorkspaceRef = useRef<(path: string, atStartup?: boolean) => Promise<void>>(async () => {})
 
+    const [gitChanges, setGitChanges] = useState<GitChanges>(NO_GIT_CHANGES)
+    const showGitChanges = settings.workspace.showGitChanges
+    // Asks for the open folder's git changes again; null while they aren't shown (no folder, or the setting off).
+    const gitRefresh = useRef<((reason: GitRefreshReason) => void) | null>(null)
+
     const [folderToggles, setFolderTogglesState] = useState<ReadonlyMap<string, boolean>>(() => new Map())
     // The ref is the latest value, so changes made one after another (a rename, then a click) build on each other.
     const folderTogglesRef = useRef(folderToggles)
@@ -348,6 +361,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         async (announce: boolean) => {
             const root = workspaceRoot
             if (!root || !isOpenFolder(root)) return
+            // After a change Scrivon made (a new, renamed or deleted file), or Refresh: the marks follow it too.
+            gitRefresh.current?.('save')
             const { read, signal } = startTreeRead('all')
             try {
                 const next = await listWorkspaceTree(root, { signal })
@@ -367,6 +382,37 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
 
     const refreshTree = useCallback(() => readWholeTree(false), [readWholeTree])
 
+    // Git status for the open folder: as it opens (or the setting is turned on), and again after a save in Scrivon,
+    // a window focus, a change the watcher saw, or git's own files changing (see createGitStatusRefresher). Not with
+    // the tree's few-seconds gap: one run is quick, and marks should follow a commit within a second.
+    useEffect(() => {
+        if (!isDesktop || !workspaceRoot || !showGitChanges) return
+        const root = workspaceRoot
+        const refresher = createGitStatusRefresher({
+            read: () => readGitStatus(root),
+            apply: (reply) => {
+                // A folder that is no longer open: its result is thrown away.
+                if (!isOpenFolder(root)) return
+                const next = reply.state === 'changes' ? gitChangesFrom(root, reply.entries) : NO_GIT_CHANGES
+                // The same marks again (each autosave asks): nothing that uses the session draws again.
+                setGitChanges((prev) => (prev.key === next.key ? prev : next))
+            },
+        })
+        gitRefresh.current = refresher.request
+        refresher.request('open')
+        return () => {
+            refresher.dispose()
+            if (gitRefresh.current === refresher.request) gitRefresh.current = null
+            // Another folder opened, or the setting was turned off: the marks go at once.
+            setGitChanges(NO_GIT_CHANGES)
+        }
+    }, [isDesktop, workspaceRoot, showGitChanges, isOpenFolder])
+
+    // A file saved in Scrivon changes its mark (a save outside a watched repository has no other way to tell).
+    useEffect(() => {
+        registerCoordinatorRefs(coordinator, { fileSaved: () => gitRefresh.current?.('save') })
+    }, [coordinator])
+
     // The tree shown now, for telling whether a change seen by the watcher alters it.
     const treeRef = useRef(tree)
     useEffect(() => {
@@ -383,6 +429,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             const root = workspaceRoot
             // A folder that is no longer open: its tree isn't the one shown (and the new one's watcher sees its own changes).
             if (!root || !isOpenFolder(root)) return
+            gitRefresh.current?.('save')
             const folder = normalizePath(folderPath)
             // A read still running (a window focus, say) may have listed the folder before the change, so it
             // stops: it can't put the old entries back over these. What it was reading is read here instead: the
@@ -528,12 +575,14 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             }, wait)
         }
         const onFocus = () => {
+            gitRefresh.current?.('focus')
             treeWanted = true
             if (!unwatch) imagesStale = true
             request()
             requestTabs()
         }
         const onDiskChange = (change: WorkspaceChange) => {
+            gitRefresh.current?.('watch')
             forgetWorkspaceImages([...change.added, ...change.removed, ...change.changed])
             // A whole read is due anyway, so there is no need to keep what changed (a checkout can touch thousands of files).
             if (!treeWanted) {
@@ -549,7 +598,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         // does a folder too big to show it all (a whole drive): something in it changes all the time, and
         // reading it again for each change would keep the app busy for nothing shown.
         if (!treeTruncated) {
-            void watchWorkspace(root, onDiskChange)
+            // A commit, checkout or `git add` changes only git's own files, which change no file or tab: just the marks.
+            void watchWorkspace(root, onDiskChange, () => gitRefresh.current?.('git'))
                 .then((fn) => {
                     if (disposed) fn()
                     else unwatch = fn
@@ -1359,6 +1409,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             workspaceName,
             openingWorkspace,
             tree,
+            gitChanges,
             folderToggles,
             setFolderExpanded,
             setFoldersExpanded,
@@ -1387,6 +1438,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             workspaceName,
             openingWorkspace,
             tree,
+            gitChanges,
             folderToggles,
             setFolderExpanded,
             setFoldersExpanded,

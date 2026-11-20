@@ -1,7 +1,8 @@
 import { chordKey, chordsEqual, isAllowedChord, isMacPlatform, isReservedKey, isUnnamedKey } from '@/lib/settings/chord-utils'
 import { formatChord } from '@/lib/settings/format-keybind'
-import { canShareKeys, isEditorAction, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
+import { canShareKeys, getKeybindActionMeta, isEditorAction, KEYBIND_ACTIONS } from '@/lib/settings/keybind-registry'
 import type { KeybindActionId, KeybindBindings, KeybindChord } from '@/lib/settings/types'
+import { isWorkspaceSearchOptionChord } from '@/lib/settings/workspace-search-keys'
 
 export type KeybindConflict = {
     chordKey: string
@@ -115,10 +116,17 @@ function usesEditorChord(chord: KeybindChord, editorAction: boolean): boolean {
     return usesReservedChord(EDITOR_CHORDS, chord)
 }
 
-/** Why this action can't have a chord the editor, the explorer or the menu bar uses (clipboard, rename…), or null when it's free to use. */
+/**
+ * Why this action can't have a chord the editor, the explorer, the menu bar or Find in Workspace uses
+ * (clipboard, rename, Match Case…), or null when it's free to use. Find in Workspace's option keys only
+ * matter to actions that run while the palette is open.
+ */
 export function describeEditorChordClash(chord: KeybindChord, isMac = isMacPlatform(), actionId?: KeybindActionId): string | null {
     const editorAction = actionId !== undefined && isEditorAction(actionId)
     if (usesReservedChord(MENU_BAR_CHORDS, chord)) return `${formatChord(chord, isMac)} is used by the menu bar`
+    if (actionId !== undefined && getKeybindActionMeta(actionId)?.allowInPalette && isWorkspaceSearchOptionChord(chord, isMac)) {
+        return `${formatChord(chord, isMac)} is used by Find in Workspace`
+    }
     if (!editorAction && usesReservedChord(EXPLORER_CHORDS, chord)) return `${formatChord(chord, isMac)} is used by the explorer`
     return usesEditorChord(chord, editorAction) ? `${formatChord(chord, isMac)} is used by the editor` : null
 }

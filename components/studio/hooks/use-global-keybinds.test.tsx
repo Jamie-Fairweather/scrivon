@@ -98,6 +98,24 @@ describe('useGlobalKeybinds', () => {
         expect(event.defaultPrevented).toBe(false)
     })
 
+    it("leaves Find in Workspace's option keys to the palette while its options show, whatever has them", () => {
+        const openFiles = vi.fn()
+        // Put in the settings file by hand: Keyboard settings refuses Alt+R for a palette action.
+        renderHook(() => useGlobalKeybinds({ ...bindings, 'palette.openFiles': [{ key: 'r', alt: true }] }, { 'palette.openFiles': openFiles }))
+        const palette = addElement({ role: 'dialog', 'data-open': '', 'data-slot': 'command-dialog-popup' })
+        const input = document.createElement('input')
+        palette.appendChild(input)
+
+        // Without the options row (Go to File, or a > query), the shortcut runs as before.
+        press('r', { altKey: true, code: 'KeyR' }, input)
+        expect(openFiles).toHaveBeenCalledTimes(1)
+
+        palette.setAttribute('data-search-option-keys', '')
+        const event = press('r', { altKey: true, code: 'KeyR' }, input)
+        expect(openFiles).toHaveBeenCalledTimes(1)
+        expect(event.defaultPrevented).toBe(false)
+    })
+
     it('still skips palette shortcuts in a text field outside the palette', () => {
         const openText = vi.fn()
         renderHook(() => useGlobalKeybinds(bindings, { 'palette.openText': openText }))

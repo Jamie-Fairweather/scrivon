@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { AppUpdateProvider } from '@/components/studio/app-update-provider'
+import { BatchExportWithoutFolder } from '@/components/studio/batch-export/batch-export-provider'
 import { CommandPaletteProvider } from '@/components/studio/command-palette/command-palette-provider'
 import { CommandRegistryProvider } from '@/components/studio/commands/command-registry'
 import { DeleteConfirmProvider } from '@/components/studio/dialogs/delete-confirm-provider'
@@ -31,6 +32,8 @@ function StudioRouter() {
     if (!workspaceRoot) {
         return (
             <div className="relative flex h-dvh flex-col overflow-hidden bg-background">
+                {/* The studio layout registers the folder export once a folder is open; until then it is greyed out. */}
+                <BatchExportWithoutFolder />
                 <StudioMenuBar />
                 <WelcomeScreen />
             </div>

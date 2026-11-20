@@ -46,6 +46,8 @@ const KEYBIND_ACTION_META = {
     'tabs.close': { label: 'Close tab', category: 'Tabs', when: 'workspace' },
     'tabs.next': { label: 'Next tab', category: 'Tabs', when: 'workspace', allowRepeat: true },
     'tabs.previous': { label: 'Previous tab', category: 'Tabs', when: 'workspace', allowRepeat: true },
+    'tabs.moveLeft': { label: 'Move tab left', category: 'Tabs', when: 'workspace', allowRepeat: true },
+    'tabs.moveRight': { label: 'Move tab right', category: 'Tabs', when: 'workspace', allowRepeat: true },
     'tabs.reopenClosed': { label: 'Reopen closed tab', category: 'Tabs', when: 'workspace' },
     'view.toggleExplorer': { label: 'Toggle explorer', category: 'View', when: 'workspace' },
     'view.toggleEditor': { label: 'Toggle editor', category: 'View', when: 'workspace' },

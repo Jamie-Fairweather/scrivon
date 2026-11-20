@@ -14,6 +14,7 @@ const tabActions = vi.hoisted(() => ({
     closeTabsToRight: vi.fn(async () => {}),
     closeSavedTabs: vi.fn(async () => {}),
     revertTab: vi.fn(async () => {}),
+    moveTab: vi.fn(),
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
@@ -57,6 +58,8 @@ describe('EditorTabRowContextMenu', () => {
             'Close to the Right',
             'Close Saved',
             'Close All',
+            'Move Left',
+            'Move Right',
             'Revert File',
             'Reveal in File Explorer',
             'Copy Path',
@@ -81,6 +84,34 @@ describe('EditorTabRowContextMenu', () => {
         expect(await screen.findByRole('menuitem', { name: 'Close to the Right' })).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByRole('menuitem', { name: 'Close Saved' })).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByRole('menuitem', { name: 'Close Others' })).not.toHaveAttribute('aria-disabled')
+    })
+
+    it('moves the tab one place left or right, and greys out the way it cannot go', async () => {
+        tabs = [tab('C:/w/a.md'), tab('C:/w/b.md'), tab('C:/w/c.md')]
+        openMenuFor('C:/w/b.md')
+
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Move Left' }))
+        expect(tabActions.moveTab).toHaveBeenLastCalledWith('C:/w/b.md', 0)
+        rightClickTab()
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Move Right' }))
+        expect(tabActions.moveTab).toHaveBeenLastCalledWith('C:/w/b.md', 2)
+    })
+
+    it('greys out Move Left on the first tab and Move Right on the last', async () => {
+        tabs = [tab('C:/w/a.md'), tab('C:/w/b.md')]
+        const first = render(
+            <EditorTabRowContextMenu tabId="C:/w/a.md">
+                <button type="button">first</button>
+            </EditorTabRowContextMenu>
+        )
+        fireEvent.contextMenu(screen.getByRole('button', { name: 'first' }), { clientX: 10, clientY: 10 })
+        expect(await screen.findByRole('menuitem', { name: 'Move Left' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByRole('menuitem', { name: 'Move Right' })).not.toHaveAttribute('aria-disabled')
+        first.unmount()
+
+        openMenuFor('C:/w/b.md')
+        expect(await screen.findByRole('menuitem', { name: 'Move Right' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByRole('menuitem', { name: 'Move Left' })).not.toHaveAttribute('aria-disabled')
     })
 
     it("reveals the tab's file in File Explorer and copies its path", async () => {

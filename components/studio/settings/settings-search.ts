@@ -44,6 +44,7 @@ function headerFooterEntries(group: 'Header' | 'Footer'): SettingsSearchEntry[] 
 const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     { section: 'general', label: 'Autosave', keywords: 'save automatically' },
     { section: 'general', label: 'Autosave delay (ms)', keywords: 'wait time' },
+    { section: 'general', label: 'Show git changes in the explorer', keywords: 'modified untracked added status files version control', desktopOnly: true },
 
     { section: 'appearance', label: 'Zoom', keywords: 'bigger smaller scale text size', desktopOnly: true },
     { section: 'appearance', label: 'Preview text size', keywords: 'markdown font bigger smaller zoom' },

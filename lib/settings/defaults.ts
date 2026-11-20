@@ -61,6 +61,9 @@ export function createDefaultKeybinds(isMac: boolean): KeybindBindings {
         // Ctrl+Tab on macOS too, as browsers there use it: Cmd+Tab switches apps.
         'tabs.next': [chord('Tab', { ctrl: true }), chord('PageDown', mod)],
         'tabs.previous': [chord('Tab', { ctrl: true, shift: true }), chord('PageUp', mod)],
+        // Shift added to the keys that switch tabs, as in other tabbed editors.
+        'tabs.moveLeft': [chord('PageUp', { ...mod, shift: true })],
+        'tabs.moveRight': [chord('PageDown', { ...mod, shift: true })],
         'tabs.reopenClosed': [chord('t', { ...mod, shift: true })],
         // Only while typing in a Markdown file, where they come before the app's own keys.
         'format.bold': [chord('b', mod)],
@@ -121,6 +124,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,
             reopenLastFolder: true,
+            showGitChanges: true,
         },
         updates: {
             checkOnLaunch: true,
@@ -134,6 +138,11 @@ export function createDefaultSettings(isMac = false): AppSettings {
             transparent: false,
         },
         spellcheck: createDefaultSpellcheckSettings(),
+        workspaceSearch: {
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+        },
         keybinds: createDefaultKeybinds(isMac),
     }
 }

@@ -7,6 +7,7 @@ import { pickSavePath, writeBinaryFile, writeTextFileAtPath } from '@/lib/tauri/
 import { isTauri } from '@/lib/tauri/platform'
 import { savePathBesideDocument } from '@/lib/tauri/save-path'
 import { flattenSvgForExport } from '@/lib/mermaid/flatten-svg'
+import { unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
 import { renderMermaidDiagramForExport, type ExportRenderOptions } from '@/lib/mermaid/render'
 import { getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import { safeFileStem } from '@/lib/workspace/paths'
@@ -79,15 +80,44 @@ export function diagramFileStem(source: string, target: DiagramExportTarget): st
     return index && count > 1 ? `${stem}-${index}` : stem
 }
 
+/** Why a diagram can't be saved or copied as a picture: nothing to draw, a type Scrivon can't draw, or too big for a PNG. */
+export type DiagramExportProblem = 'empty' | 'unsupported' | 'png-too-big'
+
+/**
+ * A diagram that can't be exported for a reason the user can act on (see DiagramExportProblem), as opposed to a
+ * parse error or a failed write. A batch export lists an empty or unsupported diagram as skipped, not failed.
+ */
+export class DiagramExportError extends Error {
+    declare readonly problem: DiagramExportProblem
+
+    constructor(problem: DiagramExportProblem, message: string) {
+        super(message)
+        // Not an own field, so the error still reads (and compares) as the plain message it shows.
+        Object.defineProperty(this, 'problem', { value: problem })
+    }
+}
+
+/** The problem behind `err` when it is a DiagramExportError, else null (a parse error, say). */
+export function diagramExportProblem(err: unknown): DiagramExportProblem | null {
+    return err instanceof DiagramExportError ? err.problem : null
+}
+
 export function buildExportSvg(source: string, themeId: AppThemeId, options?: ExportRenderOptions): string {
     const trimmed = source.trim()
     if (!trimmed) {
-        throw new Error('Nothing to export.')
+        throw new DiagramExportError('empty', 'Nothing to export.')
     }
-    const svg = renderMermaidDiagramForExport(trimmed, themeId, options)
+    let svg: string
+    try {
+        svg = renderMermaidDiagramForExport(trimmed, themeId, options)
+    } catch (err) {
+        // A pie chart, say. The renderer's message names the types Scrivon can draw.
+        if (unsupportedDiagramNote(trimmed)) throw new DiagramExportError('unsupported', err instanceof Error ? err.message : String(err))
+        throw err
+    }
     // Text with nothing to draw yet (just `graph TD`, say) renders a 0×0 picture: don't save an empty file.
     if (!getSvgDimensions(svg)) {
-        throw new Error('The diagram is empty, so there is nothing to export.')
+        throw new DiagramExportError('empty', 'The diagram is empty, so there is nothing to export.')
     }
     // Standalone .svg/.png files are opened outside the browser, so bake every colour in.
     return flattenSvgForExport(svg)
@@ -212,13 +242,68 @@ export async function svgToPngBlob(svg: string, themeId: AppThemeId, scale: numb
     return canvasToPngBlob(canvas)
 }
 
+/** What to draw a diagram as: SVG text, or a PNG at `scale` (or smaller, see fitPngScale). */
+export type DiagramImageRequest = { format: 'svg' } | { format: 'png'; scale: number }
+
+export type SvgDiagramImage = { format: 'svg'; svg: string }
+
+export type PngDiagramImage = {
+    format: 'png'
+    bytes: Uint8Array<ArrayBuffer>
+    /** The size it was drawn at (`32767 × 1311 px`) when the diagram was too big for the scale asked for. */
+    smallerSize?: string
+}
+
+export type DiagramImage = SvgDiagramImage | PngDiagramImage
+
+/**
+ * Draws a diagram for export, as SVG text or PNG bytes, with no save dialog and no toast. It is the one place that
+ * renders for export: saving, copying to the clipboard and exporting a whole folder all call it, so the same diagram
+ * gives the same picture. An SVG leaves out the sequence label halo, since some apps that open .svg files would
+ * draw it over the letters. A PNG keeps it, and is shrunk to fit a canvas, but never below half size. Throws
+ * DiagramExportError when the diagram is empty, a type Scrivon can't draw, or too big for a PNG, and the
+ * parser's error when the text doesn't draw.
+ */
+export function renderDiagramImage(source: string, look: DiagramLook, request: { format: 'svg' }): Promise<SvgDiagramImage>
+export function renderDiagramImage(source: string, look: DiagramLook, request: { format: 'png'; scale: number }): Promise<PngDiagramImage>
+export function renderDiagramImage(source: string, look: DiagramLook, request: DiagramImageRequest): Promise<DiagramImage>
+export async function renderDiagramImage(source: string, { themeId, transparent }: DiagramLook, request: DiagramImageRequest): Promise<DiagramImage> {
+    if (request.format === 'svg') {
+        // Other apps open this file, and some would hide halo'd labels (see ExportRenderOptions).
+        return { format: 'svg', svg: buildExportSvg(source, themeId, { labelHalo: false, transparent }) }
+    }
+
+    // Keep the label halo even when transparent: like the edge-label boxes, it stops lines running through the text.
+    const svg = buildExportSvg(source, themeId, { transparent })
+    const dims = getSvgDimensions(svg)
+    if (!dims) {
+        throw new Error('Could not determine diagram dimensions.')
+    }
+
+    // Shrink to fit rather than fail, but not so far that the labels can't be read.
+    const { scale } = request
+    const drawScale = fitPngScale(dims, scale)
+    if (drawScale < MIN_PNG_SCALE) {
+        throw new DiagramExportError('png-too-big', PNG_TOO_LARGE_MESSAGE)
+    }
+
+    const blob = await svgToPngBlob(svg, themeId, drawScale, { transparent })
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    if (drawScale >= scale) return { format: 'png', bytes }
+    return { format: 'png', bytes, smallerSize: `${Math.round(dims.width * drawScale)} × ${Math.round(dims.height * drawScale)} px` }
+}
+
+/** Says a PNG was drawn smaller than asked: `This diagram is too big for 4×, so it was saved at 32767 × 1311 px.` */
+export function smallerPngDescription(scale: number, smallerSize: string, done: 'saved' | 'copied' = 'saved'): string {
+    return `This diagram is too big for ${scale}×, so it was ${done} at ${smallerSize}.`
+}
+
 const SVG_FILTERS = [{ name: 'SVG', extensions: ['svg'] }]
 const PNG_FILTERS = [{ name: 'PNG', extensions: ['png'] }]
 
-export async function exportSvg(source: string, { themeId, transparent }: DiagramLook, target: DiagramExportTarget): Promise<void> {
+export async function exportSvg(source: string, look: DiagramLook, target: DiagramExportTarget): Promise<void> {
     try {
-        // Other apps open this file, and some would hide halo'd labels (see ExportRenderOptions).
-        const svg = buildExportSvg(source, themeId, { labelHalo: false, transparent })
+        const { svg } = await renderDiagramImage(source, look, { format: 'svg' })
         const filename = `${diagramFileStem(source, target)}.svg`
         const saved = await saveText(svg, filename, target.tabPath, SVG_FILTERS)
         // The browser shows its own download, so only a file saved to disk needs a word.
@@ -228,45 +313,16 @@ export async function exportSvg(source: string, { themeId, transparent }: Diagra
     }
 }
 
-/**
- * The diagram as a PNG at `scale`, or smaller when that won't fit on a canvas. `smallerSize` is
- * the size it was shrunk to, if it was. `tooBig` is the error for one too big at any readable size.
- */
-async function diagramPng(
-    source: string,
-    { themeId, transparent }: DiagramLook,
-    scale: number,
-    tooBig: string
-): Promise<{ blob: Blob; smallerSize?: string }> {
-    // Keep the label halo even when transparent: like the edge-label boxes, it stops lines running through the text.
-    const svg = buildExportSvg(source, themeId, { transparent })
-    const dims = getSvgDimensions(svg)
-    if (!dims) {
-        throw new Error('Could not determine diagram dimensions.')
-    }
-
-    // Shrink to fit rather than fail, but not so far that the labels can't be read.
-    const drawScale = fitPngScale(dims, scale)
-    if (drawScale < MIN_PNG_SCALE) {
-        throw new Error(tooBig)
-    }
-
-    const blob = await svgToPngBlob(svg, themeId, drawScale, { transparent })
-    if (drawScale >= scale) return { blob }
-    return { blob, smallerSize: `${Math.round(dims.width * drawScale)} × ${Math.round(dims.height * drawScale)} px` }
-}
-
 export async function exportPng(source: string, look: DiagramLook, target: DiagramExportTarget, scale: PngExportScale): Promise<void> {
     try {
-        const { blob, smallerSize } = await diagramPng(source, look, scale, PNG_TOO_LARGE_MESSAGE)
+        const { bytes, smallerSize } = await renderDiagramImage(source, look, { format: 'png', scale })
         const filename = `${diagramFileStem(source, target)}.png`
-        const bytes = new Uint8Array(await blob.arrayBuffer())
         const saved = await saveBytes(bytes, filename, target.tabPath, 'image/png', PNG_FILTERS)
         if (!saved) return
 
         const { path } = saved
         if (smallerSize) {
-            const description = `This diagram is too big for ${scale}×, so it was saved at ${smallerSize}.`
+            const description = smallerPngDescription(scale, smallerSize)
             notifyWarning('Saved a smaller PNG', path ? { description, action: showInFolderAction(path) } : { description })
         } else if (path) {
             notifyFileSaved(path)
@@ -284,12 +340,13 @@ const PNG_TOO_LARGE_TO_COPY_MESSAGE = 'This diagram is too big to copy as a PNG.
 /** Copies the diagram as a PNG, ready to paste into slides or a chat. */
 export async function copyPng(source: string, look: DiagramLook): Promise<void> {
     try {
-        const { blob, smallerSize } = await diagramPng(source, look, COPY_PNG_SCALE, PNG_TOO_LARGE_TO_COPY_MESSAGE)
-        await writeClipboardPng(new Uint8Array(await blob.arrayBuffer()))
+        const { bytes, smallerSize } = await renderDiagramImage(source, look, { format: 'png', scale: COPY_PNG_SCALE }).catch((err: unknown) => {
+            // The shared message says to save it as SVG; here the choice is copying it.
+            throw diagramExportProblem(err) === 'png-too-big' ? new Error(PNG_TOO_LARGE_TO_COPY_MESSAGE) : err
+        })
+        await writeClipboardPng(bytes)
         if (smallerSize) {
-            notifyWarning('Copied a smaller PNG', {
-                description: `This diagram is too big for ${COPY_PNG_SCALE}×, so it was copied at ${smallerSize}.`,
-            })
+            notifyWarning('Copied a smaller PNG', { description: smallerPngDescription(COPY_PNG_SCALE, smallerSize, 'copied') })
         } else {
             notifySuccess('Diagram copied as PNG')
         }
@@ -302,10 +359,10 @@ export async function copyPng(source: string, look: DiagramLook): Promise<void> 
  * Copies the diagram as SVG: the markup as text (for a web page, a .svg file or an app that reads SVG text) and, on
  * Windows, as an SVG picture that Word and PowerPoint paste as a picture.
  */
-export async function copySvg(source: string, { themeId, transparent }: DiagramLook): Promise<void> {
+export async function copySvg(source: string, look: DiagramLook): Promise<void> {
     try {
-        // Pasted into other apps, like a saved .svg file (see exportSvg).
-        const svg = buildExportSvg(source, themeId, { labelHalo: false, transparent })
+        // Pasted into other apps, like a saved .svg file.
+        const { svg } = await renderDiagramImage(source, look, { format: 'svg' })
         await writeClipboardSvg(svg)
         notifySuccess('Diagram copied as SVG')
     } catch (err) {

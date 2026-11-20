@@ -117,7 +117,7 @@ function errorText(err: unknown): string {
 }
 
 /** Folders listed at once while reading a tree. Each listing is a round trip to the app, so they overlap. */
-const MAX_PARALLEL_READS = 8
+export const MAX_PARALLEL_READS = 8
 
 export type Limit = <T>(task: () => Promise<T>) => Promise<T>
 
@@ -179,11 +179,15 @@ const OUTSIDE_OPENED_FOLDER = /forbidden path/i
  */
 export const MAX_TREE_ENTRIES = 50_000
 
-/** One read of a tree: its share of the parallel listings, the entries it may still list, and when to stop. */
-type TreeRead = { limit: Limit; budget: { left: number }; signal?: AbortSignal }
+/**
+ * One read of a tree: its share of the parallel listings, the entries it may still list, when to stop, and
+ * whether to list what is inside the subfolders.
+ */
+type TreeRead = { limit: Limit; budget: { left: number }; signal?: AbortSignal; subfolders: boolean }
 
 /** A folder's node, read through `read`: empty and marked when it can't be listed, or isn't because the budget ran out. */
 async function readFolderNode(name: string, fullPath: string, read: TreeRead, insideLink: boolean): Promise<FileNode> {
+    if (!read.subfolders) return { kind: 'directory', name, path: fullPath, children: [] }
     try {
         const children = await readDirTree(fullPath, read, insideLink)
         return children
@@ -254,6 +258,8 @@ export type ListWorkspaceTreeOptions = {
     signal?: AbortSignal
     /** MAX_TREE_ENTRIES unless given. */
     maxEntries?: number
+    /** False lists only the folder's own entries: its subfolders are there, but empty and not read. True unless given. */
+    subfolders?: boolean
 }
 
 /**
@@ -263,10 +269,11 @@ export type ListWorkspaceTreeOptions = {
  */
 export async function listWorkspaceTree(
     rootPath: string,
-    { signal, maxEntries = MAX_TREE_ENTRIES }: ListWorkspaceTreeOptions = {}
+    { signal, maxEntries = MAX_TREE_ENTRIES, subfolders = true }: ListWorkspaceTreeOptions = {}
 ): Promise<FileNode[]> {
     if (!isTauri()) return []
-    const tree = await readDirTree(normalizePath(rootPath), { limit: createLimit(MAX_PARALLEL_READS), budget: { left: maxEntries }, signal })
+    const read: TreeRead = { limit: createLimit(MAX_PARALLEL_READS), budget: { left: maxEntries }, signal, subfolders }
+    const tree = await readDirTree(normalizePath(rootPath), read)
     return tree ?? []
 }
 
@@ -345,6 +352,15 @@ const REPLACED_FILE = /~RF[0-9a-f]+\.TMP$/i
  */
 function isSaveTempFile(name: string): boolean {
     return SAVE_TEMP_FILE.test(name) || REPLACED_FILE.test(name)
+}
+
+/**
+ * A name for a temporary file to write before moving it into place under its real name, in the form a save's
+ * temporary file has, so the file list and the folder watcher leave it out while it is there.
+ */
+export function newTempFileName(): string {
+    const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+    return `.scrivon-save-${id}.tmp`
 }
 
 /**
@@ -447,6 +463,22 @@ export async function createWorkspaceFile(path: string, content: string, format?
     // createNew also refuses a file that turns up between the check and the write (and ignores letter case on Windows).
     if (format) await writeFile(path, encodeText(content, format), { createNew: true })
     else await writeTextFile(path, content, { createNew: true })
+}
+
+/**
+ * Creates a new file holding `bytes`, such as a PNG, through the app's create command, which flushes it to the
+ * disk before it resolves (src-tauri/src/atomic_write.rs). So a file written under a temporary name and then
+ * moved into place (renameWorkspacePath) can't come back empty under its real name after a power cut. Never
+ * replaces an existing one: throws PathExistsError instead, also for one that turns up a moment before.
+ */
+export async function createWorkspaceBinaryFile(path: string, bytes: Uint8Array): Promise<void> {
+    if (!isTauri()) return
+    try {
+        await invoke('create_workspace_file', saveRequestBody(normalizePath(path), bytes))
+    } catch (err) {
+        if (isPathTakenError(err, path)) throw new PathExistsError(path)
+        throw err
+    }
 }
 
 /**
@@ -581,6 +613,28 @@ export function classifyWatchEvent(root: string, event: WatchEvent): WorkspaceCh
     return change.added.length + change.removed.length + change.changed.length > 0 ? change : null
 }
 
+/** git's own files in `.git` that change with a commit, a checkout, `git add` or a merge. */
+const GIT_SIGNAL_FILES = new Set(['index', 'head', 'merge_head'])
+
+/**
+ * True for an event on git's own files for the repository at the top of `root`: `.git/index`, `.git/HEAD`,
+ * `.git/MERGE_HEAD`, or anything under `.git/refs/heads`. Reads aren't changes, and git status reads them.
+ */
+export function isGitChangeEvent(root: string, event: WatchEvent): boolean {
+    const type = event.type
+    if (typeof type === 'object' && ('access' in type || ('modify' in type && type.modify.kind === 'metadata' && type.modify.mode === 'access-time'))) {
+        return false
+    }
+    return event.paths.some((path) => {
+        const rest = pathInside(path, root)
+        if (rest === null) return false
+        const [top, ...parts] = rest.toLowerCase().split(/[\\/]/)
+        if (top !== '.git') return false
+        if (parts.length === 1) return GIT_SIGNAL_FILES.has(parts[0]!)
+        return parts.length >= 3 && parts[0] === 'refs' && parts[1] === 'heads'
+    })
+}
+
 /** How long changes are gathered before they are reported together (a git checkout touches many files at once). */
 const WATCH_BATCH_MS = 300
 
@@ -622,14 +676,20 @@ function fromNetChange(net: Map<string, NetChange>): WorkspaceChange {
 
 /**
  * Tells `onChange` about files and folders that change inside `root`, everything in it included, leaving
- * out what classifyWatchEvent drops. Resolves to a function that stops watching; rejects where the folder
- * can't be watched (some network drives).
+ * out what classifyWatchEvent drops. Changes to git's own files (isGitChangeEvent) go to `onGitChange` instead,
+ * straight away, and never to `onChange`: they don't change the file list or any open file. Resolves to a
+ * function that stops watching; rejects where the folder can't be watched (some network drives).
  */
-export async function watchWorkspace(root: string, onChange: (change: WorkspaceChange) => void): Promise<() => void> {
+export async function watchWorkspace(
+    root: string,
+    onChange: (change: WorkspaceChange) => void,
+    onGitChange: () => void = () => {}
+): Promise<() => void> {
     if (!isTauri()) return () => {}
     const base = normalizePath(root)
     let gathered = new Map<string, NetChange>()
     let timer: ReturnType<typeof setTimeout> | undefined
+    let stopped = false
     const report = () => {
         timer = undefined
         const change = fromNetChange(gathered)
@@ -642,6 +702,7 @@ export async function watchWorkspace(root: string, onChange: (change: WorkspaceC
     const stop = await watchImmediate(
         base,
         (event) => {
+            if (!stopped && isGitChangeEvent(base, event)) onGitChange()
             const change = classifyWatchEvent(base, event)
             if (!change) return
             addToNetChange(gathered, change)
@@ -650,6 +711,7 @@ export async function watchWorkspace(root: string, onChange: (change: WorkspaceC
         { recursive: true }
     )
     return () => {
+        stopped = true
         clearTimeout(timer)
         gathered = new Map()
         stop()

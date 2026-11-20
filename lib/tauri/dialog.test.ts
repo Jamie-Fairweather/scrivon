@@ -440,6 +440,26 @@ describe('confirmNameClash', () => {
         await expect(confirmNameClash(['a.md'], 'docs', 'copy', true)).resolves.toBe('cancel')
     })
 
+    it('asks in its own words about exported diagrams, listed by where they go in the folder', async () => {
+        messageMock.mockResolvedValueOnce('Skip')
+        await expect(confirmNameClash(['flow.svg', 'sub\\flow.svg'], 'out', 'export', true)).resolves.toBe('skip')
+        const [body, options] = messageMock.mock.calls[0]!
+        expect(body).toBe(
+            'out already has files named:\n\nflow.svg\nsub\\flow.svg\n\n' +
+                'Keep Both saves these diagrams with a number added to their names. Skip leaves them out. Nothing in the folder is replaced.'
+        )
+        expect(options).toMatchObject({ title: 'Name already used', buttons: { yes: 'Keep Both', no: 'Skip', cancel: 'Cancel' } })
+
+        // When every diagram clashes, skipping would leave nothing to export.
+        messageMock.mockResolvedValueOnce('Keep Both')
+        await expect(confirmNameClash(['flow.png'], 'out', 'export', false)).resolves.toBe('keep-both')
+        const [single, singleOptions] = messageMock.mock.calls[1]!
+        expect(single).toBe(
+            'out already has a file named flow.png.\n\nKeep Both saves the diagram with a number added to its name. Nothing in the folder is replaced.'
+        )
+        expect(singleOptions).toMatchObject({ buttons: { ok: 'Keep Both', cancel: 'Cancel' } })
+    })
+
     it('outside the desktop app keeps both only when the user agrees', async () => {
         isTauriMock.mockReturnValue(false)
         vi.stubGlobal('window', { confirm: vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false) })
