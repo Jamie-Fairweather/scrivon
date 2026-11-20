@@ -10,7 +10,7 @@
  */
 
 import { eastAsianWidthType } from 'get-east-asian-width'
-import { insideCodeBlock } from '@/lib/markdown/code-blocks'
+import { indentWidth, insideCodeBlock, insideIndentedCode, isCodeFence } from '@/lib/markdown/code-blocks'
 
 export type ColumnAlignment = 'left' | 'center' | 'right' | 'none'
 
@@ -63,7 +63,7 @@ const PLAIN_ASCII = /^[\x20-\x7e]*$/
 function graphemeWidth(grapheme: string): 1 | 2 {
     const type = eastAsianWidthType(grapheme.codePointAt(0) ?? 0)
     if (type === 'wide' || type === 'fullwidth') return 2
-    if (grapheme.includes('️') || EMOJI_PRESENTATION.test(grapheme)) return 2
+    if (grapheme.includes('\uFE0F') || EMOJI_PRESENTATION.test(grapheme)) return 2
     // Ambiguous characters count as narrow, and combining marks belong to their grapheme.
     return 1
 }
@@ -138,34 +138,56 @@ function isDelimiterFor(header: string, delimiter: string): boolean {
 /** The table's lines as written: from its header to its last row. */
 type FoundTable = { start: number; lines: string[] }
 
+// A line that starts another block ends a table, even with a `|` in it, as in the preview (micromark).
+const ATX_HEADING = /^[ \t]*#{1,6}(?:[ \t]|$)/
+const BLOCK_QUOTE = /^[ \t]*>/
+const LIST_ITEM = /^[ \t]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/
+
+/** Whether the line can be a table row: it has a `|`, and isn't a heading, list item, block quote or code fence. */
+function canBeRow(line: string): boolean {
+    return line.includes('|') && !ATX_HEADING.test(line) && !LIST_ITEM.test(line) && !BLOCK_QUOTE.test(line) && !isCodeFence(line)
+}
+
 /**
- * The table the line is in, or null. Lines with a `|` in them run together into a block, which a line
- * without one (or a blank line) ends. The table starts at the first line in the block with a delimiter
- * row under it and runs to the end of the block. Reads only the block's lines and the line each side.
+ * The table the line is in, or null. Lines that can be rows run together into a block, which a line
+ * without a `|`, a blank line or the start of another block (a heading, list item, block quote or code
+ * fence) ends. A table starts at a line in the block with a delimiter row under it, and runs to the end
+ * of the block, or to a row indented 4 more than its header (which is indented code). Reads only the
+ * block's lines and the line each side.
  */
 function findTable(lineAt: (index: number) => string, lineCount: number, lineIndex: number): FoundTable | null {
     if (lineIndex < 0 || lineIndex >= lineCount) return null
     const here = lineAt(lineIndex)
-    if (!here.includes('|')) return null
+    if (!canBeRow(here)) return null
 
     const above: string[] = []
     let first = lineIndex
     while (first > 0) {
         const line = lineAt(first - 1)
-        if (!line.includes('|')) break
+        if (!canBeRow(line)) break
         above.push(line)
         first -= 1
     }
     const below: string[] = []
     for (let next = lineIndex + 1; next < lineCount; next += 1) {
         const line = lineAt(next)
-        if (!line.includes('|')) break
+        if (!canBeRow(line)) break
         below.push(line)
     }
     const block = [...above.reverse(), here, ...below]
 
-    for (let header = 0; header + 1 < block.length && first + header <= lineIndex; header += 1) {
-        if (isDelimiterFor(block[header], block[header + 1])) return { start: first + header, lines: block.slice(header) }
+    let header = 0
+    while (header + 1 < block.length && first + header <= lineIndex) {
+        if (!isDelimiterFor(block[header], block[header + 1])) {
+            header += 1
+            continue
+        }
+        const codeIndent = indentWidth(block[header]) + 4
+        let end = header + 2
+        while (end < block.length && indentWidth(block[end]) < codeIndent) end += 1
+        if (lineIndex < first + end) return { start: first + header, lines: block.slice(header, end) }
+        // The caret is past the table's end; another table may start there.
+        header = end
     }
     return null
 }
@@ -302,7 +324,7 @@ function eachRow(table: Table): string[][] {
 
 /**
  * The table after a row command, and the caret's cell in it, or null when the command can't apply.
- * The header and the delimiter row count as one row here: neither can be deleted or moved.
+ * The header and the delimiter row count as one row here: neither can be deleted or moved, nor have a row put above them.
  */
 function changeRows(table: Table, caret: CellCaret, action: TableAction): { table: Table; caret: CellCaret } | null {
     const columns = table.alignments.length
@@ -312,11 +334,8 @@ function changeRows(table: Table, caret: CellCaret, action: TableAction): { tabl
     const index = caret.row - 2
     switch (action) {
         case 'insert-row-above':
-            // Above the header, the new row is the header and the old one the first body row.
-            if (inHeader) {
-                body.unshift(table.header)
-                return { table: { ...table, header: empty(), body }, caret: caret.row === 0 ? { ...caret, row: 2 } : caret }
-            }
+            // A row above the header would be the new header, and the column titles a body row.
+            if (inHeader) return null
             body.splice(index, 0, empty())
             return { table: { ...table, body }, caret: { ...caret, row: caret.row + 1 } }
         case 'insert-row-below':
@@ -400,7 +419,7 @@ function change(table: Table, caret: CellCaret, action: TableAction): { table: T
 export function editTable(lineAt: (index: number) => string, lineCount: number, caret: TextCaret, action: TableAction): TableEditResult {
     const found = findTable(lineAt, lineCount, caret.line)
     if (!found) return { status: 'no-table' }
-    if (insideCodeBlock(lineAt, found.start)) return { status: 'code-block' }
+    if (insideCodeBlock(lineAt, found.start) || insideIndentedCode(lineAt, found.start)) return { status: 'code-block' }
 
     const changed = change(toTable(found), caretCell(found, caret), action)
     if (!changed) return { status: 'unchanged' }
@@ -422,8 +441,10 @@ const isBlank = (line: string) => line.trim() === ''
 export function tableInsertProblem(lineAt: (index: number) => string, lineCount: number, caret: TextCaret): TableInsertProblem | null {
     if (findTable(lineAt, lineCount, caret.line)) return 'in-table'
     // The table starts on the caret's line when that is blank, or else on the one after.
-    const startLine = isBlank(lineAt(caret.line)) ? caret.line : caret.line + 1
-    return insideCodeBlock(lineAt, startLine) ? 'code-block' : null
+    const onLine = isBlank(lineAt(caret.line))
+    if (insideCodeBlock(lineAt, onLine ? caret.line : caret.line + 1)) return 'code-block'
+    // After a line of text the table takes its indent, so after a line of indented code it would be code too.
+    return !onLine && insideIndentedCode(lineAt, caret.line) ? 'code-block' : null
 }
 
 function clampSize(value: number, { min, max, default: fallback }: { min: number; max: number; default: number }): number {

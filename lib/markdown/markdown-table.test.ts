@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import remarkParse from 'remark-parse'
+import { unified } from 'unified'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 import {
     displayWidth,
     editTable,
@@ -174,6 +177,113 @@ describe('Format Table', () => {
     })
 })
 
+describe('where a table ends', () => {
+    const table = ['| a | b |', '|---|---|', '| 1¦ | 2 |']
+    const tidy = ['| a   | b   |', '| --- | --- |', '| 1¦   | 2   |']
+    /** How the preview reads the text: the type of each top-level block, in order. */
+    const previewBlocks = (text: string) =>
+        unified()
+            .use(remarkParse)
+            .use(markdownRemarkPlugins)
+            .parse(text.replace('¦', ''))
+            .children.map((block) => block.type)
+
+    it.each([
+        ['a heading', '# x | y', ['table', 'heading']],
+        ['a heading with no text before the pipe', '# | y', ['table', 'heading']],
+        ['a list item', '- x | y', ['table', 'list']],
+        ['a list item with no text before the pipe', '- | y', ['table', 'list']],
+        ['a * list item', '* x | y', ['table', 'list']],
+        ['a + list item', '+ x | y', ['table', 'list']],
+        ['a numbered list item', '1. x | y', ['table', 'list']],
+        ['a numbered list item with a bracket', '2) x | y', ['table', 'list']],
+        ['a task list item', '- [ ] x | y', ['table', 'list']],
+        ['a block quote', '> x | y', ['table', 'blockquote']],
+        ['a block quote with no space', '>x | y', ['table', 'blockquote']],
+        ['a row indented as code', '    | 3 | 4 |', ['table', 'code']],
+    ])('ends at %s, as the preview does, and leaves that line alone', (_, line, blocks) => {
+        const text = join(...table, line)
+        expect(previewBlocks(text)).toEqual(blocks)
+        expect(run(text, 'format')).toBe(join(...tidy, line))
+    })
+
+    it.each([
+        ['```js | x', '```'],
+        ['~~~ | x', '~~~'],
+    ])('ends at a code fence (%s), which still opens its code block', (fence, close) => {
+        const text = join(...table, fence, 'code', close, 'rest')
+        expect(previewBlocks(text)).toEqual(['table', 'code', 'paragraph'])
+        expect(run(text, 'format')).toBe(join(...tidy, fence, 'code', close, 'rest'))
+    })
+
+    it('keeps text that only looks like the start of a block in the table, as the preview does', () => {
+        // No space after the marker, or more than six #, is cell text.
+        const text = join(...table, '-x | y', '#x | y', '####### x | y')
+        expect(previewBlocks(text)).toEqual(['table'])
+        expect(run(text, 'format')).toBe(
+            join(
+                '| a         | b   |',
+                '| --------- | --- |',
+                '| 1¦         | 2   |',
+                '| -x        | y   |',
+                '| #x        | y   |',
+                '| ####### x | y   |'
+            )
+        )
+    })
+
+    it('is not in a table with the caret on the line that ends it, or past it', () => {
+        for (const action of ['format', 'insert-row-above', 'delete-row'] as TableAction[]) {
+            expect(run(join('| a | b |', '|---|---|', '| 1 | 2 |', '# x ¦| y'), action)).toBe('no-table')
+            expect(run(join('| a | b |', '|---|---|', '- x | y', '| 3¦ | 4 |'), action)).toBe('no-table')
+            expect(run(join('| a | b |', '|---|---|', '    | 1 | 2 |', '| 3¦ | 4 |'), action)).toBe('no-table')
+        }
+        const lines = ['| a | b |', '|---|---|', '| 1 | 2 |', '# x | y']
+        expect(isLineInTable((index) => lines[index], lines.length, 3)).toBe(false)
+        expect(isLineInTable((index) => lines[index], lines.length, 2)).toBe(true)
+    })
+
+    it('needs a header and delimiter row that are not list items or headings', () => {
+        expect(previewBlocks(join('a | b', '- | -', '1 | 2'))).toEqual(['paragraph', 'list'])
+        expect(run(join('a ¦| b', '- | -', '1 | 2'), 'format')).toBe('no-table')
+        expect(run(join('# a ¦| b', '|---|---|'), 'format')).toBe('no-table')
+    })
+
+    it('still finds a table in a list item, with a nested list after it', () => {
+        expect(run(join('- item', '', '  | a | b |', '  |---|---|', '  | 1¦ | 2 |', '  - x | y'), 'format')).toBe(
+            join('- item', '', '  | a   | b   |', '  | --- | --- |', '  | 1¦   | 2   |', '  - x | y')
+        )
+    })
+})
+
+describe('tables in an indented code block', () => {
+    it('leaves a table indented as code alone', () => {
+        expect(run(join('para', '', '    | a¦ | b |', '    |---|---|'), 'format')).toBe('code-block')
+        expect(run(join('    | a¦ | b |', '    |---|---|'), 'format')).toBe('code-block')
+        expect(run(join('  para', '', '    | a¦ | b |', '    |---|---|'), 'format')).toBe('code-block')
+        expect(run(join('- item', '', '      | a¦ | b |', '      |---|---|'), 'format')).toBe('code-block')
+    })
+
+    it('still formats a table indented under a list item', () => {
+        expect(run(join('- item', '', '    | a¦ | b |', '    |---|---|'), 'format')).toBe(
+            join('- item', '', '    | a¦   | b   |', '    | --- | --- |')
+        )
+        expect(run(join('1. item', '', '   more', '', '    | a¦ | b |', '    |---|---|'), 'format')).toBe(
+            join('1. item', '', '   more', '', '    | a¦   | b   |', '    | --- | --- |')
+        )
+        expect(run(join('- a', '  - b', '', '      | a¦ | b |', '      |---|---|'), 'format')).toBe(
+            join('- a', '  - b', '', '      | a¦   | b   |', '      | --- | --- |')
+        )
+    })
+
+    it('won’t insert a table into an indented code block', () => {
+        expect(insert(join('para', '', '    code¦'))).toBe('code-block')
+        expect(insert(join('- item', '', '    more¦'), { columns: 1, rows: 1 })).toBe(
+            join('- item', '', '    more', '', '    | ¦    |', '    | --- |', '    |     |')
+        )
+    })
+})
+
 describe('Align Column', () => {
     const table = join('| a   | b¦   |', '| --- | --- |', '| 1   | 2   |')
 
@@ -227,8 +337,9 @@ describe('row commands', () => {
         expect(run(join('| h1  | h2  |', '| -¦-- | --- |'), 'insert-row-below')).toBe(join('| h1  | h2  |', '| -¦-- | --- |', '|     |     |'))
     })
 
-    it('inserts a new header above the header, which becomes the first body row', () => {
-        expect(run(at(0, 'h1'), 'insert-row-above')).toBe(join('|     |     |', '| --- | --- |', '| h1¦  | h2  |', '| a   | b   |', '| c   | d   |'))
+    it('makes no edit to insert a row above the header, which would turn the column titles into a body row', () => {
+        expect(run(at(0, 'h1'), 'insert-row-above')).toBe('unchanged')
+        expect(run(join('| h1  | h2  |', '| -¦-- | --- |', '| a   | b   |'), 'insert-row-above')).toBe('unchanged')
     })
 
     it('deletes a row, putting the caret in the row that took its place, or the one above', () => {
