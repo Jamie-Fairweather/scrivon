@@ -3,7 +3,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StudioShell } from './studio-shell'
 
-type Crashable = 'name-prompt' | 'delete-confirm' | 'file-history' | 'app-update'
+type Crashable = 'name-prompt' | 'delete-confirm' | 'link-update' | 'file-history' | 'app-update'
 
 const crash = vi.hoisted(() => ({ in: null as string | null }))
 
@@ -62,6 +62,7 @@ vi.mock('@/components/studio/shell/studio-menu-bar', () => ({ StudioMenuBar: () 
 vi.mock('@/components/studio/shell/welcome-screen', () => ({ WelcomeScreen: () => null }))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ NamePromptProvider: providerWithDialog('name-prompt') }))
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ DeleteConfirmProvider: providerWithDialog('delete-confirm') }))
+vi.mock('@/components/studio/dialogs/link-update-provider', () => ({ LinkUpdateProvider: providerWithDialog('link-update') }))
 vi.mock('@/components/studio/dialogs/file-history-provider', () => ({ FileHistoryProvider: providerWithDialog('file-history') }))
 vi.mock('@/components/studio/app-update-provider', () => ({ AppUpdateProvider: providerWithDialog('app-update') }))
 
@@ -80,10 +81,10 @@ describe('StudioShell', () => {
     it('puts the command palette below the dialog and update providers, so its commands can use them', () => {
         render(<StudioShell />)
 
-        expect(screen.getByText('Palette below: name-prompt, delete-confirm, file-history, app-update')).toBeInTheDocument()
+        expect(screen.getByText('Palette below: name-prompt, delete-confirm, link-update, file-history, app-update')).toBeInTheDocument()
     })
 
-    it.each<Crashable>(['name-prompt', 'delete-confirm', 'file-history', 'app-update'])(
+    it.each<Crashable>(['name-prompt', 'delete-confirm', 'link-update', 'file-history', 'app-update'])(
         'offers to save open files when the %s dialog crashes',
         (owner) => {
             crash.in = owner
