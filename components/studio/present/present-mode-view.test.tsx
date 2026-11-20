@@ -9,7 +9,7 @@ import { useGlobalKeybinds } from '@/components/studio/hooks/use-global-keybinds
 import { useMenubarAccessKey } from '@/components/studio/shell/use-menubar-access-key'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import { createDefaultKeybinds } from '@/lib/settings/defaults'
-import type { DocumentTab } from '@/lib/workspace/types'
+import type { DocumentTab, FileNode } from '@/lib/workspace/types'
 import type { PresentFullscreen } from './present-fullscreen'
 import { PresentModeProvider, usePresentMode } from './present-mode-provider'
 import { PresentModeView, slideKeyAction, slideTextScale } from './present-mode-view'
@@ -36,11 +36,12 @@ const state = vi.hoisted(() => ({
     tabs: [] as DocumentTab[],
     remoteImageTabs: new Set<string>(),
     mermaid: {} as Record<string, unknown>,
+    tree: [] as FileNode[],
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ tabs: state.tabs }),
-    useWorkspaceSession: () => ({ workspaceRoot: 'C:\\ws' }),
+    useWorkspaceSession: () => ({ workspaceRoot: 'C:\\ws', tree: state.tree }),
 }))
 
 vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({
@@ -121,6 +122,7 @@ describe('PresentModeView', () => {
         state.tabs = []
         state.remoteImageTabs = new Set()
         state.mermaid = NO_DIAGRAM
+        state.tree = []
     })
 
     afterEach(() => {
@@ -362,6 +364,23 @@ describe('PresentModeView', () => {
         expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
+    it('draws a wiki link to a missing note as missing, as the preview does, and follows no wiki link', async () => {
+        state.tree = [{ kind: 'file', name: 'Plan.md', path: 'C:\\ws\\Plan.md' }]
+        const { user } = await startPresenting('See [[Plan]] and [[Nowhere]].')
+
+        const missing = screen.getByRole('link', { name: 'Nowhere, note not found' })
+        expect(missing).toHaveAttribute('data-wiki-status', 'missing')
+        expect(missing).toHaveAttribute('title', 'No Markdown file in the open folder has this name.')
+        const found = screen.getByRole('link', { name: 'Plan' })
+        expect(found).toHaveAttribute('data-wiki-status', 'found')
+        expect(found).not.toHaveAttribute('title')
+
+        await user.click(found)
+        await user.click(missing)
+        expect(openExternalLink).not.toHaveBeenCalled()
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
     it('blocks web images unless "Load images" was chosen for the tab', async () => {
         const { rerender, fullscreen } = await startPresenting('![Logo](https://example.com/logo.png)')
         expect(screen.getByRole('img', { name: 'Blocked web image: Logo' })).toBeInTheDocument()
@@ -484,6 +503,7 @@ describe('PresentModeView focus on the way out', () => {
         state.tabs = [tab(THREE_SLIDES)]
         state.remoteImageTabs = new Set()
         state.mermaid = NO_DIAGRAM
+        state.tree = []
     })
 
     function ViewMenu() {

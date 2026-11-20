@@ -24,6 +24,7 @@ import { registerPreviewHeadingReveal } from '@/components/studio/markdown/previ
 import { scrollViewport, usePreviewScrollSync } from '@/components/studio/markdown/use-preview-scroll-sync'
 import { useMarkdownExpand, useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
 import { WIKI_LINK_PROBLEMS, wikiLinkProblemTitle, type WikiLinkHandlers, type WikiLinkTarget } from '@/components/studio/markdown/wiki-link-status'
+import { useWikiLinkLookup } from '@/components/studio/markdown/use-wiki-lookup'
 import { PaneCrashNotice, PaneErrorBoundary } from '@/components/studio/shell/pane-error-boundary'
 import { Button } from '@/components/ui/button'
 import { Card, CardPanel } from '@/components/ui/card'
@@ -34,7 +35,6 @@ import { locateInMarkdown } from '@/lib/mermaid/source-locations'
 import { notifyError, notifyInfo } from '@/lib/notify'
 import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { isSupportedDocument } from '@/lib/workspace/file-types'
-import { resolveWikiTarget, wikiIndexFor, type WikiLookup } from '@/lib/workspace/wiki-link-lookup'
 import { cn } from '@/lib/utils'
 
 type MarkdownDocumentViewerProps = {
@@ -185,15 +185,7 @@ function MarkdownDocumentViewerInner({ source, tabId, className }: MarkdownDocum
     const pendingAnchorRef = useRef<{ tabId: string; id: string } | null>(null)
     const linkHandlerRef = useRef<(href: string) => void>(() => {})
     const wikiOpenRef = useRef<(link: WikiLinkTarget) => void>(() => {})
-    // Wiki links lead to notes in the open folder, found in the same file list the explorer shows. A document outside
-    // it (an example, or a file opened on its own) has nowhere to look.
-    const inFolder = documentPath !== null && workspaceRoot !== null && isPathInside(documentPath, workspaceRoot)
-    const wikiIndex = useMemo(() => (inFolder && workspaceRoot ? wikiIndexFor(workspaceRoot, tree) : null), [inFolder, workspaceRoot, tree])
-    const wikiStatus = useCallback(
-        (target: string): WikiLookup | { kind: 'no-folder' } =>
-            wikiIndex ? resolveWikiTarget(wikiIndex, target, documentPath) : { kind: 'no-folder' },
-        [wikiIndex, documentPath]
-    )
+    const wikiStatus = useWikiLinkLookup(documentPath)
     const overlayRef = useRef<HTMLDivElement>(null)
     /** Where focus goes back to when the expanded diagram closes (normally the Expand button). */
     const returnFocusRef = useRef<{ blockId: string; element: HTMLElement | null } | null>(null)
