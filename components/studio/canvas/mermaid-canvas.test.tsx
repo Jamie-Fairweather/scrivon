@@ -117,15 +117,17 @@ describe('MermaidCanvas', () => {
         expect(message.closest('.origin-center')).toBeNull()
     })
 
-    it('lists the diagram types it can draw, and where to find a starter, when the file is empty', () => {
+    it('lists the diagram types it can draw, and which have a starter, when the file is empty', () => {
         mockHook({})
 
         render(<MermaidCanvas source="" />)
 
+        // Only beautiful-mermaid's six types have a starter, so the hint doesn't promise one for a pie chart.
         expect(
             screen.getByText(
                 'Scrivon draws flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams, XY charts, ' +
-                    'pie charts, Gantt charts, mind maps, timelines and 12 other types. Press Ctrl+Space in the editor for a starter.'
+                    'pie charts, Gantt charts, mind maps, timelines and 12 other types. ' +
+                    'Press Ctrl+Space in the editor for a flowchart, sequence, class, state, entity relationship or XY chart starter.'
             )
         ).toBeInTheDocument()
     })

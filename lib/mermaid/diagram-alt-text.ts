@@ -7,23 +7,49 @@ export type DiagramAltText = { name: string; description: string }
 /** `official` is a type the official mermaid package draws: a pie chart, say. */
 type Kind = 'flowchart' | 'sequence' | 'class' | 'state' | 'er' | 'xychart' | 'pie' | 'official' | 'other'
 
-const KINDS: [pattern: RegExp, kind: Kind, label: string][] = [
-    [/^(?:flowchart|graph)\b/i, 'flowchart', 'Flowchart'],
-    [/^sequencediagram\b/i, 'sequence', 'Sequence diagram'],
-    [/^classdiagram\b/i, 'class', 'Class diagram'],
-    [/^statediagram(?:-v2)?\b/i, 'state', 'State diagram'],
-    [/^erdiagram\b/i, 'er', 'Entity relationship diagram'],
-    [/^xychart(?:-beta)?\b/i, 'xychart', 'Chart'],
-    // `Pie chart`, `Gantt chart`, `Mind map` and so on, as the engine choice names them.
-    ...[...OFFICIAL_MERMAID_DIAGRAMS].map(([header, name]): [RegExp, Kind, string] => [
+/**
+ * The official package's types whose grammar has a `title` statement (`title Release plan`), by their header as
+ * OFFICIAL_MERMAID_DIAGRAMS writes it. A mind map, kanban board, block, Sankey or requirement diagram has none: a
+ * `title …` line there is a node or a card, and names nothing.
+ */
+const OFFICIAL_TITLED: ReadonlySet<string> = new Set([
+    'pie',
+    'gantt',
+    'journey',
+    'gitgraph',
+    'timeline',
+    'quadrantchart',
+    'c4context',
+    'c4container',
+    'c4component',
+    'c4dynamic',
+    'c4deployment',
+    'packet',
+    'architecture',
+    'radar',
+    'treemap',
+])
+
+/** A kind, its name in the alt text, and whether its own `title` line (`title Pets`, `title: Pets`) names the diagram. */
+type KindInfo = { kind: Kind; label: string; titled: boolean }
+
+const KINDS: [pattern: RegExp, info: KindInfo][] = [
+    [/^(?:flowchart|graph)\b/i, { kind: 'flowchart', label: 'Flowchart', titled: false }],
+    [/^sequencediagram\b/i, { kind: 'sequence', label: 'Sequence diagram', titled: true }],
+    [/^classdiagram\b/i, { kind: 'class', label: 'Class diagram', titled: false }],
+    [/^statediagram(?:-v2)?\b/i, { kind: 'state', label: 'State diagram', titled: false }],
+    [/^erdiagram\b/i, { kind: 'er', label: 'Entity relationship diagram', titled: false }],
+    [/^xychart(?:-beta)?\b/i, { kind: 'xychart', label: 'Chart', titled: true }],
+    // `Pie chart`, `Gantt chart`, `Mind map` and so on, as the engine choice names them. A pie chart may also put its
+    // title on its header.
+    ...[...OFFICIAL_MERMAID_DIAGRAMS].map(([header, name]): [RegExp, KindInfo] => [
         new RegExp(`^${header}(?:-beta)?\\b`, 'i'),
-        header === 'pie' ? 'pie' : 'official',
-        singularDiagramName(name),
+        { kind: header === 'pie' ? 'pie' : 'official', label: singularDiagramName(name), titled: OFFICIAL_TITLED.has(header) },
     ]),
 ]
 
-/** Kinds whose own `title` line (`title Pets`, `title: Pets`) names the diagram. A pie chart may put it on its header. */
-const TITLED_KINDS: ReadonlySet<Kind> = new Set(['xychart', 'sequence', 'pie', 'official'])
+const OTHER_KIND: KindInfo = { kind: 'other', label: 'Diagram', titled: false }
+
 const TITLE_LINE = /^title(?:\s*:\s*|\s+)(.+)$/i
 const PIE_HEADER_TITLE = /^pie\b(?:\s+showData)?\s+title\s+(.+)$/i
 /** A pie slice: `"Dogs" : 386`. */
@@ -61,10 +87,11 @@ const FLOWCHART_SKIP = /^(?:subgraph|end|classDef|class|style|linkStyle|click|di
 const RELATION = /^("[^"]+"|\[\*\]|[\w.~-]+)\s*(?:"[^"]*"\s*)?[<>|*o}{.x-]*(?:--|\.\.)[<>|*o}{.x-]*\s*(?:"[^"]*"\s*)?("[^"]+"|\[\*\]|[\w.~-]+)/
 
 function labelsFor(kind: Kind, lines: string[]): string[] {
-    const labels: string[] = []
+    // A set, so a long diagram is read in one pass: each label is looked up rather than searched for.
+    const labels = new Set<string>()
     const add = (text: string | undefined) => {
         const label = text ? cleanLabel(text) : ''
-        if (label && label !== '[*]' && !labels.includes(label)) labels.push(label)
+        if (label && label !== '[*]') labels.add(label)
     }
     /** A participant written `participant A as Alice`, or a state `state "Long name" as L`, goes by its short id later on. */
     const aliases = new Map<string, string>()
@@ -94,7 +121,7 @@ function labelsFor(kind: Kind, lines: string[]): string[] {
             else if (relation) [relation[1]!, relation[2]!].forEach((id) => add(aliases.get(id) ?? id))
         }
     }
-    return labels
+    return [...labels]
 }
 
 function joinLabels(labels: string[]): string {
@@ -120,14 +147,53 @@ function readableLines(source: string): string[] {
         .filter((line) => line && !line.startsWith('%%'))
 }
 
-function findKind(header: string | undefined): { kind: Kind; label: string } {
-    const found = KINDS.find(([pattern]) => pattern.test(header ?? ''))
-    return found ? { kind: found[1], label: found[2] } : { kind: 'other', label: 'Diagram' }
+function findKind(header: string | undefined): KindInfo {
+    return KINDS.find(([pattern]) => pattern.test(header ?? ''))?.[1] ?? OTHER_KIND
 }
 
 /** What kind of diagram it is, as the alt text names it: `Flowchart`, `Pie chart`, `Mind map`, or `Diagram`. */
 export function diagramKindName(source: string): string {
     return findKind(readableLines(source)[0]).label
+}
+
+type NamedDiagram = {
+    info: KindInfo
+    /** The diagram's own name: its accTitle, front matter title or chart title. Empty when it has none. */
+    title: string
+    /** Its accDescr. Empty when it has none. */
+    description: string
+    /** The lines after the header, less the chart title, to name the nodes from. */
+    body: string[]
+}
+
+/** The diagram's kind, its own title and description, and the rest of its lines, from one read of the text. */
+function readNamedDiagram(source: string): NamedDiagram {
+    // The same tidy-up the renderer uses, so the alt text never reads a line the picture still draws.
+    const accessibility = readDiagramAccessibility(source)
+    const lines = readableLines(source)
+    const info = findKind(lines[0])
+    const givenTitle = accessibility.title ?? readFrontMatterTitle(source)
+    let title = givenTitle ? cleanLabel(givenTitle) : ''
+    const description = accessibility.description ? cleanLabel(accessibility.description) : ''
+    const headerTitle = info.kind === 'pie' ? PIE_HEADER_TITLE.exec(lines[0] ?? '') : null
+    if (headerTitle) title ||= cleanLabel(headerTitle[1]!)
+    const body: string[] = []
+    for (const line of lines.slice(1)) {
+        const chartTitle = info.titled ? TITLE_LINE.exec(line) : null
+        if (chartTitle) title ||= cleanLabel(chartTitle[1]!)
+        else body.push(line)
+    }
+    return { info, title, description, body }
+}
+
+/**
+ * The diagram's short name (diagramAltText's `name`) and its kind, without reading its nodes: the canvas labels
+ * itself with this on every edit, so it stays quick for a long diagram. `name` equals `kind` when the diagram has
+ * no title of its own.
+ */
+export function diagramName(source: string): { name: string; kind: string } {
+    const { info, title } = readNamedDiagram(source)
+    return { name: title || info.label, kind: info.label }
 }
 
 /**
@@ -136,26 +202,12 @@ export function diagramKindName(source: string): string {
  * otherwise says what kind of diagram it is and names its first few nodes, participants or slices.
  */
 export function diagramAltText(source: string): DiagramAltText {
-    // The same tidy-up the renderer uses, so the alt text never reads a line the picture still draws.
-    const accessibility = readDiagramAccessibility(source)
-    const lines = readableLines(source)
-    const { kind, label: kindLabel } = findKind(lines[0])
-    const givenTitle = accessibility.title ?? readFrontMatterTitle(source)
-    let title = givenTitle ? cleanLabel(givenTitle) : ''
-    const description = accessibility.description ? cleanLabel(accessibility.description) : ''
-    const headerTitle = kind === 'pie' ? PIE_HEADER_TITLE.exec(lines[0] ?? '') : null
-    if (headerTitle) title ||= cleanLabel(headerTitle[1]!)
-    const body: string[] = []
-    for (const line of lines.slice(1)) {
-        const chartTitle = TITLED_KINDS.has(kind) ? TITLE_LINE.exec(line) : null
-        if (chartTitle) title ||= cleanLabel(chartTitle[1]!)
-        else body.push(line)
-    }
+    const { info, title, description, body } = readNamedDiagram(source)
     if (title || description) {
-        const name = title || kindLabel
+        const name = title || info.label
         const full = title && description ? `${title}${/[.!?:]$/.test(title) ? '' : '.'} ${description}` : title || description
         return { name, description: full }
     }
-    const labels = labelsFor(kind, body)
-    return { name: kindLabel, description: labels.length > 0 ? `${kindLabel}: ${joinLabels(labels)}` : kindLabel }
+    const labels = labelsFor(info.kind, body)
+    return { name: info.label, description: labels.length > 0 ? `${info.label}: ${joinLabels(labels)}` : info.label }
 }
