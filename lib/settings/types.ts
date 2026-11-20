@@ -120,6 +120,8 @@ export type AppSettings = {
         maxRecentFolders: number
         /** Reopen the folder (and its tabs) that was open when Scrivon last closed. */
         reopenLastFolder: boolean
+        /** Marks the files git sees as changed, and the folders holding them, in the explorer. */
+        showGitChanges: boolean
     }
     updates: {
         checkOnLaunch: boolean
@@ -131,6 +133,12 @@ export type AppSettings = {
     /** How diagrams look when saved or copied as SVG or PNG. */
     diagramExport: DiagramExportSettings
     spellcheck: SpellcheckSettings
+    /** Find in Workspace's options, switched in the palette and kept for next time (not in the Settings dialog). */
+    workspaceSearch: {
+        matchCase: boolean
+        wholeWord: boolean
+        useRegex: boolean
+    }
     keybinds: Record<KeybindActionId, KeybindChord[]>
 }
 

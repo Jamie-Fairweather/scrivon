@@ -21,6 +21,11 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ useDeleteConfirm: () => ({ confirmDelete: vi.fn() }) }))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ useNamePrompt: () => ({ promptName: vi.fn() }) }))
 vi.mock('@/components/studio/dialogs/move-to-provider', () => ({ useMoveTo: () => ({ chooseFolder: vi.fn() }) }))
+/** The folder export, as BatchExportProvider gives it; null where there is none. */
+const batch = vi.hoisted(() => ({
+    current: null as null | { availability: { disabled: boolean; reason: string }; exportFolder: (folder: string) => void },
+}))
+vi.mock('@/components/studio/batch-export/batch-export-provider', () => ({ useBatchExport: () => batch.current }))
 vi.mock('@/lib/workspace/path-actions', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/workspace/path-actions')>()),
     revealInFileExplorer: vi.fn(async () => undefined),
@@ -47,6 +52,7 @@ async function chooseFromRowMenu(name: string, menuItem: string) {
 
 beforeEach(() => {
     vi.clearAllMocks()
+    batch.current = { availability: { disabled: false, reason: '' }, exportFolder: vi.fn() }
 })
 
 describe('FileTreeRowContextMenu', () => {
@@ -85,5 +91,33 @@ describe('FileTreeContextMenu', () => {
             expect(within(menu).getByRole('menuitem', { name }).querySelector('svg')).not.toBeNull()
         }
         expect(within(menu).queryByText('Not in the open folder')).not.toBeInTheDocument()
+    })
+})
+
+describe('Export Diagrams…', () => {
+    it('exports the diagrams in the folder that was right-clicked', async () => {
+        renderRow(folder)
+
+        await chooseFromRowMenu('docs', 'Export Diagrams…')
+
+        expect(batch.current!.exportFolder).toHaveBeenCalledWith(folder.path)
+    })
+
+    it('is on the folder menu only', async () => {
+        renderRow(file)
+
+        fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'plan.md' }), { clientX: 10, clientY: 10 })
+        const menu = await screen.findByRole('menu')
+        expect(within(menu).queryByRole('menuitem', { name: 'Export Diagrams…' })).not.toBeInTheDocument()
+    })
+
+    it('is greyed out, saying why, while another export runs', async () => {
+        batch.current = { availability: { disabled: true, reason: 'Exporting…' }, exportFolder: vi.fn() }
+        renderRow(folder)
+
+        fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'docs' }), { clientX: 10, clientY: 10 })
+        const menu = await screen.findByRole('menu')
+        expect(within(menu).getByRole('menuitem', { name: 'Export Diagrams…' })).toHaveAttribute('aria-disabled', 'true')
+        expect(within(menu).getByText('Exporting…')).toBeInTheDocument()
     })
 })

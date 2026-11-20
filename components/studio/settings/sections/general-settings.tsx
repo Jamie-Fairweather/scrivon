@@ -1,11 +1,12 @@
 'use client'
 
+import { isTauri } from '@/lib/tauri/platform'
 import { NumberSetting } from '@/components/studio/settings/number-setting'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { SwitchSetting } from '@/components/studio/settings/switch-setting'
 
 export function GeneralSettings() {
-    const { settings, setAutosaveEnabled, setAutosaveDelayMs } = useAppSettings()
+    const { settings, setAutosaveEnabled, setAutosaveDelayMs, updateSettings } = useAppSettings()
 
     return (
         <div className="space-y-6">
@@ -27,6 +28,20 @@ export function GeneralSettings() {
                 disabled={!settings.autosave.enabled}
                 onChange={setAutosaveDelayMs}
             />
+
+            {isTauri() ? (
+                <SwitchSetting
+                    label="Show git changes in the explorer"
+                    description="In a git repository, mark the files you have changed since the last commit, and the folders they are in."
+                    checked={settings.workspace.showGitChanges}
+                    onChange={(showGitChanges) =>
+                        updateSettings((current) => ({
+                            ...current,
+                            workspace: { ...current.workspace, showGitChanges },
+                        }))
+                    }
+                />
+            ) : null}
         </div>
     )
 }

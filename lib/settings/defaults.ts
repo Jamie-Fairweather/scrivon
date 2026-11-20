@@ -123,6 +123,7 @@ export function createDefaultSettings(isMac = false): AppSettings {
         workspace: {
             maxRecentFolders: DEFAULT_MAX_RECENT_FOLDERS,
             reopenLastFolder: true,
+            showGitChanges: true,
         },
         updates: {
             checkOnLaunch: true,
@@ -136,6 +137,11 @@ export function createDefaultSettings(isMac = false): AppSettings {
             transparent: false,
         },
         spellcheck: createDefaultSpellcheckSettings(),
+        workspaceSearch: {
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+        },
         keybinds: createDefaultKeybinds(isMac),
     }
 }

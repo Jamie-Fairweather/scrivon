@@ -20,8 +20,10 @@ import {
     meetsTextQueryMinimum,
     searchWorkspaceContent,
     textHitToPaletteItem,
+    type SearchStop,
     type SearchWorkspaceContentResult,
 } from '@/components/studio/command-palette/search-content'
+import { compileTextQuery, PLAIN_SEARCH_OPTIONS, type WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
 import { resolveRecentFiles, searchFiles, searchOpenTabs, searchRecentFiles } from '@/components/studio/command-palette/search-files'
 import type { ActionPaletteItem, PaletteGroup, PaletteItem, PaletteMode, TextPaletteItem } from '@/components/studio/command-palette/types'
 import { useCommands } from '@/components/studio/commands/command-registry'
@@ -115,7 +117,18 @@ function prefixHint(kind: PaletteQueryKind, file: PaletteFile | null, isMarkdown
     }
 }
 
-export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
+/** What the footer and the status say when a regex search stopped early. */
+function stopMessage(stop: SearchStop): string {
+    if (stop.reason === 'unavailable') return "Regular expression search isn't available."
+    return `Search stopped: the regular expression took too long on ${getBaseName(stop.path)}. Try a simpler pattern.`
+}
+
+/**
+ * The palette's results for `query` in `mode`. `searchOptions` are Find in Workspace's saved options
+ * (Match Case, Match Whole Word, Use Regular Expression). They only apply to a Text-mode search, not to the
+ * default list or a '>' commands query, where the search is the plain one.
+ */
+export function usePaletteSearch(mode: PaletteMode, enabled: boolean, searchOptions: WorkspaceSearchOptions = PLAIN_SEARCH_OPTIONS) {
     const { workspaceRoot, tree, recentWorkspaces, openWorkspace } = useWorkspaceSession()
     const { tabs, activeTab, openFile, setActiveTab } = useDocumentTabs()
     const { layout, setEditorOpen } = useStudioLayout()
@@ -128,22 +141,52 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const [textCapped, setTextCapped] = useState(false)
     const [textUnreadableFiles, setTextUnreadableFiles] = useState(0)
     const [textTruncatedFiles, setTextTruncatedFiles] = useState(0)
-    const [lastResolvedTextQuery, setLastResolvedTextQuery] = useState<string | null>(null)
+    const [textLongLinesSkipped, setTextLongLinesSkipped] = useState(0)
+    const [textStop, setTextStop] = useState<SearchStop | null>(null)
+    const [lastResolvedSearchKey, setLastResolvedSearchKey] = useState<string | null>(null)
     const abortRef = useRef<AbortController | null>(null)
+    // What the search effect last ran for, so a change of options (or mode) with the same typed query skips the typing pause.
+    // `typed` is the query with its spaces trimmed, as typed: turning Use Regular Expression on or off keeps or trims the
+    // spaces of the pattern, but nothing new was typed. An invalid pattern is recorded too, though it starts no search.
+    const lastStartedRef = useRef<{ query: string; typed: string; mode: PaletteMode; optionsKey: string; immediate: boolean } | null>(null)
     // File text read by earlier searches in this palette session (cleared on close and folder change).
     const [contentCache] = useState(() => createContentCache())
 
-    const parsedQueryState = useMemo(() => parsePaletteQuery(query, mode), [query, mode])
-    const shouldSearchText =
+    // The options apply to a Find in Workspace search only; everywhere else the search is the plain one.
+    const searchOptionsApply = mode === 'text' && parsePaletteQuery(query, mode).kind === 'search'
+    const { matchCase, wholeWord, useRegex } = searchOptionsApply ? searchOptions : PLAIN_SEARCH_OPTIONS
+    const effectiveOptions = useMemo((): WorkspaceSearchOptions => ({ matchCase, wholeWord, useRegex }), [matchCase, wholeWord, useRegex])
+    const optionsKey = `${Number(matchCase)}${Number(wholeWord)}${Number(useRegex)}`
+
+    // A regular expression keeps its spaces (' +$').
+    const parsedQueryState = useMemo(() => parsePaletteQuery(query, mode, { keepSpaces: useRegex }), [query, mode, useRegex])
+    const wantsTextSearch =
         enabled &&
         Boolean(workspaceRoot) &&
         parsedQueryState.kind === 'search' &&
         mode !== 'files' &&
         meetsTextQueryMinimum(parsedQueryState.query, mode)
-    // Text results (and their footer notes) only count for the query they were found for, so
-    // hits for something the user has typed past are never opened by a quick Enter.
-    const textResolved = shouldSearchText && lastResolvedTextQuery === parsedQueryState.query
+    // Compiled before any search starts: an invalid pattern starts none.
+    const compiledQuery = useMemo(
+        () => (wantsTextSearch ? compileTextQuery(parsedQueryState.query, effectiveOptions) : null),
+        [wantsTextSearch, parsedQueryState.query, effectiveOptions]
+    )
+    const queryError = compiledQuery && !compiledQuery.ok ? compiledQuery.error : null
+    const textMatcher = compiledQuery?.ok ? compiledQuery.matcher : null
+    const shouldSearchText = textMatcher !== null
+    // Text results (and their footer notes) only count for the query, mode and options they were found
+    // for, so hits for something the user has typed past are never opened by a quick Enter.
+    const searchKey = shouldSearchText ? JSON.stringify([mode, parsedQueryState.query, optionsKey]) : null
+    const textResolved = searchKey !== null && lastResolvedSearchKey === searchKey
     const isSearchingText = shouldSearchText && !textResolved
+
+    // An invalid pattern leaves no hits behind, not even greyed out until the next search finishes. Its last
+    // results are forgotten too, so going back to that search (Backspace, or an option switched back) shows it
+    // running again rather than a finished, empty result with the old footer notes.
+    if (queryError && (textHits.length > 0 || lastResolvedSearchKey !== null)) {
+        setTextHits([])
+        setLastResolvedSearchKey(null)
+    }
 
     // '@' reads the open Markdown file's headings, as the Outline panel does, only while it is typed.
     const isMarkdown = activeTab !== null && documentKind(activeTab.name) === 'markdown'
@@ -174,12 +217,15 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     const resetSearch = useCallback(() => {
         abortRef.current?.abort()
         contentCache.clear()
+        lastStartedRef.current = null
         setQuery('')
-        setLastResolvedTextQuery(null)
+        setLastResolvedSearchKey(null)
         setTextHits([])
         setTextCapped(false)
         setTextUnreadableFiles(0)
         setTextTruncatedFiles(0)
+        setTextLongLinesSkipped(0)
+        setTextStop(null)
     }, [contentCache])
 
     // Every app command, from the same list the menu bar reads.
@@ -267,58 +313,77 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
     // Only worked out when the list is empty: ':' counts the open file's lines for it.
     const emptyHint = groups.length === 0 ? prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings) : null
 
+    // The query as typed, without the spaces a regular expression keeps: what the search effect compares.
+    const typedQuery = parsePaletteQuery(query, mode).query
+
     useEffect(() => {
-        if (!shouldSearchText) {
+        const parsedQuery = parsedQueryState.query
+        if (!textMatcher || searchKey === null) {
             abortRef.current?.abort()
+            // Remembered, so an option switched over an invalid pattern searches at once.
+            if (enabled) lastStartedRef.current = { query: parsedQuery, typed: typedQuery, mode, optionsKey, immediate: false }
             return
         }
 
-        const parsedQuery = parsedQueryState.query
         const root = workspaceRoot ?? ''
         const controller = new AbortController()
         abortRef.current?.abort()
         abortRef.current = controller
 
-        const timeout = window.setTimeout(() => {
-            void (async () => {
-                const openBuffers = new Map<string, string>()
-                for (const tab of tabs) {
-                    if (!isExampleTabId(tab.id)) {
-                        openBuffers.set(tab.path, tab.content)
+        // Typing waits for a pause. Switching an option or the mode for the same typed query searches at once.
+        // The same search started again (an edit to an open file, or Strict Mode running effects twice) keeps its own timing.
+        const previous = lastStartedRef.current
+        const sameSearch = previous !== null && previous.query === parsedQuery && previous.optionsKey === optionsKey && previous.mode === mode
+        const switched = previous !== null && previous.typed === typedQuery && (previous.optionsKey !== optionsKey || previous.mode !== mode)
+        const immediate = sameSearch ? previous.immediate : switched
+        lastStartedRef.current = { query: parsedQuery, typed: typedQuery, mode, optionsKey, immediate }
+
+        const timeout = window.setTimeout(
+            () => {
+                void (async () => {
+                    const openBuffers = new Map<string, string>()
+                    for (const tab of tabs) {
+                        if (!isExampleTabId(tab.id)) {
+                            openBuffers.set(tab.path, tab.content)
+                        }
                     }
-                }
 
-                let result: SearchWorkspaceContentResult | null = null
-                try {
-                    result = await searchWorkspaceContent({
-                        query: parsedQuery,
-                        paths: filePaths,
-                        openBuffers,
-                        readFile: isTauri() ? readWorkspaceFile : async () => '',
-                        getFileStamp: isTauri() ? readStamp : undefined,
-                        cache: contentCache,
-                        signal: controller.signal,
-                    })
-                } catch (err) {
-                    if (!controller.signal.aborted) notifyError("Couldn't search file contents", err, { id: 'palette-text-search' })
-                }
+                    let result: SearchWorkspaceContentResult | null = null
+                    try {
+                        result = await searchWorkspaceContent({
+                            matcher: textMatcher,
+                            paths: filePaths,
+                            openBuffers,
+                            readFile: isTauri() ? readWorkspaceFile : async () => '',
+                            getFileStamp: isTauri() ? readStamp : undefined,
+                            cache: contentCache,
+                            signal: controller.signal,
+                        })
+                    } catch (err) {
+                        if (!controller.signal.aborted) notifyError("Couldn't search file contents", err, { id: 'palette-text-search' })
+                    }
 
-                if (controller.signal.aborted) return
+                    if (controller.signal.aborted) return
 
-                // Always resolve the query, even after a failure, so the spinner stops.
-                setTextHits(result ? result.hits.map((hit) => textHitToPaletteItem(hit, root)) : [])
-                setTextCapped(result?.capped ?? false)
-                setTextUnreadableFiles(result?.unreadableFiles ?? 0)
-                setTextTruncatedFiles(result?.truncatedFiles ?? 0)
-                setLastResolvedTextQuery(parsedQuery)
-            })()
-        }, DEBOUNCE_MS)
+                    // Always resolve the query, even after a failure, so the spinner stops.
+                    setTextHits(result ? result.hits.map((hit) => textHitToPaletteItem(hit, root)) : [])
+                    setTextCapped(result?.capped ?? false)
+                    setTextUnreadableFiles(result?.unreadableFiles ?? 0)
+                    setTextTruncatedFiles(result?.truncatedFiles ?? 0)
+                    setTextLongLinesSkipped(result?.longLinesSkipped ?? 0)
+                    setTextStop(result?.stopped ?? null)
+                    setLastResolvedSearchKey(searchKey)
+                })()
+            },
+            immediate ? 0 : DEBOUNCE_MS
+        )
 
         return () => {
             window.clearTimeout(timeout)
             controller.abort()
         }
-    }, [shouldSearchText, parsedQueryState.query, tabs, filePaths, contentCache, workspaceRoot])
+        // searchKey stands for the query, the mode and the options together, so any of them runs the search again.
+    }, [searchKey, textMatcher, parsedQueryState.query, typedQuery, mode, optionsKey, enabled, tabs, filePaths, contentCache, workspaceRoot])
 
     const runItem = useCallback(
         async (item: PaletteItem) => {
@@ -363,6 +428,14 @@ export function usePaletteSearch(mode: PaletteMode, enabled: boolean) {
         textCapped: textResolved && textCapped,
         textUnreadableFiles: textResolved ? textUnreadableFiles : 0,
         textTruncatedFiles: textResolved ? textTruncatedFiles : 0,
+        /** Lines a regex search skipped for being too long. */
+        textLongLinesSkipped: textResolved ? textLongLinesSkipped : 0,
+        /** Why the last regex search stopped early, when it did. Its hits stay listed. */
+        textStopMessage: textResolved && textStop ? stopMessage(textStop) : null,
+        /** Why the query can't be searched (an invalid regular expression), or null. */
+        queryError,
+        /** Whether Find in Workspace's options apply now (Text mode, searching): the dialog shows them only then. */
+        searchOptionsApply,
         runItem,
         hasWorkspace: Boolean(workspaceRoot),
         /** What to show instead of results when ':', '@' or '?' lists nothing. */

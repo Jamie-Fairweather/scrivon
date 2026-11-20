@@ -8,6 +8,7 @@ import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
 import { CommandMenuItem } from '@/components/studio/commands/command-menu-item'
 import { useCommands, type ShownCommand } from '@/components/studio/commands/command-registry'
+import { EXPORT_FOLDER_DIAGRAMS_ID } from '@/components/studio/batch-export/batch-export-commands'
 import { PNG_SCALES } from '@/components/studio/editor/export-commands'
 import { displayPath } from '@/lib/workspace/display-path'
 import { folderLabels } from '@/lib/workspace/paths'
@@ -60,13 +61,16 @@ function allOff(commands: (ShownCommand | undefined)[]): boolean {
 }
 
 /**
- * File → Export: each kind of export, greyed out when the active tab can't do it. The export
- * provider registers these commands only while a folder is open, so it's left out until then.
+ * File → Export: each kind of export, greyed out when the active tab can't do it, and the export of every
+ * diagram in the open folder, which needs no tab. It's left out until a folder is open: the export providers
+ * register these commands only then, and the welcome screen's greyed-out folder export is for the palette.
  */
-function ExportSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
+function ExportSubmenu({ byId, hasWorkspace }: { byId: ReadonlyMap<string, ShownCommand>; hasWorkspace: boolean }) {
     const png = PNG_SCALES.map((scale) => byId.get(`export-png-${scale}`))
-    const others = ['export-pdf', 'export-docx', 'export-html', 'export-svg', 'copy-diagram-svg', 'copy-diagram-png'].map((id) => byId.get(id))
-    if (!byId.has('export')) return null
+    const others = ['export-pdf', 'export-docx', 'export-html', 'export-svg', 'copy-diagram-svg', 'copy-diagram-png', EXPORT_FOLDER_DIAGRAMS_ID].map(
+        (id) => byId.get(id)
+    )
+    if (!hasWorkspace || (!byId.has('export') && !byId.has(EXPORT_FOLDER_DIAGRAMS_ID))) return null
     return (
         <>
             <MenuSeparator />
@@ -94,6 +98,12 @@ function ExportSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
                         <CommandMenuItem command={byId.get('copy-diagram-svg')} />
                         <CommandMenuItem command={byId.get('copy-diagram-png')} />
                     </MenuGroup>
+                    {byId.has(EXPORT_FOLDER_DIAGRAMS_ID) ? (
+                        <>
+                            <MenuSeparator />
+                            <CommandMenuItem command={byId.get(EXPORT_FOLDER_DIAGRAMS_ID)} label="All Diagrams in Folder…" />
+                        </>
+                    ) : null}
                 </MenuSubPopup>
             </MenuSub>
         </>
@@ -192,7 +202,7 @@ export function StudioMenuBar() {
                             {item('save-all')}
                             {item('revert-file')}
                         </MenuGroup>
-                        <ExportSubmenu byId={byId} />
+                        <ExportSubmenu byId={byId} hasWorkspace={hasWorkspace} />
                         <MenuSeparator />
                         <MenuGroup>
                             {item('close-tab')}
