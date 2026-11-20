@@ -73,6 +73,8 @@ const KEYBIND_ACTION_META = {
     'format.italic': { label: 'Italic', category: 'Markdown', when: 'editor' },
     'format.code': { label: 'Inline code', category: 'Markdown', when: 'editor' },
     'format.link': { label: 'Link', category: 'Markdown', when: 'editor' },
+    'format.insertTable': { label: 'Insert table', category: 'Markdown', when: 'editor' },
+    'format.table': { label: 'Format table', category: 'Markdown', when: 'editor' },
 } satisfies Record<KeybindActionId, Omit<KeybindActionMeta, 'id'>>
 
 export const KEYBIND_ACTIONS: KeybindActionMeta[] = (Object.keys(KEYBIND_ACTION_META) as KeybindActionId[]).map((id) => ({

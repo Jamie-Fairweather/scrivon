@@ -1,19 +1,34 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Monaco } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
-import { bindMarkdownListEnter, formatMarkdown } from '@/lib/monaco/markdown-editing'
+import { bindMarkdownListEnter, canInsertMarkdownTable, editMarkdownTable, formatMarkdown, insertMarkdownTable } from '@/lib/monaco/markdown-editing'
+import { notifyInfo } from '@/lib/notify'
+
+vi.mock('@/lib/notify', () => ({ notifyInfo: vi.fn() }))
 
 type Position = { lineNumber: number; column: number }
 type Range = { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }
 
-/** A text buffer with Monaco's line and column numbers (both from 1). */
+/** A text buffer with Monaco's line and column numbers (both from 1), and one line ending for the whole buffer. */
 class FakeModel {
-    constructor(public text: string) {}
+    constructor(
+        public text: string,
+        readonly eol: '\n' | '\r\n' = '\n'
+    ) {}
     private lines() {
-        return this.text.split('\n')
+        return this.text.split(this.eol)
     }
     getLineContent(lineNumber: number) {
         return this.lines()[lineNumber - 1] ?? ''
+    }
+    getLineCount() {
+        return this.lines().length
+    }
+    getLineMaxColumn(lineNumber: number) {
+        return this.getLineContent(lineNumber).length + 1
+    }
+    getEOL() {
+        return this.eol
     }
     getValue() {
         return this.text
@@ -21,10 +36,10 @@ class FakeModel {
     getOffsetAt({ lineNumber, column }: Position) {
         return this.lines()
             .slice(0, lineNumber - 1)
-            .reduce((sum, line) => sum + line.length + 1, column - 1)
+            .reduce((sum, line) => sum + line.length + this.eol.length, column - 1)
     }
     getPositionAt(offset: number): Position {
-        const before = this.text.slice(0, offset).split('\n')
+        const before = this.text.slice(0, offset).split(this.eol)
         return { lineNumber: before.length, column: before.at(-1)!.length + 1 }
     }
 }
@@ -51,6 +66,15 @@ class FakeEditor {
     }
     getSelections() {
         return this.selections
+    }
+    /** Like Monaco: where the primary (first) selection ends. */
+    getPosition(): Position | null {
+        const [primary] = this.selections
+        return primary ? { lineNumber: primary.endLineNumber, column: primary.endColumn } : null
+    }
+    readOnly = false
+    getRawOptions() {
+        return { readOnly: this.readOnly }
     }
     pushUndoStop() {
         this.undoStops.push(this.model.text.length)
@@ -202,4 +226,139 @@ describe('formatMarkdown with a spy editor', () => {
 
         expect(executeEdits).not.toHaveBeenCalled()
     })
+})
+
+describe('editMarkdownTable', () => {
+    const caretAt = (lineNumber: number, column: number): [Position, Position] => [at(lineNumber, column), at(lineNumber, column)]
+
+    beforeEach(() => {
+        vi.mocked(notifyInfo).mockClear()
+    })
+
+    it('formats the table at the caret as one undo step, keeping the caret in its cell', () => {
+        const fake = new FakeEditor(new FakeModel('Intro\n\n|a|bb|\n|:-:|-:|\n|中文|x|\n'), [caretAt(5, 5)])
+
+        editMarkdownTable(asEditor(fake), 'format')
+
+        expect(fake.model.text).toBe('Intro\n\n|  a   |  bb |\n| :--: | --: |\n| 中文 |   x |\n')
+        expect(fake.undoStops).toHaveLength(2)
+        // Before the x, which moved right.
+        expect(fake.getPosition()).toEqual(at(5, 10))
+    })
+
+    it('keeps \\r\\n line endings', () => {
+        const fake = new FakeEditor(new FakeModel('|a|b|\r\n|-|-|\r\n|1|2|\r\nafter', '\r\n'), [caretAt(3, 2)])
+
+        editMarkdownTable(asEditor(fake), 'insert-row-below')
+
+        expect(fake.model.text).toBe('| a   | b   |\r\n| --- | --- |\r\n| 1   | 2   |\r\n|     |     |\r\nafter')
+    })
+
+    it('deletes rows, the last line of the file too', () => {
+        const middle = new FakeEditor(new FakeModel('| a   |\n| --- |\n| 1   |\n| 2   |'), [caretAt(3, 3)])
+        editMarkdownTable(asEditor(middle), 'delete-row')
+        expect(middle.model.text).toBe('| a   |\n| --- |\n| 2   |')
+        expect(middle.getPosition()).toEqual(at(3, 3))
+
+        const last = new FakeEditor(new FakeModel('| a   |\n| --- |\n| 1   |'), [caretAt(3, 3)])
+        editMarkdownTable(asEditor(last), 'delete-row')
+        expect(last.model.text).toBe('| a   |\n| --- |')
+        expect(last.getPosition()).toEqual(at(1, 3))
+    })
+
+    it('acts on the primary caret only, and leaves one caret where the command puts it', () => {
+        const text = '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n\n| c   |\n| --- |'
+        const fake = new FakeEditor(new FakeModel(text), [[at(3, 3), at(3, 9)], caretAt(5, 3)])
+
+        editMarkdownTable(asEditor(fake), 'move-column-left')
+
+        // The primary selection ended in the second cell, which moved left with the column; the other table is untouched.
+        expect(fake.model.text).toBe('| b   | a   |\n| --- | --- |\n| 2   | 1   |\n\n| c   |\n| --- |')
+        expect(fake.selections).toEqual([{ startLineNumber: 3, startColumn: 3, endLineNumber: 3, endColumn: 3 }])
+    })
+
+    it('makes no edit and adds no undo stop just outside a table, and says why', () => {
+        const fake = new FakeEditor(new FakeModel('text\n| a | b |\n|---|---|'), [caretAt(1, 2)])
+        const executeEdits = vi.spyOn(fake, 'executeEdits')
+
+        editMarkdownTable(asEditor(fake), 'delete-row')
+
+        expect(executeEdits).not.toHaveBeenCalled()
+        expect(fake.undoStops).toHaveLength(0)
+        expect(notifyInfo).toHaveBeenCalledWith('Put the caret in a table', { id: 'markdown-table' })
+    })
+
+    it('leaves a table in a code block alone, and says why', () => {
+        const fake = new FakeEditor(new FakeModel('```\n|a|b|\n|-|-|\n```'), [caretAt(2, 2)])
+
+        editMarkdownTable(asEditor(fake), 'format')
+
+        expect(fake.model.text).toBe('```\n|a|b|\n|-|-|\n```')
+        expect(fake.undoStops).toHaveLength(0)
+        expect(notifyInfo).toHaveBeenCalledWith('Tables in a code block are left as they are', { id: 'markdown-table' })
+    })
+
+    it('makes no edit in a read-only file', () => {
+        const fake = new FakeEditor(new FakeModel('|a|b|\n|-|-|'), [caretAt(1, 2)])
+        fake.readOnly = true
+
+        editMarkdownTable(asEditor(fake), 'format')
+
+        expect(fake.model.text).toBe('|a|b|\n|-|-|')
+        expect(fake.undoStops).toHaveLength(0)
+    })
+
+    it('makes no edit and adds no undo stop when the command changes nothing', () => {
+        const fake = new FakeEditor(new FakeModel('| a   |\n| --- |\n| 1   |'), [caretAt(1, 3)])
+
+        editMarkdownTable(asEditor(fake), 'format')
+        editMarkdownTable(asEditor(fake), 'delete-row')
+        editMarkdownTable(asEditor(fake), 'move-row-up')
+
+        expect(fake.undoStops).toHaveLength(0)
+        expect(notifyInfo).not.toHaveBeenCalled()
+    })
+})
+
+describe('insertMarkdownTable', () => {
+    beforeEach(() => {
+        vi.mocked(notifyInfo).mockClear()
+    })
+
+    it('inserts the table after the caret’s line as one undo step, with the caret in the first header cell', () => {
+        const fake = new FakeEditor(new FakeModel('Some text\r\nMore', '\r\n'), [[at(1, 3), at(1, 6)]])
+
+        insertMarkdownTable(asEditor(fake), { columns: 2, rows: 1 })
+
+        expect(fake.model.text).toBe('Some text\r\n\r\n|     |     |\r\n| --- | --- |\r\n|     |     |\r\n\r\nMore')
+        expect(fake.undoStops).toHaveLength(2)
+        expect(fake.selections).toEqual([{ startLineNumber: 3, startColumn: 3, endLineNumber: 3, endColumn: 3 }])
+    })
+
+    it('inserts at the end of the file', () => {
+        const fake = new FakeEditor(new FakeModel('Last'), [caretAt(1, 5)])
+
+        insertMarkdownTable(asEditor(fake), { columns: 1, rows: 1 })
+
+        expect(fake.model.text).toBe('Last\n\n|     |\n| --- |\n|     |')
+    })
+
+    it('makes no edit in a code block or a table, and says why', () => {
+        const code = new FakeEditor(new FakeModel('```\n\n```'), [caretAt(2, 1)])
+        expect(canInsertMarkdownTable(asEditor(code))).toBe(false)
+        insertMarkdownTable(asEditor(code), { columns: 1, rows: 1 })
+        expect(code.model.text).toBe('```\n\n```')
+        expect(code.undoStops).toHaveLength(0)
+        expect(notifyInfo).toHaveBeenLastCalledWith("A table can't go inside a code block", { id: 'markdown-table' })
+
+        const table = new FakeEditor(new FakeModel('|a|\n|-|'), [caretAt(1, 2)])
+        expect(canInsertMarkdownTable(asEditor(table))).toBe(false)
+        expect(notifyInfo).toHaveBeenLastCalledWith('The caret is already in a table', { id: 'markdown-table' })
+
+        expect(canInsertMarkdownTable(asEditor(new FakeEditor(new FakeModel('text'), [caretAt(1, 1)])))).toBe(true)
+    })
+
+    function caretAt(lineNumber: number, column: number): [Position, Position] {
+        return [at(lineNumber, column), at(lineNumber, column)]
+    }
 })

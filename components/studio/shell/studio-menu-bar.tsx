@@ -3,12 +3,13 @@
 import Image from 'next/image'
 import { Menubar } from '@base-ui/react/menubar'
 import { Check, Loader2 } from 'lucide-react'
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useRef, useState, type ReactNode } from 'react'
 import appIcon from '@/app-icon.png'
 import { APP_NAME } from '@/lib/app-branding'
 import { CommandMenuItem } from '@/components/studio/commands/command-menu-item'
 import { useCommands, type ShownCommand } from '@/components/studio/commands/command-registry'
 import { EXPORT_FOLDER_DIAGRAMS_ID } from '@/components/studio/batch-export/batch-export-commands'
+import { FORMAT_TABLE_ID, INSERT_TABLE_ID, TABLE_COMMAND_GROUPS } from '@/components/studio/editor/editor-commands'
 import { PNG_SCALES } from '@/components/studio/editor/export-commands'
 import { displayPath } from '@/lib/workspace/display-path'
 import { folderLabels } from '@/lib/workspace/paths'
@@ -104,6 +105,41 @@ function ExportSubmenu({ byId, hasWorkspace }: { byId: ReadonlyMap<string, Shown
                             <CommandMenuItem command={byId.get(EXPORT_FOLDER_DIAGRAMS_ID)} label="All Diagrams in Folder…" />
                         </>
                     ) : null}
+                </MenuSubPopup>
+            </MenuSub>
+        </>
+    )
+}
+
+/**
+ * Edit → Table: Insert Table…, the row, column and alignment commands, and Format Table, greyed out
+ * where they can't run (outside a table, a Markdown file or an editable file). Left out until the
+ * editor registers them.
+ */
+function TableSubmenu({ byId }: { byId: ReadonlyMap<string, ShownCommand> }) {
+    const insert = byId.get(INSERT_TABLE_ID)
+    const format = byId.get(FORMAT_TABLE_ID)
+    const groups = TABLE_COMMAND_GROUPS.map((group) => group.map((spec) => ({ spec, command: byId.get(spec.id) })))
+    if (!insert) return null
+    return (
+        <>
+            <MenuSeparator />
+            <MenuSub>
+                <MenuSubTrigger disabled={allOff([insert, format, ...groups.flat().map(({ command }) => command)])}>Table</MenuSubTrigger>
+                <MenuSubPopup className="min-w-52">
+                    <CommandMenuItem command={insert} />
+                    {groups.map((group) => (
+                        <Fragment key={group[0].spec.id}>
+                            <MenuSeparator />
+                            <MenuGroup>
+                                {group.map(({ spec, command }) => (
+                                    <CommandMenuItem key={spec.id} command={command} label={spec.menuLabel} />
+                                ))}
+                            </MenuGroup>
+                        </Fragment>
+                    ))}
+                    <MenuSeparator />
+                    <CommandMenuItem command={format} />
                 </MenuSubPopup>
             </MenuSub>
         </>
@@ -250,6 +286,7 @@ export function StudioMenuBar() {
                                 {item('edit.inline-code')}
                                 {item('edit.link')}
                             </MenuGroup>
+                            <TableSubmenu byId={byId} />
                         </MenuBarEntry>
                     )}
 

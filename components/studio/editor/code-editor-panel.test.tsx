@@ -277,6 +277,10 @@ class FakeEditor {
         this.cursorListeners.add(listener)
         return { dispose: () => this.cursorListeners.delete(listener) }
     }
+    onDidChangeCursorPosition(listener: Listener) {
+        this.cursorListeners.add(listener)
+        return { dispose: () => this.cursorListeners.delete(listener) }
+    }
     onDidChangeModelOptions() {
         return { dispose: () => {} }
     }
@@ -352,7 +356,13 @@ const scrollSyncBinding = vi.hoisted(() => ({ dispose: vi.fn() }))
 vi.mock('@/components/studio/editor/editor-scroll-sync', () => ({ bindEditorScrollSync: vi.fn(() => scrollSyncBinding) }))
 
 // The Markdown helpers have their own tests (lib/monaco/markdown-editing.test.ts), with an editor that can edit text.
-vi.mock('@/lib/monaco/markdown-editing', () => ({ formatMarkdown: vi.fn(), bindMarkdownListEnter: vi.fn() }))
+vi.mock('@/lib/monaco/markdown-editing', () => ({
+    formatMarkdown: vi.fn(),
+    bindMarkdownListEnter: vi.fn(),
+    editMarkdownTable: vi.fn(),
+    canInsertMarkdownTable: vi.fn(() => true),
+    insertMarkdownTable: vi.fn(),
+}))
 
 /** Monaco's shared "Tab moves focus" switch; Ctrl+M calls setTabFocusMode with the opposite. */
 const tabFocus = {
@@ -1972,5 +1982,51 @@ describe('CodeEditorPanel Edit commands', () => {
         tabsState = { tabs: tabsState.tabs, activeTabId: b }
         view.rerender(<PanelWithCommands />)
         await waitFor(() => expect(command('link')).toMatchObject({ disabled: true, disabledReason: 'Only in Markdown files' }))
+    })
+
+    it('turns the table commands on as the caret moves into a table, and off as it leaves', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |')], activeTabId: '/w/a.md' }
+        render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.format')).toMatchObject({ disabled: true, disabledReason: 'Put the caret in a table' }))
+        const editor = editors[0]!
+
+        act(() => editor.setPosition({ lineNumber: 5, column: 3 }))
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(false))
+        expect(command('table.insert')).toMatchObject({ disabled: true, disabledReason: 'The caret is already in a table' })
+
+        act(() => void command('table.format')!.run())
+        expect(markdownEditing.editMarkdownTable).toHaveBeenCalledWith(editor, 'format')
+
+        act(() => editor.setPosition({ lineNumber: 1, column: 1 }))
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(true))
+        expect(command('table.insert')?.disabled).toBe(false)
+    })
+
+    it('looks for a table at the caret again when the open tab changes to a Markdown file', async () => {
+        const diagram = '/w/a.mmd'
+        const doc = '/w/b.md'
+        const tabs = [tab(diagram, 'graph TD'), tab(doc, '| a | b |\n|---|---|\n| 1 | 2 |')]
+        tabsState = { tabs, activeTabId: diagram }
+        const view = render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.format')).toMatchObject({ disabled: true, disabledReason: 'Only in Markdown files' }))
+
+        // The Markdown file shows with the caret on its header row, and the caret doesn't move after.
+        tabsState = { tabs, activeTabId: doc }
+        view.rerender(<PanelWithCommands />)
+
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(false))
+        expect(editors[0]!.getPosition()).toEqual({ lineNumber: 1, column: 1 })
+        expect(command('table.insert')).toMatchObject({ disabled: true, disabledReason: 'The caret is already in a table' })
+    })
+
+    it('asks for the size of a new table in a dialog', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'Intro')], activeTabId: '/w/a.md' }
+        render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.insert')?.disabled).toBe(false))
+
+        act(() => void command('table.insert')!.run())
+
+        expect(await screen.findByRole('dialog', { name: 'Insert table' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Columns')).toHaveValue('3')
     })
 })

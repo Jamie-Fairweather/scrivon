@@ -19,6 +19,8 @@ import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
+import { trackCaretInTable } from '@/components/studio/editor/editor-table-caret'
+import { useTableSizePrompt } from '@/components/studio/dialogs/insert-table-dialog'
 import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
 import { attachEditorImages, imageDocumentFor, pasteClipboardPicture } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
@@ -446,8 +448,23 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
     useLayoutEffect(() => {
         editorRef.current?.updateOptions({ readOnly: isReadOnly, domReadOnly: isReadOnly })
     }, [isReadOnly])
+    // Whether the caret is in a Markdown table, for the table commands (set by trackCaretInTable).
+    const [caretInTable, setCaretInTable] = useState(false)
+    const tableCaretRef = useRef<ReturnType<typeof trackCaretInTable> | null>(null)
+    const activeIsMarkdown = isMarkdownTab(activeTab)
+    // The editor swaps in a tab's buffer before activeTabRef follows the tab, so look again once it has.
+    useEffect(() => {
+        tableCaretRef.current?.update()
+    }, [activeTab?.id, activeIsMarkdown])
+    const { askTableSize, dialog: insertTableDialog } = useTableSizePrompt()
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
-    useEditorCommands(editorPath ? mountedEditor : null, { shown: open, readOnly: isReadOnly, markdown: isMarkdownTab(activeTab) })
+    useEditorCommands(editorPath ? mountedEditor : null, {
+        shown: open,
+        readOnly: isReadOnly,
+        markdown: activeIsMarkdown,
+        inTable: caretInTable,
+        askTableSize,
+    })
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
     const activeName = activeTab?.name
@@ -721,6 +738,14 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
             editor.onDidDispose(() => spelling.dispose())
             // Enter continues (or ends) a list in Markdown files.
             bindMarkdownListEnter(editor, monaco, () => isMarkdownTab(activeTabRef.current))
+            // Turns the table commands on and off as the caret moves in and out of a table.
+            const tableCaret = trackCaretInTable(editor, () => isMarkdownTab(activeTabRef.current), setCaretInTable)
+            tableCaretRef.current = tableCaret
+            editor.onDidDispose(() => {
+                tableCaret.dispose()
+                if (tableCaretRef.current === tableCaret) tableCaretRef.current = null
+                setCaretInTable(false)
+            })
             // Scrolls the Markdown preview with the editor, and the other way round.
             const scrollSync = bindEditorScrollSync(editor, {
                 tabId: () => activeTabIdRef.current,
@@ -783,6 +808,7 @@ export function CodeEditorPanel({ open = true, fill = false, focusMode = false, 
         >
             <ReadOnlyReasonBar />
             <EditorContextMenu editor={editorPath ? mountedEditor : null} readOnly={isReadOnly} misspeltWordAt={misspeltWordAt} />
+            {insertTableDialog}
             {/* data-find-overflow-host: lets the find box's tooltips past this clip (app/globals.css). */}
             <div className="relative min-h-0 flex-1 overflow-hidden bg-code" data-find-overflow-host>
                 {editorPath ? (

@@ -5,7 +5,8 @@ import type { editor } from 'monaco-editor'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
 import { runEditorAction, runInEditor } from '@/lib/monaco/editor-actions'
-import { formatMarkdown, type MarkdownFormat } from '@/lib/monaco/markdown-editing'
+import type { TableAction, TableSize } from '@/lib/markdown/markdown-table'
+import { canInsertMarkdownTable, editMarkdownTable, formatMarkdown, insertMarkdownTable, type MarkdownFormat } from '@/lib/monaco/markdown-editing'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
 import type { KeybindActionId, KeybindChord } from '@/lib/settings/types'
 
@@ -20,6 +21,12 @@ export type EditorCommandsContext = {
     runAction: (monacoActionId: string) => void
     /** Runs one of the Markdown helpers in the editor. */
     runFormat: (format: MarkdownFormat) => void
+    /** The caret is in a table, so the table commands work. It can be a moment old: each command looks again when it runs. */
+    inTable: boolean
+    /** Runs one of the table commands on the table at the caret. */
+    runTable: (action: TableAction) => void
+    /** Asks for the size of a new table and inserts it at the caret. */
+    insertTable: () => void
 }
 
 type EditorCommandSpec = {
@@ -85,6 +92,91 @@ const FORMAT_COMMANDS: { id: string; label: string; keywords: string; format: Ma
     { id: 'edit.link', label: 'Link', keywords: 'link hyperlink url address markdown format', format: 'link', keybind: 'format.link' },
 ]
 
+/** The id of Insert Table…, which the Edit menu's Table submenu starts with. */
+export const INSERT_TABLE_ID = 'edit.table.insert'
+/** The id of Format Table, which the Table submenu ends with. */
+export const FORMAT_TABLE_ID = 'edit.table.format'
+
+type TableCommandSpec = {
+    id: string
+    /** The palette's label. */
+    label: string
+    /** The label in the Edit menu's Table submenu, which already says it's about a table. */
+    menuLabel: string
+    keywords: string
+    action: TableAction
+}
+
+const tableCommand = (action: TableAction, menuLabel: string, keywords: string): TableCommandSpec => ({
+    id: `edit.table.${action}`,
+    label: `Table: ${menuLabel}`,
+    menuLabel,
+    keywords,
+    action,
+})
+
+/** The row, column and alignment commands, in the Table submenu's order, in groups between separators. */
+export const TABLE_COMMAND_GROUPS: TableCommandSpec[][] = [
+    [
+        tableCommand('insert-row-above', 'Insert Row Above', 'add new'),
+        tableCommand('insert-row-below', 'Insert Row Below', 'add new'),
+        tableCommand('delete-row', 'Delete Row', 'remove'),
+        tableCommand('move-row-up', 'Move Row Up', 'reorder'),
+        tableCommand('move-row-down', 'Move Row Down', 'reorder'),
+    ],
+    [
+        tableCommand('insert-column-left', 'Insert Column Left', 'add new'),
+        tableCommand('insert-column-right', 'Insert Column Right', 'add new'),
+        tableCommand('delete-column', 'Delete Column', 'remove'),
+        tableCommand('move-column-left', 'Move Column Left', 'reorder'),
+        tableCommand('move-column-right', 'Move Column Right', 'reorder'),
+    ],
+    [
+        tableCommand('align-left', 'Align Column Left', 'alignment'),
+        tableCommand('align-center', 'Align Column Centre', 'alignment center middle'),
+        tableCommand('align-right', 'Align Column Right', 'alignment'),
+        tableCommand('align-none', 'Align Column None', 'alignment clear remove default'),
+    ],
+]
+
+/** Insert Table…, the row, column and alignment commands, and Format Table. */
+function buildTableCommands(ctx: EditorCommandsContext, unavailable: string | null): AppCommand[] {
+    const fileReason = unavailable ?? (!ctx.markdown ? 'Only in Markdown files' : ctx.readOnly ? 'This file is read-only' : null)
+    const insertReason = fileReason ?? (ctx.inTable ? 'The caret is already in a table' : null)
+    const tableReason = fileReason ?? (!ctx.inTable ? 'Put the caret in a table' : null)
+    const keywords = (more: string) => `table markdown gfm ${more}`
+    const insert: AppCommand = {
+        id: INSERT_TABLE_ID,
+        label: 'Insert Table…',
+        keywords: keywords('add new grid'),
+        keybind: 'format.insertTable',
+        disabled: insertReason !== null,
+        disabledReason: insertReason ?? undefined,
+        keepsKeysWhenOff: ctx.markdown,
+        run: () => ctx.insertTable(),
+    }
+    const changes = TABLE_COMMAND_GROUPS.flat().map((spec): AppCommand => ({
+        id: spec.id,
+        label: spec.label,
+        keywords: keywords(spec.keywords),
+        disabled: tableReason !== null,
+        disabledReason: tableReason ?? undefined,
+        run: () => ctx.runTable(spec.action),
+    }))
+    const format: AppCommand = {
+        id: FORMAT_TABLE_ID,
+        label: 'Format Table',
+        keywords: keywords('tidy align pipes columns prettify'),
+        keybind: 'format.table',
+        disabled: tableReason !== null,
+        disabledReason: tableReason ?? undefined,
+        // In a Markdown file Shift+Alt+F is Format Table's, even outside a table. In other files it goes on to the editor.
+        keepsKeysWhenOff: ctx.markdown,
+        run: () => ctx.runTable('format'),
+    }
+    return [insert, ...changes, format]
+}
+
 /** Undo, the clipboard, Find, the rest of the editor's own actions and the Markdown helpers, for the Edit menu and the palette. */
 export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
     const unavailable = ctx.editor === 'none' ? 'No file open' : ctx.editor === 'hidden' ? 'The editor is hidden' : null
@@ -101,20 +193,18 @@ export function buildEditorCommands(ctx: EditorCommandsContext): AppCommand[] {
         }
     })
     const formatReason = unavailable ?? (!ctx.markdown ? 'Only in Markdown files' : ctx.readOnly ? 'This file is read-only' : null)
-    const formatCommands = FORMAT_COMMANDS.map(
-        (spec): AppCommand => ({
-            id: spec.id,
-            label: spec.label,
-            keywords: spec.keywords,
-            keybind: spec.keybind,
-            disabled: formatReason !== null,
-            disabledReason: formatReason ?? undefined,
-            // In a Markdown file the keys are the helper's, even when it's read-only (Ctrl+E mustn't hide the editor).
-            keepsKeysWhenOff: ctx.markdown,
-            run: () => ctx.runFormat(spec.format),
-        })
-    )
-    return [...editorCommands, ...formatCommands]
+    const formatCommands = FORMAT_COMMANDS.map((spec): AppCommand => ({
+        id: spec.id,
+        label: spec.label,
+        keywords: spec.keywords,
+        keybind: spec.keybind,
+        disabled: formatReason !== null,
+        disabledReason: formatReason ?? undefined,
+        // In a Markdown file the keys are the helper's, even when it's read-only (Ctrl+E mustn't hide the editor).
+        keepsKeysWhenOff: ctx.markdown,
+        run: () => ctx.runFormat(spec.format),
+    }))
+    return [...editorCommands, ...formatCommands, ...buildTableCommands(ctx, unavailable)]
 }
 
 export type EditorCommandsState = {
@@ -123,6 +213,10 @@ export type EditorCommandsState = {
     readOnly: boolean
     /** The file is Markdown. */
     markdown: boolean
+    /** The caret is in a table (see isLineInTable). */
+    inTable: boolean
+    /** Asks for the size of a new table: null when the user cancels. */
+    askTableSize: () => Promise<TableSize | null>
 }
 
 /**
@@ -130,7 +224,10 @@ export type EditorCommandsState = {
  * the editor panel, which knows whether its editor is shown, whether the file can be edited and
  * whether it is Markdown.
  */
-export function useEditorCommands(codeEditor: editor.ICodeEditor | null, { shown, readOnly, markdown }: EditorCommandsState): void {
+export function useEditorCommands(
+    codeEditor: editor.ICodeEditor | null,
+    { shown, readOnly, markdown, inTable, askTableSize }: EditorCommandsState
+): void {
     const commands = useMemo(
         () =>
             buildEditorCommands({
@@ -144,8 +241,26 @@ export function useEditorCommands(codeEditor: editor.ICodeEditor | null, { shown
                 runFormat: (format) => {
                     if (codeEditor) runInEditor(codeEditor, () => formatMarkdown(codeEditor, format))
                 },
+                inTable,
+                runTable: (action) => {
+                    if (codeEditor) runInEditor(codeEditor, () => editMarkdownTable(codeEditor, action))
+                },
+                insertTable: () => {
+                    if (!codeEditor) return
+                    // The editor has focus as the dialog opens, so the dialog gives it back when it closes.
+                    runInEditor(codeEditor, () => {
+                        if (!canInsertMarkdownTable(codeEditor)) return
+                        const model = codeEditor.getModel()
+                        void askTableSize().then((size) => {
+                            // The tab may have closed or changed meanwhile.
+                            if (!size || !model || codeEditor.getModel() !== model) return
+                            codeEditor.focus()
+                            insertMarkdownTable(codeEditor, size)
+                        })
+                    })
+                },
             }),
-        [codeEditor, shown, readOnly, markdown]
+        [codeEditor, shown, readOnly, markdown, inTable, askTableSize]
     )
     useRegisterCommands(commands)
 }
