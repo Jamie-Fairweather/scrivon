@@ -592,8 +592,8 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
      * Edits any open tab as one undo step, never with setValue, which would wipe its undo history. The tab on
      * screen is edited in its buffer and passes the new text on as typing does (onEditorChange). A tab in the
      * background is edited in its own buffer, which then holds the same text as the tab, so showing it again
-     * leaves the buffer and its undo history as they are. Only a tab the editor hasn't shown has no buffer yet,
-     * and gets the edited text straight away.
+     * leaves the buffer and its undo history as they are. A tab the editor hasn't shown has no buffer yet, and a
+     * background tab whose buffer is out of date has the wrong one: both get the edited text straight away.
      */
     const applyTabEdits = useCallback(
         (tabId: string, edits: readonly TextEdit[]): boolean => {
@@ -603,13 +603,21 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             const monaco = monacoRef.current
             const key = modelKeysRef.current.keys.get(tab.path)
             const model = monaco && key ? monaco.editor.getModel(monaco.Uri.parse(key)) : null
-            if (!model) {
+            const editor = editorRef.current
+            const onScreen = model !== null && editor !== null && editor.getModel() === model && activeTabIdRef.current === tabId
+            // A background tab's buffer doesn't follow text the tab gets from elsewhere (a reload from disk); it
+            // catches up when the tab is shown (syncEditorWithActiveTab). Until then the tab's text is the one to
+            // edit, and the buffer's undo history is of text the tab no longer has. The buffer on screen is kept
+            // up to date straight away, so it is always the one to edit.
+            const current =
+                model !== null &&
+                monaco !== null &&
+                (onScreen || model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content))
+            if (!model || !current) {
                 updateTabContent(tabId, applyTextEdits(tab.content, edits))
                 return true
             }
             const operations = edits.map((edit) => ({ range: edit.range, text: edit.text }))
-            const editor = editorRef.current
-            const onScreen = editor !== null && editor.getModel() === model && activeTabIdRef.current === tabId
             const edit = () => {
                 model.pushStackElement()
                 model.pushEditOperations(onScreen ? editor.getSelections() : [], operations, () => null)

@@ -838,6 +838,45 @@ describe('CodeEditorPanel applyTabEdits', () => {
         expect(setValue).not.toHaveBeenCalled()
     })
 
+    it('edits a background tab whose text changed outside the editor in that text, not in its out-of-date buffer', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.md'
+        tabsState = { tabs: [tab(a, 'A'), tab(b, 'B text')], activeTabId: b }
+        const { view, editor } = await mountEditor()
+        act(() => editor.type(' typed'))
+        const modelB = editor.getModel()!
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'B text typed')], activeTabId: a })
+        // Reloaded from disk while in the background: the tab has new text, its buffer still the old.
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'Reloaded\r\nfrom disk')], activeTabId: a })
+        updateTabContent.mockClear()
+
+        let applied = false
+        act(() => {
+            applied = coordinatorHandlers.applyTabEdits!(b, [line1(1, 1, 'X')])
+        })
+
+        expect(applied).toBe(true)
+        expect(updateTabContent).toHaveBeenCalledExactlyOnceWith(b, 'XReloaded\r\nfrom disk')
+        expect(modelB.getValue()).toBe('B text typed')
+        // Shown again, the buffer catches up with the tab.
+        setTabs(view, { tabs: [tab(a, 'A'), tab(b, 'XReloaded\r\nfrom disk')], activeTabId: b })
+        expect(editor.getModel()!.getValue(EOL_PREFERENCE.LF)).toBe('XReloaded\nfrom disk')
+    })
+
+    it('keeps the tab’s encoding: only its text changes', async () => {
+        const a = '/w/a.md'
+        const u = '/w/unicode.md'
+        tabsState = { tabs: [tab(a, 'A'), { ...tab(u, 'Alt'), format: { encoding: 'utf-16le', bom: true } }], activeTabId: a }
+        await mountEditor()
+
+        act(() => {
+            coordinatorHandlers.applyTabEdits!(u, [line1(1, 4, 'Grüße 日本')])
+        })
+
+        expect(updateTabContent).toHaveBeenCalledExactlyOnceWith(u, 'Grüße 日本')
+        expect(makeTabEditable).not.toHaveBeenCalled()
+    })
+
     it('gives a tab the editor has not shown yet its edited text straight away', async () => {
         const a = '/w/a.md'
         const c = '/w/c.md'
