@@ -668,19 +668,35 @@ describe('StudioLayout with the editor split', () => {
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 })
         render(<StudioLayout />)
         const divider = screen.getByRole('separator', { name: 'Resize editor groups' })
+        // The groups share the 1199px the 1px divider leaves.
         expect(divider).toHaveAttribute('aria-valuenow', '600')
         expect(divider).toHaveAttribute('aria-valuemin', '400')
-        expect(divider).toHaveAttribute('aria-valuemax', '800')
+        expect(divider).toHaveAttribute('aria-valuemax', '799')
         expect(document.querySelector('[data-editor-group="group-1"]')).toHaveStyle({ width: '600px' })
 
         fireEvent.keyDown(divider, { key: 'ArrowRight' })
-        expect(setGroupRatio).toHaveBeenLastCalledWith(616 / 1200)
+        expect(setGroupRatio).toHaveBeenLastCalledWith(616 / 1199)
         fireEvent.keyDown(divider, { key: 'ArrowLeft', shiftKey: true })
-        expect(setGroupRatio).toHaveBeenLastCalledWith(536 / 1200)
+        expect(setGroupRatio).toHaveBeenLastCalledWith(536 / 1199)
         fireEvent.keyDown(divider, { key: 'Home' })
-        expect(setGroupRatio).toHaveBeenLastCalledWith(400 / 1200)
+        expect(setGroupRatio).toHaveBeenLastCalledWith(400 / 1199)
         fireEvent.keyDown(divider, { key: 'End' })
-        expect(setGroupRatio).toHaveBeenLastCalledWith(800 / 1200)
+        expect(setGroupRatio).toHaveBeenLastCalledWith(799 / 1199)
+    })
+
+    it('leaves the right group 400px with the divider at its right-hand limit', () => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 })
+        render(<StudioLayout />)
+        const divider = screen.getByRole('separator', { name: 'Resize editor groups' })
+        divider.setPointerCapture = () => {}
+
+        fireEvent.pointerDown(divider, { button: 0, pointerId: 1, clientX: 600 })
+        fireEvent.pointerMove(divider, { pointerId: 1, clientX: 1200 })
+        const left = document.querySelector<HTMLElement>('[data-editor-group="group-1"]')!
+        // The right group takes the rest of the row: the row less the left group and the 1px divider.
+        expect(1200 - parseFloat(left.style.width) - 1).toBe(400)
+        fireEvent.pointerUp(divider, { pointerId: 1 })
+        expect(setGroupRatio).toHaveBeenCalledExactlyOnceWith(799 / 1199)
     })
 
     it('stops a drag of the divider at the narrowest group, and keeps the place once when it ends', () => {
@@ -694,7 +710,7 @@ describe('StudioLayout with the editor split', () => {
         expect(divider).toHaveAttribute('aria-valuenow', '400')
         expect(setGroupRatio).not.toHaveBeenCalled()
         fireEvent.pointerUp(divider, { pointerId: 1 })
-        expect(setGroupRatio).toHaveBeenCalledExactlyOnceWith(400 / 1200)
+        expect(setGroupRatio).toHaveBeenCalledExactlyOnceWith(400 / 1199)
     })
 
     it('shrinks both groups evenly when there is no room for two at 400px', () => {

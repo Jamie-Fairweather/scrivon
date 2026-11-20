@@ -134,6 +134,9 @@ function EditorGroupPane({ canvasViews, width }: { canvasViews: PanZoomMemory; w
     )
 }
 
+/** The divider's width in pixels (its w-px class), taken from the room the two groups share. */
+const GROUP_DIVIDER_WIDTH = 1
+
 /**
  * The divider between the two groups: dragged, or moved with the arrow keys (Shift for bigger steps), Home and End
  * for the narrowest and widest, Enter or a double-click to share the room evenly again. Each group stays at least
@@ -145,6 +148,7 @@ function GroupDivider({
     onDrag,
     onChange,
 }: {
+    /** The room both groups share: the row less the divider. */
     total: number
     leftWidth: number
     onDrag: (width: number | null) => void
@@ -239,14 +243,16 @@ export function EditorGroupsView({ canvasViews }: { canvasViews: PanZoomMemory }
     }, [])
 
     const measured = total > 0 ? total : typeof window !== 'undefined' ? window.innerWidth : 0
-    const leftWidth = dragWidth ?? leftGroupWidth(groups.ratio, measured)
-    const onChange = useCallback((width: number) => setGroupRatio(measured > 0 ? width / measured : DEFAULT_GROUP_RATIO), [measured, setGroupRatio])
+    // The groups share what the divider leaves, so the right group (the rest of the row) is never under its minimum.
+    const room = split ? Math.max(0, measured - GROUP_DIVIDER_WIDTH) : measured
+    const leftWidth = dragWidth ?? leftGroupWidth(groups.ratio, room)
+    const onChange = useCallback((width: number) => setGroupRatio(room > 0 ? width / room : DEFAULT_GROUP_RATIO), [room, setGroupRatio])
 
     return (
         <div ref={rowRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden" data-find-overflow-host data-slot="editor-groups">
             {groups.groups.map((group, index) => (
                 <EditorGroupProvider key={group.id} index={index}>
-                    {index === 1 ? <GroupDivider total={measured} leftWidth={leftWidth} onDrag={setDragWidth} onChange={onChange} /> : null}
+                    {index === 1 ? <GroupDivider total={room} leftWidth={leftWidth} onDrag={setDragWidth} onChange={onChange} /> : null}
                     <EditorGroupPane canvasViews={canvasViews} width={split && index === 0 ? leftWidth : null} />
                 </EditorGroupProvider>
             ))}
