@@ -49,6 +49,25 @@ describe('insideCodeBlock', () => {
     it('treats ``` with another backtick after it as inline code, not a fence', () => {
         expect(lastLineInside('```inline` code', 'text')).toBe(false)
     })
+
+    it('finds code blocks in a block quote, closed by a quoted fence', () => {
+        expect(lastLineInside('> ```', '> code')).toBe(true)
+        expect(lastLineInside('>```', '>code')).toBe(true)
+        expect(lastLineInside('> ```', '> code', '> ```', '> text')).toBe(false)
+        expect(lastLineInside('> > ~~~', '> > code', '> > ~~~', 'text')).toBe(false)
+        expect(lastLineInside('Intro', '> ```js', '>', '> code')).toBe(true)
+    })
+
+    it('ends a quoted code block where its block quote ends', () => {
+        expect(lastLineInside('> ```', '> code', '', 'text')).toBe(false)
+        expect(lastLineInside('> > ```', '> > code', '> ```', '> text')).toBe(true)
+        expect(lastLineInside('> > ```', '> > code', '> not code', 'text')).toBe(false)
+    })
+
+    it('leaves quote markers inside an unquoted code block as code', () => {
+        // A Markdown example in a code block: its quoted fences don't close the block.
+        expect(lastLineInside('```md', '> ```', '> code', '> ```', 'still code')).toBe(true)
+    })
 })
 
 describe('isCodeFence', () => {

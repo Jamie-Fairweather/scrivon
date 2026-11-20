@@ -56,6 +56,19 @@ describe('insertDiagramStarter in a Markdown file', () => {
         expect(model.getValue()).toBe(`Intro\nLast\n\n${FENCE}`)
     })
 
+    it("keeps the file's final line break with the caret on the empty last line", () => {
+        const { codeEditor, model } = editorOn('Text\n', [2, 1])
+        insert(codeEditor, 'markdown')
+        expect(model.getValue()).toBe(`Text\n\n${FENCE}\n`)
+    })
+
+    it('changes nothing inside a code block in a block quote', () => {
+        const text = '> ```\n> code\n> ```\nafter'
+        const { codeEditor, model } = editorOn(text, [2, 3])
+        expect(insert(codeEditor, 'markdown')).toBe(STARTER_INSERT_PROBLEMS.inCodeBlock)
+        expect(model.getValue()).toBe(text)
+    })
+
     it('keeps a selection, going after the line it ends on', () => {
         const { codeEditor, model } = editorOn('First line\nSecond line\nThird', [1, 3], [2, 4])
         insert(codeEditor, 'markdown')

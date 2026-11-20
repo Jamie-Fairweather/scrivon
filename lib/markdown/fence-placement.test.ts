@@ -34,7 +34,12 @@ describe('placeFencedBlock', () => {
         expect(withBlock([''], 0)).toEqual(BLOCK)
         expect(withBlock(['', 'Next'], 0)).toEqual([...BLOCK, '', 'Next'])
         expect(withBlock(['Intro', 'Last line'], 1)).toEqual(['Intro', 'Last line', '', ...BLOCK])
-        expect(withBlock(['Intro', ''], 1)).toEqual(['Intro', '', ...BLOCK])
+    })
+
+    it("keeps the file's final line break when the caret is on the empty line after it", () => {
+        expect(withBlock(['Intro', ''], 1)).toEqual(['Intro', '', ...BLOCK, ''])
+        expect(withBlock(['Intro', '', ''], 2)).toEqual(['Intro', '', ...BLOCK, ''])
+        expect(withBlock(['Intro', ''], 0)).toEqual(['Intro', '', ...BLOCK, ''])
     })
 
     it('counts a line of spaces as blank', () => {
@@ -47,6 +52,13 @@ describe('placeFencedBlock', () => {
         expect(withBlock(file, 2)).toBeNull()
         expect(withBlock(file, 3)).toBeNull()
         expect(withBlock(file, 7)).toBeNull()
+    })
+
+    it('is null inside a code block in a block quote, so the quote and its code block are not split', () => {
+        const file = ['> ```', '> code', '> ```', 'after']
+        expect(withBlock(file, 0)).toBeNull()
+        expect(withBlock(file, 1)).toBeNull()
+        expect(withBlock(file, 3)).toEqual([...file, '', ...BLOCK])
     })
 
     it('goes after the fence that closes a code block', () => {

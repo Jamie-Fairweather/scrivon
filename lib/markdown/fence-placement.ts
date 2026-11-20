@@ -30,7 +30,10 @@ export function placeFencedBlock(lineAt: (index: number) => string, lineCount: n
     const next = line + 1 < lineCount ? lineAt(line + 1) : null
     if (replaceLine) {
         const needsBlankBefore = line > 0 && !isBlank(lineAt(line - 1))
-        return { line, replaceLine, breaksBefore: needsBlankBefore ? 1 : 0, breaksAfter: next !== null && !isBlank(next) ? 1 : 0 }
+        // An empty last line after another is the file's final line break, which the block keeps after it.
+        const finalLineBreak = next === null && line > 0 && lineAt(line) === ''
+        const breaksAfter = (next !== null && !isBlank(next)) || finalLineBreak ? 1 : 0
+        return { line, replaceLine, breaksBefore: needsBlankBefore ? 1 : 0, breaksAfter }
     }
     // After a line with text: a line break to end it, and a blank line.
     return { line, replaceLine, breaksBefore: 2, breaksAfter: next !== null && !isBlank(next) ? 1 : 0 }
