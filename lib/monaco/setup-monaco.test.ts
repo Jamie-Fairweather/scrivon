@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { config, openerService, OPENER_SERVICE_ID, registerMermaidLanguage } = vi.hoisted(() => ({
+const { config, openerService, OPENER_SERVICE_ID, registerMermaidLanguage, registerWikiLinkCompletion } = vi.hoisted(() => ({
+    registerWikiLinkCompletion: vi.fn(),
     config: vi.fn(),
     registerMermaidLanguage: vi.fn(),
     openerService: { registerOpener: vi.fn(() => ({ dispose: () => {} })) },
@@ -17,6 +18,7 @@ vi.mock('monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticTok
 vi.mock('monaco-editor/languages/definitions/markdown/register', () => ({}))
 vi.mock('@/lib/monaco/code-block-languages', () => ({}))
 vi.mock('@/lib/monaco/mermaid-language', () => ({ registerMermaidLanguage }))
+vi.mock('@/lib/monaco/wiki-link-completion', () => ({ registerWikiLinkCompletion }))
 vi.mock('monaco-editor/platform/opener/common/opener.js', () => ({ IOpenerService: OPENER_SERVICE_ID }))
 // The clipboard handed to Monaco here is checked against the real Monaco in setup-monaco-clipboard.test.ts.
 vi.mock('monaco-editor/editor/standalone/browser/standaloneServices.js', () => ({
@@ -44,6 +46,12 @@ describe('setup-monaco', () => {
         await import('./setup-monaco')
         expect(registerMermaidLanguage).toHaveBeenCalledTimes(1)
         expect(registerMermaidLanguage.mock.calls[0]![0]).toMatchObject({ languages: bundledMonaco.languages })
+    })
+
+    it('registers the wiki-link suggestions for Markdown files with the bundled Monaco', async () => {
+        await import('./setup-monaco')
+        expect(registerWikiLinkCompletion).toHaveBeenCalledTimes(1)
+        expect(registerWikiLinkCompletion.mock.calls[0]![0]).toMatchObject({ languages: bundledMonaco.languages })
     })
 
     it("hands Ctrl+Clicked links to the app's opener through Monaco's opener service", async () => {

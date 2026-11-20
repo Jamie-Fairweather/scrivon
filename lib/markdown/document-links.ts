@@ -6,6 +6,7 @@ import { visit } from 'unist-util-visit'
 import { parsePdfExportFrontMatter } from '@/lib/markdown/export-metadata'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
+import type { WikiLink } from '@/lib/markdown/wiki-links'
 
 /**
  * Where the links in a Markdown document point, and the ids its `#fragments` can reach. Pure (no DOM, React, Monaco
@@ -43,8 +44,25 @@ export type DocumentLink = {
     image?: true
 }
 
+/** A wiki link (`[[Note]]`, `[[Note#Heading|label]]`): which note it names, and where. See lib/markdown/wiki-links.ts. */
+export type DocumentWikiLink = {
+    /** The note as written, without its heading or label; empty for `[[#Heading]]`. */
+    target: string
+    heading: string | null
+    label: string | null
+    /** Where the whole `[[…]]` is, counted from the top of the file as the editor counts it (front matter included). */
+    position: Position
+    /** Where the target is written, or null for `[[#Heading]]` and a link whose place couldn't be told. */
+    targetSpan: TextSpan | null
+}
+
 export type DocumentLinks = {
     links: DocumentLink[]
+    /**
+     * The wiki links, in order. They aren't in `links`: they name a note, not an address, so nothing that changes
+     * addresses touches them, and `[[a]]` is never read as a reference to an `[a]: url` definition.
+     */
+    wikiLinks: DocumentWikiLink[]
     /**
      * Every id a `#fragment` in the document can reach, as the document writes it (without the preview's
      * `user-content-` prefix): its headings (as the preview gives them), its footnotes (`fn-1`, `fnref-1`) and the
@@ -194,6 +212,24 @@ function htmlAnchors(html: string, into: string[]): void {
     }
 }
 
+/**
+ * Where a wiki link's target is written in the whole document (`chars` is the front matter's length): up to its `#`,
+ * its `|` (escaped in a table) or its `]]`, without the spaces around it. Null for `[[#Heading]]`, and when what is
+ * written doesn't read back as the target.
+ */
+function wikiTargetSpan(link: WikiLink, body: string, chars: number): TextSpan | null {
+    if (!link.target || !link.position) return null
+    const start = link.position.start.offset! + 2
+    const written = body.slice(start, link.position.end.offset! - 2)
+    let end = written.search(/[|#]/)
+    if (end < 0) end = written.length
+    else if (written[end] === '|' && written[end - 1] === '\\') end -= 1
+    const leading = written.length - written.trimStart().length
+    const target = written.slice(leading, end).trimEnd()
+    if (readAddress(target) !== link.target) return null
+    return { start: start + leading + chars, end: start + leading + target.length + chars }
+}
+
 /** A position moved down by the front matter above the text it was read from. */
 function shifted(position: Position, lines: number, chars: number): Position {
     return {
@@ -212,8 +248,9 @@ export function documentLinks(source: string): DocumentLinks {
     const { body } = parsePdfExportFrontMatter(source)
     const chars = source.length - body.length
     const lines = source.slice(0, chars).split('\n').length - 1
-    // Run, not only parsed, so the plugins that change the tree after reading it (GitHub's alerts) have their say.
-    const tree = parser.runSync(parser.parse(body)) as Root
+    // Run, not only parsed, so the plugins that change the tree after reading it (GitHub's alerts, wiki links) have
+    // their say. Given the text, so the wiki links know where they are.
+    const tree = parser.runSync(parser.parse(body), body) as Root
 
     const definitions = new Map<string, string>()
     const imageReferences = new Set<string>()
@@ -228,6 +265,7 @@ export function documentLinks(source: string): DocumentLinks {
     })
 
     const links: DocumentLink[] = []
+    const wikiLinks: DocumentWikiLink[] = []
     const anchors = collectPdfExportOutline(tree).map((heading) => heading.id)
     const footnoteRefs = new Map<string, number>()
 
@@ -291,11 +329,22 @@ export function documentLinks(source: string): DocumentLinks {
             case 'html':
                 htmlAnchors((node as Html).value, anchors)
                 return
+            case 'wikiLink': {
+                const link = node as WikiLink
+                wikiLinks.push({
+                    target: link.target,
+                    heading: link.heading,
+                    label: link.label,
+                    position: shifted(link.position!, lines, chars),
+                    targetSpan: wikiTargetSpan(link, body, chars),
+                })
+                return
+            }
         }
     })
     // The heading over the footnotes at the end of the preview.
     if (footnoteRefs.size > 0) anchors.push('footnote-label')
-    return { links, anchors }
+    return { links, wikiLinks, anchors }
 }
 
 /** {@link documentLinks}, or nothing when the parser can't take the text (thousands of nested quotes). */
@@ -303,7 +352,7 @@ export function readDocumentLinks(source: string): DocumentLinks {
     try {
         return documentLinks(source)
     } catch {
-        return { links: [], anchors: [] }
+        return { links: [], wikiLinks: [], anchors: [] }
     }
 }
 

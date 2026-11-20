@@ -183,18 +183,33 @@ function enterInList(codeEditor: editor.ICodeEditor): boolean {
     return true
 }
 
+/** Set while the editor shows a Markdown file, for Enter's binding below. */
+export const MARKDOWN_TAB_CONTEXT_KEY = 'scrivonMarkdownTab'
+
 /**
  * Enter in a Markdown list continues it (bullets, numbers, task boxes), and Enter on an empty item
  * ends it. Anywhere else, and in other files, Enter types a new line as usual. Lasts as long as the editor.
+ *
+ * In a Markdown file Enter never picks a suggestion (Tab does: see wiki-link-completion.ts). With the list open it
+ * closes the list, then does what it does without one. In a diagram file, Enter picks from an open list.
  */
 export function bindMarkdownListEnter(codeEditor: editor.IStandaloneCodeEditor, monaco: Monaco, isMarkdown: () => boolean): void {
+    const markdownTab = codeEditor.createContextKey<boolean>(MARKDOWN_TAB_CONTEXT_KEY, isMarkdown())
+    const update = () => markdownTab.set(isMarkdown())
+    // The tab can change with the model or without (a tab switch swaps the buffer); the caret moves before any Enter.
+    codeEditor.onDidChangeModel(update)
+    codeEditor.onDidChangeCursorPosition(update)
+    codeEditor.onDidFocusEditorText(update)
     codeEditor.addCommand(
         monaco.KeyCode.Enter,
         () => {
-            if (isMarkdown() && enterInList(codeEditor)) return
+            const markdown = isMarkdown()
+            if (markdown) codeEditor.trigger('keyboard', 'hideSuggestWidget', {})
+            if (markdown && enterInList(codeEditor)) return
             codeEditor.trigger('keyboard', 'type', { text: '\n' })
         },
-        // Not in the find box, a read-only file, or while a suggestion list (Enter picks from it) is open.
-        'editorTextFocus && !editorReadonly && !suggestWidgetVisible'
+        // Not in the find box or a read-only file, nor in a diagram file while a suggestion list (Enter picks from it)
+        // is open.
+        `editorTextFocus && !editorReadonly && !suggestWidgetVisible || editorTextFocus && !editorReadonly && ${MARKDOWN_TAB_CONTEXT_KEY}`
     )
 }

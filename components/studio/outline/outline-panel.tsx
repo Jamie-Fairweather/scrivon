@@ -5,6 +5,9 @@ import { X } from 'lucide-react'
 import { useEditorCursorLine } from '@/components/studio/editor/editor-cursor'
 import { jumpToHeading } from '@/components/studio/outline/jump-to-heading'
 import { useMarkdownOutline } from '@/components/studio/outline/use-markdown-outline'
+import { BacklinksSection } from '@/components/studio/outline/backlinks-section'
+import { outlineKeyTarget } from '@/components/studio/outline/outline-keys'
+import { useBacklinks } from '@/components/studio/outline/use-backlinks'
 import { useDocumentTabs, useStudioLayout, useWorkspaceCoordinator } from '@/components/studio/workspace/workspace-provider'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
@@ -12,6 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { headingAtLine, outlineTree, type OutlineHeading, type OutlineNode } from '@/lib/markdown/document-outline'
 import { documentKind } from '@/lib/workspace/file-types'
 import { cn } from '@/lib/utils'
+import type { Backlink } from '@/lib/workspace/backlinks'
 
 type OutlineListProps = {
     nodes: OutlineNode[]
@@ -64,15 +68,6 @@ function OutlineList({ nodes, depth, currentIndex, tabStopIndex, onPick }: Outli
     )
 }
 
-/** Where a key moves focus in a list of `count` headings, from `at`. Null for keys the list doesn't use. */
-function outlineKeyTarget(key: string, at: number, count: number): number | null {
-    if (key === 'ArrowDown') return Math.min(at + 1, count - 1)
-    if (key === 'ArrowUp') return Math.max(at - 1, 0)
-    if (key === 'Home') return 0
-    if (key === 'End') return count - 1
-    return null
-}
-
 type OutlineTreeProps = Omit<OutlineListProps, 'depth' | 'tabStopIndex'> & { count: number }
 
 /**
@@ -123,10 +118,13 @@ function EmptyOutline({ children }: { children: string }) {
     return <p className="px-3 py-2 text-xs text-muted-foreground">{children}</p>
 }
 
-/** Lists the headings of the Markdown file on screen. Clicking one moves the editor and the preview to it. */
+/**
+ * Lists the headings of the Markdown file on screen, and below them the notes that wiki-link to it (Linked from).
+ * Clicking a heading moves the editor and the preview to it; clicking a link opens its note there.
+ */
 export function OutlinePanel() {
-    const { activeTab } = useDocumentTabs()
-    const { layout, setOutlineOpen } = useStudioLayout()
+    const { activeTab, openFile } = useDocumentTabs()
+    const { layout, setOutlineOpen, setEditorOpen } = useStudioLayout()
     const coordinator = useWorkspaceCoordinator()
     const isMarkdown = activeTab !== null && documentKind(activeTab.name) === 'markdown'
     const headings = useMarkdownOutline(isMarkdown ? activeTab.id : null, isMarkdown ? activeTab.content : null)
@@ -138,6 +136,16 @@ export function OutlinePanel() {
 
     const path = activeTab?.path ?? null
     const onPick = useCallback((heading: OutlineHeading) => jumpToHeading(coordinator, path, heading, editorOpen), [path, editorOpen, coordinator])
+    const backlinks = useBacklinks(activeTab)
+    // As a search hit opens: the editor shows, with the caret at the link.
+    const onPickBacklink = useCallback(
+        async (link: Backlink) => {
+            setEditorOpen(true)
+            await openFile(link.path)
+            coordinator.revealInEditor.current(link.path, link.line, link.column)
+        },
+        [setEditorOpen, openFile, coordinator]
+    )
 
     let body
     if (!activeTab) body = <EmptyOutline>Open a Markdown file to see its headings.</EmptyOutline>
@@ -162,6 +170,8 @@ export function OutlinePanel() {
             {/* The list is a Tab stop of its own, so the scroll box isn't one. */}
             <ScrollArea data-pane-focus className="min-h-0 flex-1" viewportProps={{ tabIndex: -1 }}>
                 {body}
+                {/* Its own list below the headings, there even while they are read or when there are none. */}
+                <BacklinksSection state={backlinks} onPick={onPickBacklink} />
             </ScrollArea>
         </aside>
     )

@@ -32,7 +32,7 @@ class FakeWorker {
     }
 }
 
-const FROM_WORKER: DocumentLinks = { links: [], anchors: ['from-worker'] }
+const FROM_WORKER: DocumentLinks = { links: [], wikiLinks: [], anchors: ['from-worker'] }
 
 async function loadReader() {
     const { createLinksReader } = await import('@/lib/markdown/links-reader')
@@ -59,8 +59,8 @@ describe('createLinksReader', () => {
         worker.emit('message', { type: 'links-read', id: worker.posted[0]!.id, links: FROM_WORKER })
         expect(await first).toEqual(FROM_WORKER)
         expect(worker.posted.map((request) => request.source)).toEqual(['# One', '# Two'])
-        worker.emit('message', { type: 'links-read', id: worker.posted[1]!.id, links: { links: [], anchors: ['two'] } })
-        expect(await second).toEqual({ links: [], anchors: ['two'] })
+        worker.emit('message', { type: 'links-read', id: worker.posted[1]!.id, links: { links: [], wikiLinks: [], anchors: ['two'] } })
+        expect(await second).toEqual({ links: [], wikiLinks: [], anchors: ['two'] })
     })
 
     it('reads only the newest waiting text of a document, and rejects the ones it replaced', async () => {
@@ -75,10 +75,10 @@ describe('createLinksReader', () => {
 
         worker.emit('message', { type: 'links-read', id: worker.posted[0]!.id, links: FROM_WORKER })
         expect(await running).toEqual(FROM_WORKER)
-        worker.emit('message', { type: 'links-read', id: worker.posted[1]!.id, links: { links: [], anchors: ['other'] } })
-        expect(await otherTab).toEqual({ links: [], anchors: ['other'] })
-        worker.emit('message', { type: 'links-read', id: worker.posted[2]!.id, links: { links: [], anchors: ['three'] } })
-        expect(await newest).toEqual({ links: [], anchors: ['three'] })
+        worker.emit('message', { type: 'links-read', id: worker.posted[1]!.id, links: { links: [], wikiLinks: [], anchors: ['other'] } })
+        expect(await otherTab).toEqual({ links: [], wikiLinks: [], anchors: ['other'] })
+        worker.emit('message', { type: 'links-read', id: worker.posted[2]!.id, links: { links: [], wikiLinks: [], anchors: ['three'] } })
+        expect(await newest).toEqual({ links: [], wikiLinks: [], anchors: ['three'] })
         // The replaced text never reached the worker, and nothing waits on it.
         expect(worker.posted.map((request) => request.source)).toEqual(['# Typing 1', '# Other', '# Typing 3'])
     })
@@ -107,8 +107,8 @@ describe('createLinksReader', () => {
         const running = reader.read('# Never')
         const waiting = reader.read('# Never either')
         reader.dispose()
-        expect(await running).toEqual({ links: [], anchors: [] })
-        expect(await waiting).toEqual({ links: [], anchors: [] })
+        expect(await running).toEqual({ links: [], wikiLinks: [], anchors: [] })
+        expect(await waiting).toEqual({ links: [], wikiLinks: [], anchors: [] })
         expect(FakeWorker.instances[0]!.terminated).toBe(true)
     })
 })

@@ -121,8 +121,28 @@ describe('documentLinks', () => {
         ])
     })
 
+    it('lists wiki links apart, with where each target is written, and never as a reference to a definition', () => {
+        const source =
+            '---\ntitle: T\n---\nSee [[ My Note #Intro| here ]], [[#Top]] and [[a]].\n\n| A |\n| - |\n| [[Cell\\|x]] |\n\n[a]: old.md\n\n`[[code]]`'
+        const { links, wikiLinks } = documentLinks(source)
+        expect(links.map(({ kind, url }) => [kind, url])).toEqual([['definition', 'old.md']])
+        expect(wikiLinks.map(({ target, heading, label }) => [target, heading, label])).toEqual([
+            ['My Note', 'Intro', 'here'],
+            ['', 'Top', null],
+            ['a', null, null],
+            ['Cell', null, 'x'],
+        ])
+        expect(wikiLinks.map(({ targetSpan }) => (targetSpan ? source.slice(targetSpan.start, targetSpan.end) : null))).toEqual([
+            'My Note',
+            null,
+            'a',
+            'Cell',
+        ])
+        expect(wikiLinks[0]!.position.start).toEqual({ line: 4, column: 5, offset: source.indexOf('[[ My') })
+    })
+
     it('reads nothing from text the parser cannot take', () => {
-        expect(readDocumentLinks('')).toEqual({ links: [], anchors: [] })
+        expect(readDocumentLinks('')).toEqual({ links: [], wikiLinks: [], anchors: [] })
     })
 })
 

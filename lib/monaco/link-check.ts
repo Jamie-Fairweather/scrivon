@@ -6,6 +6,7 @@ import type { LinksReader } from '@/lib/markdown/links-reader'
 import { findBrokenLinks, type BrokenLink } from '@/lib/workspace/broken-links'
 import { documentLinkAddress, encodeLinkText } from '@/lib/workspace/image-assets'
 import type { LinkIndex } from '@/lib/workspace/link-index'
+import type { WikiIndex } from '@/lib/workspace/wiki-link-lookup'
 import { closeAnchors, closeLinkTargets } from '@/lib/workspace/link-suggestions'
 import { checkLinkTarget, forgetLinkTargets, subscribeLinkTargets, type DiskAnswer } from '@/lib/workspace/link-target-cache'
 
@@ -24,6 +25,8 @@ export type LinkCheckConfig = {
     workspaceRoot: string | null
     /** The open folder's tree as one lookup (buildLinkIndex), or null without a folder. */
     index: LinkIndex | null
+    /** The open folder's notes, which wiki links are checked against (wikiIndexFor); null or left out, they aren't. */
+    wikiIndex?: WikiIndex | null
     /** An open tab's text, unsaved edits included (openTabText); undefined when no tab has the file. */
     openText: (path: string) => string | undefined
 }
@@ -67,7 +70,7 @@ function contains(range: IRange, position: IPosition): boolean {
 }
 
 /**
- * Checks the links, images, reference definitions and `#anchors` of the Markdown file in the editor once typing pauses,
+ * Checks the links, images, reference definitions, `#anchors` and wiki links' notes of the Markdown file in the editor once typing pauses,
  * and underlines (as warnings) the ones that lead nowhere. Ctrl+. on one offers the closest files, folders or headings.
  * The links are read in a worker; the tree is looked up through `config.index`, and the disk is asked only about a
  * path the tree can't vouch for, once.
@@ -124,6 +127,7 @@ export function attachLinkCheck(
      */
     const fixesFor = (model: editor.ITextModel, mark: Mark, asked: LinkCheckConfig, ranking: boolean): Fix[] => {
         const { fix } = mark
+        if (fix.kind === 'note') return []
         if (fix.kind === 'anchor') {
             const written = decode(model.getValueInRange(mark.fixRange))
             return closeAnchors(fix.ids, written).map((id) => ({ title: `Change to #${id}`, text: encodeLinkText(id) }))

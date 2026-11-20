@@ -5,6 +5,7 @@ import { visit } from 'unist-util-visit'
 import { parsePdfExportFrontMatter } from '@/lib/markdown/export-metadata'
 import { collectPdfExportOutline, type PdfExportOutlineItem } from '@/lib/markdown/export-outline'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
+import { applyWikiLinks } from '@/lib/markdown/wiki-links'
 
 /** A heading in the Outline panel: its id in the preview, its level (1–6), its text and its line in the file (from 1). */
 export type OutlineHeading = PdfExportOutlineItem & { line: number }
@@ -20,6 +21,8 @@ export function markdownOutline(source: string): OutlineHeading[] {
     const { body } = parsePdfExportFrontMatter(source)
     const linesBefore = source.slice(0, source.length - body.length).split('\n').length - 1
     const tree = parser.parse(body) as Root
+    // Only parsed, so the wiki links are read here, as the preview reads them: a heading's id comes from a link's label.
+    applyWikiLinks(tree, body)
     const items = collectPdfExportOutline(tree)
 
     // collectPdfExportOutline wrote each listed heading's id onto its node; the parser gave every node its place.

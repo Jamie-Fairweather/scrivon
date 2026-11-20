@@ -5,6 +5,7 @@ import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
+import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
 
 /** How many times rehype-raw has parsed a tree again. */
 const rawPasses = vi.hoisted(() => ({ count: 0 }))
@@ -48,6 +49,17 @@ describe('previewHtmlPlugins', () => {
     it('keeps phone links, which the preview hands to the system like web and email links (N26)', () => {
         expect(previewHtml('[call](tel:+442012345678) <a href="tel:+15550100">desk</a>')).toBe(
             '<p><a href="tel:+442012345678">call</a> <a href="tel:+15550100">desk</a></p>'
+        )
+    })
+})
+
+describe('wiki links in the preview', () => {
+    it('keep their class and what they name, and nothing else a document writes on a link', () => {
+        const processor = unified().use(remarkParse).use(markdownRemarkPlugins).use(remarkRehype, previewRemarkRehypeOptions).use(previewHtmlPlugins)
+        const source = '[[Note#Intro|go]] [[#Intro]] <a class="evil wiki-link" data-other="x" href="#a">raw</a>'
+        expect(toHtml(processor.runSync(processor.parse(source), source) as HastRoot)).toBe(
+            '<p><a class="wiki-link" data-wiki-target="Note" data-wiki-heading="Intro">go</a> ' +
+                '<a class="wiki-link" href="#intro" data-wiki-heading="Intro">Intro</a> <a class="wiki-link" href="#a">raw</a></p>'
         )
     })
 })

@@ -356,6 +356,12 @@ vi.mock('@/lib/monaco/setup-monaco', () => ({}))
 const scrollSyncBinding = vi.hoisted(() => ({ dispose: vi.fn() }))
 vi.mock('@/components/studio/editor/editor-scroll-sync', () => ({ bindEditorScrollSync: vi.fn(() => scrollSyncBinding) }))
 
+// The wiki-link suggestions have their own tests (lib/monaco/wiki-link-completion.test.ts).
+vi.mock('@/lib/monaco/wiki-link-completion', () => ({
+    bindWikiLinkSuggest: vi.fn(() => ({ dispose: () => {} })),
+    registerWikiLinkSource: vi.fn(() => () => {}),
+}))
+
 // The Markdown helpers have their own tests (lib/monaco/markdown-editing.test.ts), with an editor that can edit text.
 vi.mock('@/lib/monaco/markdown-editing', () => ({
     formatMarkdown: vi.fn(),
@@ -505,6 +511,7 @@ const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor
 const { CommandRegistryProvider, useCommands } = await import('@/components/studio/commands/command-registry')
 const { bindEditorScrollSync } = await import('@/components/studio/editor/editor-scroll-sync')
 const markdownEditing = await import('@/lib/monaco/markdown-editing')
+const wikiLinkCompletion = await import('@/lib/monaco/wiki-link-completion')
 const { focusEditorFor, focusEditorNow } = await import('@/components/studio/editor/editor-focus')
 const { focusPane } = await import('@/components/studio/shell/pane-focus')
 const { useEditorCursor, useEditorCursorLine } = await import('@/components/studio/editor/editor-cursor')
@@ -1258,6 +1265,24 @@ describe('CodeEditorPanel Markdown lists', () => {
 
         setTabs(view, { tabs: [tab(a, '- one'), tab(b, 'graph TD')], activeTabId: b })
         expect(isMarkdown()).toBe(false)
+    })
+
+    it('opens wiki-link suggestions on [[ in Markdown files only, and stops with the editor', async () => {
+        const a = '/w/a.md'
+        const b = '/w/b.mmd'
+        tabsState = { tabs: [tab(a, ''), tab(b, 'graph TD')], activeTabId: a }
+        const { view, editor } = await mountEditor()
+
+        expect(wikiLinkCompletion.bindWikiLinkSuggest).toHaveBeenCalledTimes(1)
+        const [boundEditor, isMarkdown] = vi.mocked(wikiLinkCompletion.bindWikiLinkSuggest).mock.calls[0]!
+        expect(boundEditor).toBe(editor)
+        expect(isMarkdown()).toBe(true)
+        setTabs(view, { tabs: [tab(a, ''), tab(b, 'graph TD')], activeTabId: b })
+        expect(isMarkdown()).toBe(false)
+        expect(wikiLinkCompletion.registerWikiLinkSource).toHaveBeenLastCalledWith({
+            index: expect.objectContaining({ root: '/w' }),
+            documentPath: b,
+        })
     })
 })
 

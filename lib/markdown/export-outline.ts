@@ -10,14 +10,20 @@ export type PdfExportOutlineItem = {
 /**
  * GitHub's heading id (the github-slugger rules), so a `#…` link written for GitHub reaches
  * the same heading here: lower-cased, punctuation and symbols dropped, letters of any script
- * kept, and each space its own `-`. A repeat gets the first free `-1`, `-2`, … suffix.
+ * kept, and each space its own `-`. A repeat gets a suffix (see slugify).
  */
-function slugify(text: string, used: Set<string>): string {
-    const base =
+export function headingSlug(text: string): string {
+    return (
         text
             .toLowerCase()
             .replace(/[^\p{L}\p{M}\p{N}\p{Pc}\- ]/gu, '')
             .replace(/ /g, '-') || 'section'
+    )
+}
+
+/** {@link headingSlug}, with the first free `-1`, `-2`, … suffix when another heading has it (`used`, which it joins). */
+function slugify(text: string, used: Set<string>): string {
+    const base = headingSlug(text)
     let slug = base
     for (let n = 1; used.has(slug); n++) slug = `${base}-${n}`
     used.add(slug)

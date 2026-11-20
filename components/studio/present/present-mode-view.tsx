@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { focusEditorNow } from '@/components/studio/editor/editor-focus'
 import { useFrameSyncedValue } from '@/components/studio/hooks/use-frame-synced-value'
@@ -9,6 +9,8 @@ import { useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-
 import { resolveMarkdownLink } from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { openExternalLink } from '@/components/studio/markdown/open-external-link'
+import { useWikiLinkLookup } from '@/components/studio/markdown/use-wiki-lookup'
+import type { WikiLinkHandlers } from '@/components/studio/markdown/wiki-link-status'
 import { usePresentMode } from '@/components/studio/present/present-mode-provider'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { DialogErrorBoundary } from '@/components/studio/shell/dialog-error-boundary'
@@ -229,6 +231,10 @@ function PresentSlides({ tab, onExit }: PresentSlidesProps) {
         },
         [documentPath, workspaceRoot]
     )
+    // Wiki links aren't followed either, but one whose note isn't there still looks it, as in the preview, with its
+    // tooltip and what a screen reader hears saying why.
+    const wikiLookup = useWikiLinkLookup(documentPath)
+    const wikiLinks = useMemo<WikiLinkHandlers>(() => ({ status: (target) => wikiLookup(target).kind, open: () => {} }), [wikiLookup])
 
     const scale = slideTextScale(size.width, size.height, previewFontSize)
     // A diagram fits on the slide whole: in the slide's height, less its padding and the diagram's own margin, and less
@@ -256,6 +262,7 @@ function PresentSlides({ tab, onExit }: PresentSlidesProps) {
                         slide={index}
                         onExpandBlock={noExpand}
                         onLinkClick={onLinkClick}
+                        wikiLinks={wikiLinks}
                         loadRemoteImages={remoteImageTabs.has(tab.id)}
                         onRemoteImageBlocked={ignoreBlockedImage}
                         documentPath={documentPath}

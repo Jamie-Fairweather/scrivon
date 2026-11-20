@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Monaco } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
+import { ContextKeyExpr } from 'monaco-editor/platform/contextkey/common/contextkey.js'
 import { bindMarkdownListEnter, canInsertMarkdownTable, editMarkdownTable, formatMarkdown, insertMarkdownTable } from '@/lib/monaco/markdown-editing'
 import { notifyInfo } from '@/lib/notify'
 
@@ -105,8 +106,30 @@ class FakeEditor {
         this.commands.push({ keybinding, handler, context })
         return 'command'
     }
+    /** Whether a suggestion list is open, and the commands run on the editor, in order. */
+    suggestOpen = false
+    readonly triggered: string[] = []
     trigger(_source: string, handlerId: string, payload: { text: string }) {
+        this.triggered.push(handlerId)
         if (handlerId === 'type') this.typed.push(payload.text)
+        if (handlerId === 'hideSuggestWidget') this.suggestOpen = false
+    }
+    readonly contextKeys = new Map<string, unknown>()
+    createContextKey(key: string, value: unknown) {
+        this.contextKeys.set(key, value)
+        return { set: (next: unknown) => this.contextKeys.set(key, next) }
+    }
+    private readonly listeners: (() => void)[] = []
+    private listen = (listener: () => void) => {
+        this.listeners.push(listener)
+        return { dispose: () => {} }
+    }
+    onDidChangeModel = this.listen
+    onDidChangeCursorPosition = this.listen
+    onDidFocusEditorText = this.listen
+    /** As Monaco does when the caret moves or another file is shown. */
+    changed() {
+        for (const listener of this.listeners) listener()
     }
     /** The text with each selection shown as «…» and each caret as |. */
     shown() {
@@ -173,10 +196,45 @@ describe('bindMarkdownListEnter', () => {
         return { fake, command: command!, enter: () => command!.handler() }
     }
 
-    it('binds Enter only while typing in the text of an editable file, with no suggestion list open', () => {
+    it('binds Enter only while typing in the text of an editable file, and with a suggestion list open only in Markdown', () => {
         const { command } = bound('', at(1, 1))
         expect(command.keybinding).toBe(3)
-        expect(command.context).toBe('editorTextFocus && !editorReadonly && !suggestWidgetVisible')
+        expect(command.context).toBe(
+            'editorTextFocus && !editorReadonly && !suggestWidgetVisible || editorTextFocus && !editorReadonly && scrivonMarkdownTab'
+        )
+        // As Monaco reads it.
+        const when = ContextKeyExpr.deserialize(command.context!)!
+        const holds = (keys: Record<string, boolean>) => when.evaluate({ getValue: (key: string) => keys[key] } as never)
+        expect(holds({ editorTextFocus: true })).toBe(true)
+        expect(holds({ editorTextFocus: true, suggestWidgetVisible: true })).toBe(false)
+        expect(holds({ editorTextFocus: true, suggestWidgetVisible: true, scrivonMarkdownTab: true })).toBe(true)
+        expect(holds({ editorTextFocus: true, editorReadonly: true, scrivonMarkdownTab: true })).toBe(false)
+    })
+
+    it('keeps the Markdown key in step with the file showing', () => {
+        let markdown = true
+        const fake = new FakeEditor(new FakeModel(''), [[at(1, 1), at(1, 1)]])
+        bindMarkdownListEnter(fake as unknown as editor.IStandaloneCodeEditor, monaco, () => markdown)
+        expect(fake.contextKeys.get('scrivonMarkdownTab')).toBe(true)
+        markdown = false
+        fake.changed()
+        expect(fake.contextKeys.get('scrivonMarkdownTab')).toBe(false)
+    })
+
+    it('closes an open suggestion list in a Markdown list item, then continues the list as Enter does without it', () => {
+        const { fake, enter } = bound('- see [[Pla', at(1, 12))
+        fake.suggestOpen = true
+        enter()
+        expect(fake.suggestOpen).toBe(false)
+        expect(fake.triggered[0]).toBe('hideSuggestWidget')
+        expect(fake.shown()).toBe('- see [[Pla\n- |')
+        expect(fake.typed).toEqual([])
+
+        const plain = bound('text [[Pla', at(1, 11))
+        plain.fake.suggestOpen = true
+        plain.enter()
+        expect(plain.fake.suggestOpen).toBe(false)
+        expect(plain.fake.typed).toEqual(['\n'])
     })
 
     it('continues a list as one undo step, and ends it on an empty item', () => {

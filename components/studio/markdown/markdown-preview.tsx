@@ -36,15 +36,17 @@ import {
 } from '@/components/studio/markdown/markdown-preview-body'
 import { rehypeDisplayMathLines, rehypeSourceLines, sourceLineProps } from '@/components/studio/markdown/source-lines'
 import { useWorkspaceImage } from '@/components/studio/markdown/use-workspace-image'
+import { WIKI_LINK_PROBLEMS, type WikiLinkHandlers } from '@/components/studio/markdown/wiki-link-status'
 import { collectPdfExportOutline } from '@/lib/markdown/export-outline'
 import { htmlAlertKind, type GithubAlertKind } from '@/lib/markdown/github-alerts'
 import { previewHtmlPlugins, previewRemarkRehypeOptions } from '@/lib/markdown/html-sanitize-schema'
 import { mathRehypePlugins } from '@/lib/markdown/rehype-math'
 import { markdownRemarkPlugins } from '@/lib/markdown/remark-plugins'
+import { isWikiLinkClass } from '@/lib/markdown/wiki-links'
 import { blockDirection } from '@/lib/markdown/text-direction'
 import { isWebImageUrl } from '@/lib/markdown/web-images'
 import { resolveDocumentImage } from '@/lib/workspace/workspace-images'
-import { inlineLinkClassName } from '@/lib/ui/link-classes'
+import { inlineLinkClassName, missingLinkClassName } from '@/lib/ui/link-classes'
 import { cn } from '@/lib/utils'
 
 type MarkdownPreviewProps = {
@@ -73,6 +75,11 @@ type MarkdownPreviewProps = {
      * second view of the same tab gives its own, so it never moves the preview's ids.
      */
     documentKey?: string
+    /**
+     * Whether each wiki link's note is there, and what clicking one does. Read from context, so a change (the folder's
+     * files) redraws only the links. Without it, wiki links look like any link and clicking one does nothing.
+     */
+    wikiLinks?: WikiLinkHandlers | null
     className?: string
 }
 
@@ -299,6 +306,46 @@ function PreviewImage(props: ComponentProps<'img'> & ExtraProps) {
     return <FolderImage {...rest} src={address} alt={alt} path={source.path} workspaceRoot={folder.workspaceRoot!} />
 }
 
+const WikiLinksContext = createContext<WikiLinkHandlers | null>(null)
+
+/** The text inside a hast element. */
+function elementText(node: Element | undefined): string {
+    if (!node) return ''
+    return node.children.map((child) => (child.type === 'text' ? child.value : child.type === 'element' ? elementText(child) : '')).join('')
+}
+
+type WikiLinkAnchorProps = ComponentProps<'a'> & { node?: Element; target: string; heading: string | null }
+
+/**
+ * A wiki link to a note (remarkWikiLinks): drawn like any link while its note is in the open folder, and with a
+ * dashed underline in the muted colour when it isn't, which a screen reader hears after the link's text and the
+ * pointer's tooltip says. Clicking it is handled by the app, like any link.
+ */
+function WikiLinkAnchor({ node, target, heading, className, ...rest }: WikiLinkAnchorProps) {
+    const handlers = useContext(WikiLinksContext)
+    const status = handlers?.status(target) ?? 'found'
+    const problem = status === 'found' ? null : WIKI_LINK_PROBLEMS[status]
+    const open = (event: MouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault()
+        handlers?.open({ target, heading })
+    }
+    return (
+        <a
+            {...rest}
+            // Never followed by the webview: it only makes the link a Tab stop, as a link should be.
+            href="#"
+            onClick={open}
+            onAuxClick={(event) => {
+                if (event.button === 1) open(event)
+            }}
+            data-wiki-status={status}
+            aria-label={problem ? `${elementText(node)}, ${problem.spoken}` : undefined}
+            title={problem ? problem.description : undefined}
+            className={cn(problem ? missingLinkClassName : inlineLinkClassName, className)}
+        />
+    )
+}
+
 /** A diagram's block id: its tab, and the lasting id rehypeMermaidBlockIds gave it, which moves with the block. */
 function mermaidBlockId(tabId: string | null, key: string): string {
     return `${tabId ?? 'none'}:${key}:mermaid`
@@ -477,6 +524,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
     variant = 'document',
     slide = 0,
     documentKey: ownDocumentKey,
+    wikiLinks = null,
     className,
 }: MarkdownPreviewProps) {
     const slides = variant === 'slides'
@@ -485,6 +533,11 @@ export const MarkdownPreview = memo(function MarkdownPreview({
         return {
             ...staticMarkdownComponents,
             a(props) {
+                const wikiTarget = props.node?.properties.dataWikiTarget
+                if (isWikiLinkClass(props.node?.properties.className) && typeof wikiTarget === 'string' && wikiTarget) {
+                    const heading = props.node?.properties.dataWikiHeading
+                    return <WikiLinkAnchor {...props} target={wikiTarget} heading={typeof heading === 'string' && heading ? heading : null} />
+                }
                 const { className: linkClassName, href, ...rest } = withoutNode(props)
                 const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
                     // Routed by the app: left to the webview, relative and #anchor links would open
@@ -581,7 +634,9 @@ export const MarkdownPreview = memo(function MarkdownPreview({
             {/* The document's <article> comes from rehypePreviewArticle, with its language. */}
             <RemoteImagesContext.Provider value={remoteImages}>
                 <DocumentFolderContext.Provider value={folder}>
-                    <CurrentSlideContext.Provider value={slide}>{markdown}</CurrentSlideContext.Provider>
+                    <WikiLinksContext.Provider value={wikiLinks}>
+                        <CurrentSlideContext.Provider value={slide}>{markdown}</CurrentSlideContext.Provider>
+                    </WikiLinksContext.Provider>
                 </DocumentFolderContext.Provider>
             </RemoteImagesContext.Provider>
         </div>

@@ -91,6 +91,7 @@ import { PDF_KEEP_TOGETHER_MAX_CODE_LINES, PDF_KEEP_TOGETHER_MAX_TABLE_ROWS } fr
 import { hanScriptOfTag, pdfPageNumberTemplate, resolvePdfChromeText } from '@/lib/markdown/export-metadata'
 import { highlightFencedCodeTokens, type HighlightedToken } from '@/lib/markdown/shiki-highlighter'
 import { isRtl, RTL_LETTER } from '@/lib/markdown/text-direction'
+import { wikiHeadingHref } from '@/lib/markdown/wiki-links'
 import { diagramAltText, type DiagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { hasForeignObject } from '@/lib/mermaid/official-svg'
 import { chooseDiagramEngine, unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
@@ -1363,6 +1364,10 @@ function renderInlines(state: RenderState, nodes: PhrasingContent[], marks: Mark
             children.push(new TextRun({ break: 1 }))
         } else if (node.type === 'link' || node.type === 'linkReference') {
             children.push(...renderLink(state, node, marks))
+        } else if (node.type === 'wikiLink') {
+            // The note isn't part of the export, so a link to one is its words; `[[#Heading]]` goes to the heading.
+            if (node.target || !node.heading) children.push(...renderInlines(state, node.children, marks))
+            else children.push(...renderLink(state, { type: 'link', url: wikiHeadingHref(node.heading), children: node.children }, marks))
         } else if (node.type === 'image' || node.type === 'imageReference') {
             const url = imageUrl(state, node)
             const image = url === undefined ? null : renderImage(state, url, node.alt, givenSize(node))

@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { trackEditorCursor, type CursorSource } from '@/components/studio/editor/editor-cursor'
 import { registerPreviewHeadingReveal } from '@/components/studio/markdown/preview-heading'
 import { focusPane } from '@/components/studio/shell/pane-focus'
+import type { BacklinksState } from '@/components/studio/outline/use-backlinks'
+import type { Backlink } from '@/lib/workspace/backlinks'
 import type { DocumentTab } from '@/lib/workspace/types'
 import { OutlinePanel } from './outline-panel'
 
@@ -11,17 +13,34 @@ const mocks = vi.hoisted(() => ({
     activeTab: null as DocumentTab | null,
     editorOpen: true,
     setOutlineOpen: vi.fn(),
+    setEditorOpen: vi.fn(),
+    openFile: vi.fn(async (path: string) => {
+        void path
+    }),
     revealInEditor: vi.fn(),
+    backlinks: { kind: 'none' } as BacklinksState,
 }))
 
 vi.mock('@/components/studio/workspace/workspace-provider', () => ({
-    useDocumentTabs: () => ({ activeTab: mocks.activeTab }),
+    useDocumentTabs: () => ({ activeTab: mocks.activeTab, openFile: mocks.openFile }),
     useStudioLayout: () => ({
         layout: { explorerOpen: true, editorOpen: mocks.editorOpen, outlineOpen: true },
         setOutlineOpen: mocks.setOutlineOpen,
+        setEditorOpen: mocks.setEditorOpen,
     }),
     useWorkspaceCoordinator: () => ({ revealInEditor: { current: mocks.revealInEditor } }),
 }))
+
+// The scan has its own tests (lib/workspace/backlinks.test.ts); here the panel is given its result.
+vi.mock('@/components/studio/outline/use-backlinks', () => ({ useBacklinks: () => mocks.backlinks }))
+
+function backlink(relative: string, line: number, text: string): Backlink {
+    return { path: `C:/ws/${relative}.md`, relative, line, column: 3, text }
+}
+
+function linkedFrom(links: Backlink[], incomplete = false): BacklinksState {
+    return { kind: 'ready', result: { target: 'C:/ws/guide.md', links, incomplete } }
+}
 
 function tab(name: string, content: string): DocumentTab {
     return { id: `C:/ws/${name}`, path: `C:/ws/${name}`, name, content, isDirty: false, isSaving: false }
@@ -56,6 +75,9 @@ beforeEach(() => {
     mocks.editorOpen = true
     mocks.setOutlineOpen.mockClear()
     mocks.revealInEditor.mockClear()
+    mocks.openFile.mockClear()
+    mocks.setEditorOpen.mockClear()
+    mocks.backlinks = { kind: 'none' }
     setEditorCursorLine(null)
 })
 
@@ -257,5 +279,96 @@ describe('OutlinePanel', () => {
             focusPane('outline')
         })
         expect(screen.getByRole('button', { name: 'Hide Outline' })).toHaveFocus()
+    })
+})
+
+describe('OutlinePanel Linked from', () => {
+    const LINKS = [
+        backlink('work/Today', 3, '- Read [[Guide]] first'),
+        backlink('Home', 1, 'Start at [[guide|the guide]].'),
+        backlink('Notes', 9, 'x'),
+    ]
+
+    it('lists the notes that link here below the headings, as its own labelled list with the count read out', () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        mocks.backlinks = linkedFrom(LINKS)
+        render(<OutlinePanel />)
+
+        const list = screen.getByRole('list', { name: 'Linked from, 3 links' })
+        expect(screen.getByRole('heading', { name: /Linked from/ })).toBeInTheDocument()
+        expect(screen.getByRole('region', { name: /Linked from/ })).toContainElement(list)
+        // Below the headings, not inside their list.
+        const outline = screen.getByRole('navigation', { name: 'Outline' })
+        expect(outline.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(outline).not.toContainElement(list)
+
+        const first = within(list).getAllByRole('button')[0]!
+        expect(first).toHaveTextContent('work/Today- Read [[Guide]] first')
+        expect(first).toHaveAttribute('title', 'work/Today, line 3\n- Read [[Guide]] first')
+        expect(first.querySelectorAll('.truncate')).toHaveLength(2)
+    })
+
+    it('shows even when the file has no headings, or they are still being read', () => {
+        mocks.activeTab = tab('empty.md', 'Just text.')
+        mocks.backlinks = linkedFrom(LINKS.slice(0, 1))
+        render(<OutlinePanel />)
+        expect(screen.getByText('No headings yet. Start a line with # to add one.')).toBeInTheDocument()
+        expect(screen.getByRole('list', { name: 'Linked from, 1 link' })).toBeInTheDocument()
+    })
+
+    it('opens the note at the link’s line when one is chosen', async () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        mocks.backlinks = linkedFrom(LINKS)
+        render(<OutlinePanel />)
+        await userEvent.setup().click(screen.getByRole('button', { name: /^Home/ }))
+        expect(mocks.setEditorOpen).toHaveBeenCalledWith(true)
+        expect(mocks.openFile).toHaveBeenCalledWith('C:/ws/Home.md')
+        expect(mocks.revealInEditor).toHaveBeenCalledWith('C:/ws/Home.md', 1, 3)
+    })
+
+    it('is a Tab stop of its own, with the arrow keys, Home and End, while F6 still lands on the headings', async () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        mocks.backlinks = linkedFrom(LINKS)
+        render(<OutlinePanel />)
+        const user = userEvent.setup()
+        const list = screen.getByRole('list', { name: 'Linked from, 3 links' })
+        const links = within(list).getAllByRole('button')
+
+        act(() => {
+            expect(focusPane('outline')).toBe(true)
+        })
+        expect(screen.getByRole('button', { name: 'Guide' })).toHaveFocus()
+
+        await user.tab()
+        expect(links[0]).toHaveFocus()
+        await user.keyboard('{ArrowDown}')
+        expect(links[1]).toHaveFocus()
+        expect(links[1]!.tabIndex).toBe(0)
+        await user.keyboard('{End}')
+        expect(links[2]).toHaveFocus()
+        await user.keyboard('{ArrowDown}{Home}')
+        expect(links[0]).toHaveFocus()
+        // Back up into the headings, onto the one that has the Tab stop there.
+        await user.tab({ shift: true })
+        expect(screen.getByRole('button', { name: 'Guide' })).toHaveFocus()
+        await user.keyboard('{End}')
+        expect(screen.getByRole('button', { name: 'Use' })).toHaveFocus()
+    })
+
+    it('says when no note links here, when the list may be incomplete, and when the file has no folder', () => {
+        mocks.activeTab = tab('guide.md', GUIDE)
+        mocks.backlinks = linkedFrom([], true)
+        const view = render(<OutlinePanel />)
+        expect(screen.getByText('No other notes link here.')).toBeInTheDocument()
+        expect(screen.getByText("Scrivon didn't list every file in this folder, so this list may be incomplete.")).toBeInTheDocument()
+
+        mocks.backlinks = { kind: 'no-folder' }
+        view.rerender(<OutlinePanel />)
+        expect(screen.getByText('Open the folder this file is in to see which notes link to it.')).toBeInTheDocument()
+
+        mocks.backlinks = { kind: 'loading' }
+        view.rerender(<OutlinePanel />)
+        expect(screen.getByRole('heading', { name: 'Linked from' })).toBeInTheDocument()
+        expect(screen.queryByRole('list', { name: /Linked from/ })).toBeNull()
     })
 })

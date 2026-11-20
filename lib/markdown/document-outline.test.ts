@@ -12,6 +12,15 @@ describe('markdownOutline', () => {
         ])
     })
 
+    it('reads a wiki link in a heading as the preview does: its label, or the note’s name', () => {
+        const source = ['# See [[Meeting notes|the notes]]', '', '## [[Plan]] and [[#Intro]]', '', '## `[[code]]`'].join('\n')
+        expect(markdownOutline(source)).toEqual([
+            { id: 'see-the-notes', level: 1, text: 'See the notes', line: 1 },
+            { id: 'plan-and-intro', level: 2, text: 'Plan and Intro', line: 3 },
+            { id: 'code', level: 2, text: '[[code]]', line: 5 },
+        ])
+    })
+
     it('counts lines from the top of the file when it starts with front matter', () => {
         const source = ['---', 'title: Notes', 'author: Sam', '---', '', '# Intro', '', '## Next'].join('\r\n')
         expect(markdownOutline(source)).toEqual([

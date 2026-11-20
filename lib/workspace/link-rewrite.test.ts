@@ -57,6 +57,13 @@ describe('links to a moved file', () => {
         )
     })
 
+    it('leaves wiki links as they are, and never reads [[a]] as a reference to an [a]: definition, which changes', async () => {
+        const source = ['See [[a]], [[docs/setup]] and [[setup|the setup]].', '', '[a]: docs/setup.md'].join('\n')
+        const { rewrites, text } = await rewrite(source, 'C:\\ws\\README.md', moveSetup)
+        expect(text).toBe(['See [[a]], [[docs/setup]] and [[setup|the setup]].', '', '[a]: guides/setup.md'].join('\n'))
+        expect(rewrites.map((r) => [r.oldAddress, r.newAddress, r.line])).toEqual([['docs/setup.md', 'guides/setup.md', 3]])
+    })
+
     it('rewrites a reference definition, and leaves the references to it as they are', async () => {
         const source = ['Read [the setup][s] or [s].', '', '[s]: docs/setup.md "Setup"', '[o]: <docs/other.md>'].join('\n')
         const { text } = await rewrite(source, 'C:\\ws\\README.md', moveSetup)
