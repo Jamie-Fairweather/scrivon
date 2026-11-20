@@ -7,10 +7,14 @@
 //! - No console window (CREATE_NO_WINDOW, as `updater.rs` runs tasklist), no
 //!   prompts (GIT_TERMINAL_PROMPT=0), and no `.git/index.lock`
 //!   (`--no-optional-locks`), so it never gets in the way of the user's own git.
-//! - Killed after 10 seconds, and stopped after 16 MB of output. Either, like
-//!   git missing, a folder outside a repository, a repository git refuses
-//!   ("dubious ownership") or git too old for porcelain v2, means no marks:
-//!   one line in the log, never a notice.
+//! - Killed after 10 seconds, and stopped after 16 MB of output, together with
+//!   everything it started: on Windows it runs in a Job Object, because the
+//!   `git.exe` on the PATH (Git for Windows' `cmd\git.exe`) only starts the real
+//!   git and waits for it. Either, like git missing, a folder outside a
+//!   repository, a repository git refuses ("dubious ownership") or git too old
+//!   for porcelain v2, means no marks: one line in the log, never a notice. The
+//!   line gives the reason in fixed words, never git's own message, which can
+//!   name the folder.
 //! - The system config isn't dropped (no GIT_CONFIG_NOSYSTEM): on Git for
 //!   Windows it turns on `core.autocrlf`, `core.fscache` and the LFS filters,
 //!   and without it clean files can look modified. `safe.directory` isn't
@@ -106,7 +110,8 @@ pub(crate) enum GitFailure {
     TooMuchOutput,
     /// The repository's own config sets these filter drivers.
     RepositoryFilters(Vec<String>),
-    /// Git failed: not a repository, refused it, too old, or anything else.
+    /// Git failed: not a repository, refused it, too old, or anything else. The
+    /// reason is in fixed words (see `failure_reason`), as it goes in the log.
     Failed(String),
 }
 
@@ -384,7 +389,6 @@ impl Git {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             command.creation_flags(CREATE_NO_WINDOW);
         }
         command
@@ -398,36 +402,40 @@ impl Git {
     }
 }
 
-/// Runs `command`, killing it at `deadline` or once it has written more than
-/// `max_output` bytes.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Runs `command`, killing it (and anything it started) at `deadline` or once
+/// it has written more than `max_output` bytes.
 fn run_capped(
     mut command: Command,
     deadline: Instant,
     max_output: usize,
 ) -> Result<GitOutput, GitFailure> {
-    let mut child = command.spawn().map_err(|err| match err.kind() {
+    let (mut child, tree) = process_tree::spawn(&mut command).map_err(|err| match err.kind() {
         io::ErrorKind::NotFound => GitFailure::NotInstalled,
         _ => GitFailure::Failed(format!("git couldn't start: {err}")),
     })?;
+    let stop_all = |child: &mut Child| stop(child, tree.as_ref());
     let too_much = Arc::new(AtomicBool::new(false));
     let stdout = read_in_background(child.stdout.take(), max_output, Some(too_much.clone()));
     let stderr = read_in_background(child.stderr.take(), MAX_GIT_ERRORS, None);
 
     let status = loop {
         if too_much.load(Ordering::Relaxed) {
-            stop(&mut child);
+            stop_all(&mut child);
             return Err(GitFailure::TooMuchOutput);
         }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {}
             Err(err) => {
-                stop(&mut child);
+                stop_all(&mut child);
                 return Err(GitFailure::Failed(err.to_string()));
             }
         }
         if Instant::now() >= deadline {
-            stop(&mut child);
+            stop_all(&mut child);
             return Err(GitFailure::TimedOut);
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -448,24 +456,241 @@ fn run_capped(
     // `git config --get-regexp` with nothing to list.
     let nothing_found = status.code() == Some(1) && stdout.is_empty();
     if !status.success() && !nothing_found {
-        let why = String::from_utf8_lossy(&stderr);
-        let why = why
-            .lines()
-            .find(|line| !line.trim().is_empty())
-            .unwrap_or("")
-            .trim();
-        return Err(GitFailure::Failed(if why.is_empty() {
-            format!("git failed ({status})")
-        } else {
-            format!("git failed: {why}")
-        }));
+        return Err(GitFailure::Failed(failure_reason(
+            &String::from_utf8_lossy(&stderr),
+            status.code(),
+        )));
     }
     Ok(GitOutput { stdout })
 }
 
-fn stop(child: &mut Child) {
+/// Why git failed, in fixed words. Git's own message isn't kept: it often names
+/// the folder ("detected dubious ownership in repository at 'D:/Clients/…'"),
+/// and the log is attached to bug reports.
+fn failure_reason(stderr: &str, code: Option<i32>) -> String {
+    let stderr = stderr.to_lowercase();
+    let said = |words: &str| stderr.contains(words);
+    if said("not a git repository") {
+        "the folder isn't in a git repository".into()
+    } else if said("dubious ownership") {
+        "git refused the repository because another account owns it (safe.directory)".into()
+    } else if said("unknown option") || said("takes no value") || said("usage: git") {
+        "git doesn't know an option Scrivon uses, so it may be too old".into()
+    } else {
+        match code {
+            Some(code) => format!("git failed with exit code {code}"),
+            None => "git failed".into(),
+        }
+    }
+}
+
+/// Stops the program and everything it started, and waits for it.
+fn stop(child: &mut Child, tree: Option<&process_tree::Job>) {
+    if let Some(tree) = tree {
+        tree.terminate();
+    }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Keeps a program and everything it starts together, so they stop together.
+#[cfg(windows)]
+mod process_tree {
+    use std::ffi::c_void;
+    use std::io;
+    use std::os::windows::io::AsRawHandle;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Child, Command};
+
+    type Handle = *mut c_void;
+
+    const CREATE_SUSPENDED: u32 = 0x0000_0004;
+    const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
+    const TH32CS_SNAPTHREAD: u32 = 0x0000_0004;
+    const THREAD_SUSPEND_RESUME: u32 = 0x0002;
+    const INVALID_HANDLE_VALUE: Handle = -1isize as Handle;
+
+    /// JOBOBJECT_BASIC_LIMIT_INFORMATION.
+    #[repr(C)]
+    #[derive(Default)]
+    struct BasicLimits {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+
+    /// JOBOBJECT_EXTENDED_LIMIT_INFORMATION.
+    #[repr(C)]
+    #[derive(Default)]
+    struct ExtendedLimits {
+        basic: BasicLimits,
+        io_counters: [u64; 6],
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+
+    /// THREADENTRY32.
+    #[repr(C)]
+    #[derive(Default)]
+    struct ThreadEntry {
+        size: u32,
+        usage: u32,
+        thread_id: u32,
+        owner_process_id: u32,
+        base_priority: i32,
+        delta_priority: i32,
+        flags: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateJobObjectW(attributes: *const c_void, name: *const u16) -> Handle;
+        fn SetInformationJobObject(job: Handle, class: i32, info: *const c_void, size: u32) -> i32;
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        fn TerminateJobObject(job: Handle, exit_code: u32) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+        fn CreateToolhelp32Snapshot(flags: u32, process_id: u32) -> Handle;
+        fn Thread32First(snapshot: Handle, entry: *mut ThreadEntry) -> i32;
+        fn Thread32Next(snapshot: Handle, entry: *mut ThreadEntry) -> i32;
+        fn OpenThread(access: u32, inherit: i32, thread_id: u32) -> Handle;
+        fn ResumeThread(thread: Handle) -> u32;
+    }
+
+    /// A Job Object: closing it, or `terminate`, ends every process in it.
+    pub(crate) struct Job(Handle);
+
+    impl Job {
+        fn new() -> Option<Self> {
+            // SAFETY: no security attributes and no name are allowed.
+            let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+            if handle.is_null() {
+                return None;
+            }
+            let job = Self(handle);
+            let mut limits = ExtendedLimits::default();
+            limits.basic.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            // SAFETY: `limits` is a JOBOBJECT_EXTENDED_LIMIT_INFORMATION of the size given.
+            let set = unsafe {
+                SetInformationJobObject(
+                    job.0,
+                    JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                    std::ptr::from_ref(&limits).cast(),
+                    std::mem::size_of::<ExtendedLimits>() as u32,
+                )
+            };
+            (set != 0).then_some(job)
+        }
+
+        pub(crate) fn terminate(&self) {
+            // SAFETY: the handle is a job this owns.
+            unsafe { TerminateJobObject(self.0, 1) };
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // SAFETY: the handle is a job this owns, closed once. Anything still
+            // in it (something git left running) ends now.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// Starts `command` in a new Job Object, so stopping the job stops all it
+    /// started too. It starts suspended and runs once it is in the job, so
+    /// nothing it starts can get out first. Without a job (Windows refused one)
+    /// it just starts.
+    pub(super) fn spawn(command: &mut Command) -> io::Result<(Child, Option<Job>)> {
+        let Some(job) = Job::new() else {
+            command.creation_flags(super::CREATE_NO_WINDOW);
+            return command.spawn().map(|child| (child, None));
+        };
+        command.creation_flags(super::CREATE_NO_WINDOW | CREATE_SUSPENDED);
+        let mut child = command.spawn()?;
+        // SAFETY: both handles are open: the job's is this one's, the process's
+        // is the child's.
+        let in_job = unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle().cast()) } != 0;
+        if !resume(child.id()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::other("it didn't run after starting"));
+        }
+        Ok((child, in_job.then_some(job)))
+    }
+
+    /// Lets the suspended process `pid` run: resumes its threads (one, as it
+    /// has only just started). False if none could be.
+    fn resume(pid: u32) -> bool {
+        // SAFETY: a snapshot of every thread; the handle is closed below.
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if snapshot == INVALID_HANDLE_VALUE {
+            return false;
+        }
+        let mut resumed = false;
+        let mut entry = ThreadEntry {
+            size: std::mem::size_of::<ThreadEntry>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: `entry` is a THREADENTRY32 with its size set.
+        let mut more = unsafe { Thread32First(snapshot, &mut entry) } != 0;
+        while more {
+            if entry.owner_process_id == pid {
+                // SAFETY: the thread handle is closed straight after.
+                unsafe {
+                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.thread_id);
+                    if !thread.is_null() {
+                        resumed |= ResumeThread(thread) != u32::MAX;
+                        CloseHandle(thread);
+                    }
+                }
+            }
+            // SAFETY: as for Thread32First.
+            more = unsafe { Thread32Next(snapshot, &mut entry) } != 0;
+        }
+        // SAFETY: the snapshot is this one's, closed once.
+        unsafe { CloseHandle(snapshot) };
+        resumed
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn lays_out_the_windows_structures_as_windows_does() {
+            if cfg!(target_pointer_width = "64") {
+                assert_eq!(std::mem::size_of::<ExtendedLimits>(), 144);
+            }
+            assert_eq!(std::mem::size_of::<ThreadEntry>(), 28);
+        }
+    }
+}
+
+/// Elsewhere git is the real program, so stopping it is enough.
+#[cfg(not(windows))]
+mod process_tree {
+    use std::io;
+    use std::process::{Child, Command};
+
+    pub(crate) enum Job {}
+
+    impl Job {
+        pub(crate) fn terminate(&self) {
+            match *self {}
+        }
+    }
+
+    pub(super) fn spawn(command: &mut Command) -> io::Result<(Child, Option<Job>)> {
+        command.spawn().map(|child| (child, None))
+    }
 }
 
 /// Reads `pipe` on its own thread. Past `max` bytes it stops, sets
@@ -770,6 +995,65 @@ worktree\0filter.tidy.process\nother.exe\0";
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 
+    /// Git for Windows' `cmd\git.exe`, the one on the PATH, only starts the real
+    /// git and waits for it, so stopping it alone would leave git running.
+    #[cfg(windows)]
+    #[test]
+    fn stops_what_the_program_started_too() {
+        use std::os::windows::process::CommandExt;
+        let temp = TempDir::new("tree");
+        // The outer cmd stands in for the launcher; the inner one, which it
+        // starts, makes a folder after about two seconds unless it is stopped.
+        let mut launcher = Command::new("cmd");
+        launcher
+            .current_dir(&temp.0)
+            .raw_arg("/C cmd /C \"ping -n 3 127.0.0.1 >nul & mkdir still-running\"")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let soon = Instant::now() + Duration::from_millis(300);
+        assert_eq!(
+            run_capped(launcher, soon, MAX_GIT_OUTPUT).err(),
+            Some(GitFailure::TimedOut)
+        );
+        std::thread::sleep(Duration::from_secs(4));
+        assert!(
+            !temp.0.join("still-running").exists(),
+            "the program the launcher started kept running"
+        );
+    }
+
+    /// The same with the git on the PATH, which starts a shell for a `!` alias.
+    #[cfg(windows)]
+    #[test]
+    fn stops_the_real_git_and_what_it_started() {
+        if !git_is_installed() {
+            eprintln!("git isn't installed: skipped");
+            return;
+        }
+        let temp = TempDir::new("git-tree");
+        let lingering = Git::installed().command(
+            &temp.0,
+            &[
+                "-c",
+                "alias.linger=!sleep 3 && mkdir still-running",
+                "linger",
+            ],
+        );
+
+        let soon = Instant::now() + Duration::from_millis(500);
+        assert_eq!(
+            run_capped(lingering, soon, MAX_GIT_OUTPUT).err(),
+            Some(GitFailure::TimedOut)
+        );
+        std::thread::sleep(Duration::from_secs(5));
+        assert!(
+            !temp.0.join("still-running").exists(),
+            "git kept running after it was stopped"
+        );
+    }
+
     #[test]
     fn checks_the_folder_is_one_the_user_opened() {
         let temp = TempDir::new("scope");
@@ -917,6 +1201,52 @@ worktree\0filter.tidy.process\nother.exe\0";
             return;
         }
         let status = status_of(&Git::installed(), &temp.0);
-        assert!(matches!(status, Err(GitFailure::Failed(_))), "{status:?}");
+        assert_eq!(
+            status,
+            Err(GitFailure::Failed(
+                "the folder isn't in a git repository".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn logs_why_git_failed_without_the_folder_it_names() {
+        let refused =
+            "fatal: detected dubious ownership in repository at 'D:/Clients/Acme/notes'\n\
+'D:/Clients/Acme/notes' is owned by:\n\tBUILTIN/Administrators (S-1-5-32-544)\n\
+To add an exception for this directory, call:\n\n\
+\tgit config --global --add safe.directory D:/Clients/Acme/notes\n";
+        let why = GitFailure::Failed(failure_reason(refused, Some(128))).to_string();
+        assert_eq!(
+            why,
+            "git refused the repository because another account owns it (safe.directory)"
+        );
+        assert!(!why.contains("Acme"));
+
+        assert_eq!(
+            failure_reason(
+                "fatal: not a git repository (or any of the parent directories): .git\n",
+                Some(128)
+            ),
+            "the folder isn't in a git repository"
+        );
+        assert_eq!(
+            failure_reason(
+                "Unknown option: --no-optional-locks\nusage: git [--version] [--help]\n",
+                Some(129)
+            ),
+            "git doesn't know an option Scrivon uses, so it may be too old"
+        );
+        assert_eq!(
+            failure_reason(
+                "fatal: bad config line 3 in file C:/Users/Alice/.gitconfig\n",
+                Some(128)
+            ),
+            "git failed with exit code 128"
+        );
+        assert_eq!(
+            failure_reason("fatal: cannot change to 'D:/Clients/Acme'", None),
+            "git failed"
+        );
     }
 }
