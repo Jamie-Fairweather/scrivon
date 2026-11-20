@@ -31,6 +31,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Mermaid highlighting and starters** — Keywords, arrows, node labels and `%%` comments are coloured in diagram files and in `mermaid` blocks in Markdown. Press **Ctrl+Space** in a diagram file for a starter for each diagram type
 - **Canvas tools** — Pan and zoom the preview, fit diagram to screen, or switch to preview-only layout
 - **Diagram export** — Save the active diagram as SVG or PNG (1×, 2×, or 4×), or copy it to the clipboard. Pick a light or dark diagram theme and a transparent background in the export menu
+- **Export every diagram in a folder** — **File → Export → All Diagrams in Folder…**, the command palette, or **Export Diagrams…** on a folder in the explorer saves every `.mmd` and `.mermaid` file as SVG or PNG into a folder you choose, keeping the subfolders if you like. Files already there are never replaced: you choose Keep Both or Skip, and a summary lists what was saved, skipped and failed
 
 ### Markdown documents
 
