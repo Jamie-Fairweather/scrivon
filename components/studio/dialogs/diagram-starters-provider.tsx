@@ -196,7 +196,6 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
     const [open, setOpen] = useState(false)
     // Kept while the window fades out, so its buttons stay put.
     const [request, setRequest] = useState<StarterGalleryRequest | null>(null)
-    const [folder, setFolder] = useState<string | null>(null)
     const [selected, setSelected] = useState(0)
     const [insertProblem, setInsertProblem] = useState<string | null>(null)
     // What to do once the window has closed: insert into the editor, or ask for the new file's name.
@@ -212,18 +211,20 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
             afterCloseRef.current = null
             setSelected(0)
             setRequest(next)
-            setFolder(
-                next.folder !== undefined
-                    ? next.folder
-                    : workspaceRoot
-                      ? newItemFolder({ root: workspaceRoot, tree, selectedPath: null, activePath: activeTabId })
-                      : null
-            )
             setInsertProblem(next.insert?.problem() ?? null)
             setOpen(true)
         },
-        [rememberFocus, forgetFailures, workspaceRoot, tree, activeTabId]
+        [rememberFocus, forgetFailures]
     )
+
+    // Worked out as the window shows, so opening it doesn't depend on the file tree (and the commands that open it
+    // aren't made again each time the tree changes).
+    const folder =
+        request?.folder !== undefined
+            ? request.folder
+            : workspaceRoot
+              ? newItemFolder({ root: workspaceRoot, tree, selectedPath: null, activePath: activeTabId })
+              : null
 
     const closeThen = useCallback((afterClose: () => void) => {
         afterCloseRef.current = afterClose
