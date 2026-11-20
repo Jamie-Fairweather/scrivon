@@ -13,6 +13,7 @@ import { commandToPaletteItem } from '@/components/studio/command-palette/comman
 import { foldText } from '@/components/studio/command-palette/fold-text'
 import { goToLineHint, goToLineItem, headingItems, helpItems, type PaletteFile } from '@/components/studio/command-palette/palette-prefixes'
 import { parsePaletteQuery, type PaletteQueryKind } from '@/components/studio/command-palette/parse-palette-query'
+import { canMatchEmptyText, EMPTY_MATCH_REPLACE_HINT } from '@/components/studio/command-palette/replace-text'
 import { isThemePick, matchesCommandName, searchActions } from '@/components/studio/command-palette/search-actions'
 import {
     createContentCache,
@@ -362,8 +363,11 @@ export function usePaletteSearch(
         mode,
     ])
 
+    // Replacing with a pattern like '^' finds only empty matches, which are never listed or replaced: say why.
+    const onlyEmptyMatches = useMemo(() => textMatcher !== null && canMatchEmptyText(textMatcher), [textMatcher])
+    const replaceHint = replaceActive && textResolved && !textStop && onlyEmptyMatches ? EMPTY_MATCH_REPLACE_HINT : null
     // Only worked out when the list is empty: ':' counts the open file's lines for it.
-    const emptyHint = groups.length === 0 ? prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings) : null
+    const emptyHint = groups.length === 0 ? (replaceHint ?? prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings)) : null
 
     // The query as typed, without the spaces a regular expression keeps: what the search effect compares.
     const typedQuery = parsePaletteQuery(query, mode).query

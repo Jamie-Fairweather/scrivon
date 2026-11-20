@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { applyReplacements, findReplacements, replacementEdits, replacementSignature } from '@/components/studio/command-palette/replace-text'
+import {
+    applyReplacements,
+    canMatchEmptyText,
+    findReplacements,
+    replacementEdits,
+    replacementSignature,
+} from '@/components/studio/command-palette/replace-text'
 import {
     compileTextQuery,
     PLAIN_SEARCH_OPTIONS,
@@ -104,6 +110,16 @@ describe('findReplacements, regular expressions', () => {
         const { replacements } = findReplacements(text, matcher('́'), '_')
         expect(replacements).toEqual([{ lineIndex: 0, start: 1, length: 4, oldText: 'é́́', newText: '_' }])
         expect(applyReplacements(text, replacements)).toBe('x_y')
+    })
+
+    it('knows a pattern that can match empty text, so the palette can say why it replaces nothing', () => {
+        expect(canMatchEmptyText(matcher('^', regex))).toBe(true)
+        expect(canMatchEmptyText(matcher('x*', regex))).toBe(true)
+        expect(canMatchEmptyText(matcher('$', regex))).toBe(true)
+        expect(canMatchEmptyText(matcher('^x', regex))).toBe(false)
+        expect(canMatchEmptyText(matcher('x+', regex))).toBe(false)
+        // Plain text '^' is the character itself.
+        expect(canMatchEmptyText(matcher('^'))).toBe(false)
     })
 
     it('leaves lines longer than the regex limit alone, and counts them', () => {

@@ -9,6 +9,7 @@ import type { AppThemeId } from '@/lib/theme/catalog'
 import { isTauri } from '@/lib/tauri/platform'
 import { getRecentFiles } from '@/lib/tauri/store'
 import type { FileNode } from '@/lib/workspace/types'
+import { EMPTY_MATCH_REPLACE_HINT } from '@/components/studio/command-palette/replace-text'
 import { DEBOUNCE_MS, searchWorkspaceContent } from '@/components/studio/command-palette/search-content'
 import type { WorkspaceSearchOptions } from '@/components/studio/command-palette/text-matcher'
 import type { PaletteGroup, PaletteMode } from '@/components/studio/command-palette/types'
@@ -1471,6 +1472,40 @@ describe('usePaletteSearch Replace in Workspace', () => {
         expect(calls()).toHaveLength(2)
         expect(result.current.textResolved).toBe(true)
         expect(result.current.groups.map((group) => group.file?.path)).toEqual(['/ws/docs/b.md'])
+    })
+
+    it('says why a pattern that only matches empty text has nothing to replace', async () => {
+        const empty = {
+            hits: [],
+            capped: false,
+            unreadableFiles: 0,
+            truncatedFiles: 0,
+            truncatedPaths: [],
+            longLinesSkipped: 0,
+        }
+        const search = vi.mocked(searchWorkspaceContent)
+        const actual = search.getMockImplementation()!
+        // The regex worker isn't there in tests: the search finds nothing, as it does for '^'.
+        search.mockImplementation(async () => empty)
+        try {
+            const regexOn = { ...OFF, useRegex: true }
+            const { result, rerender } = renderSearch({ mode: 'text', options: regexOn, replacement: '> ' })
+            act(() => result.current.setQuery('^'))
+            await settle(DEBOUNCE_MS)
+            expect(result.current.groups).toEqual([])
+            expect(result.current.emptyHint).toBe(EMPTY_MATCH_REPLACE_HINT)
+
+            // Not for a pattern that can't match empty text, nor without the Replace box.
+            act(() => result.current.setQuery('^x'))
+            await settle(DEBOUNCE_MS)
+            expect(result.current.emptyHint).toBeNull()
+            act(() => result.current.setQuery('^'))
+            rerender({ mode: 'text', options: regexOn, replacement: null })
+            await settle(DEBOUNCE_MS)
+            expect(result.current.emptyHint).toBeNull()
+        } finally {
+            search.mockImplementation(actual)
+        }
     })
 
     it('keeps the usual Text group without the Replace box, and outside Text mode', async () => {

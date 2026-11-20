@@ -119,11 +119,27 @@ export function expandReplacement(
 const LINE_BREAK = /[\r\n]/
 
 /**
+ * Whether a regular expression can match empty text ('^', '$', 'x*'). Its empty matches are never listed or
+ * replaced, so with no other matches the palette says why nothing is there to replace. Testing it on '' is safe
+ * on this thread: no pattern can take long on no text.
+ */
+export function canMatchEmptyText(matcher: TextMatcher): boolean {
+    if (!matcher.options.useRegex || !matcher.regex) return false
+    const { source, flags } = matcher.regex
+    return new RegExp(source, flags.replace(/[gyd]/g, '')).test('')
+}
+
+/** Shown instead of 'no results' when Replace has only empty matches to work with. */
+export const EMPTY_MATCH_REPLACE_HINT =
+    'Nothing to replace. Replace only changes text a match covers, so a pattern that matches empty text, like ^ or $, ' +
+    'adds nothing. To add text at the start of each line, search for ^(.) and replace with your text followed by $1.'
+
+/**
  * Every match in `text` (up to `maxMatches`) and what it becomes. With Use Regular Expression off the
  * replacement is put in literally ('$1' stays '$1'); with it on, '$1', '$<name>' and '$&' are filled in.
  * Lines are matched without the '\r' of a CRLF file, so '$' matches before it, and no match or replacement
  * may remove or add a line break: a match that would is left out. Empty matches are never replaced, as
- * Find in Workspace never shows them, so '^' or 'x*' can't add text twice.
+ * Find in Workspace never shows them, so '^' or 'x*' can't add text twice (EMPTY_MATCH_REPLACE_HINT says so).
  */
 export function findReplacements(
     text: string,
