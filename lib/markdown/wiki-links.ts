@@ -135,14 +135,27 @@ function alignWithSource(value: string, raw: string): number[] {
     return map
 }
 
-/** The point `index` characters into `raw`, which starts at `start`. */
-function pointIn(raw: string, start: Point, index: number): Point {
-    let lines = 0
-    let lastBreak = -1
-    for (let k = raw.indexOf('\n'); k !== -1 && k < index; k = raw.indexOf('\n', k + 1)) {
-        lines += 1
-        lastBreak = k
+/** Where each line break in `raw` is, in order. */
+function lineBreaks(raw: string): number[] {
+    const breaks: number[] = []
+    for (let k = raw.indexOf('\n'); k !== -1; k = raw.indexOf('\n', k + 1)) breaks.push(k)
+    return breaks
+}
+
+/**
+ * The point `index` characters into a text that starts at `start` and has its line breaks at `breaks`. The breaks
+ * are searched by halves, so a paragraph of many lines with a link on each isn't counted from its top for every link.
+ */
+function pointIn(breaks: readonly number[], start: Point, index: number): Point {
+    let low = 0
+    let high = breaks.length
+    while (low < high) {
+        const middle = (low + high) >> 1
+        if (breaks[middle]! < index) low = middle + 1
+        else high = middle
     }
+    const lines = low
+    const lastBreak = lines === 0 ? -1 : breaks[lines - 1]!
     return {
         line: start.line + lines,
         column: lines === 0 ? start.column + index : index - lastBreak,
@@ -160,6 +173,7 @@ function locator(node: Text, source: string): Locator {
     const raw = source.slice(start.offset, end.offset)
     const { value } = node
     const map = alignWithSource(value, raw)
+    let breaks: number[] | null = null
     /** Where the character at `index` of the value ends in the source: after its escape or reference, if it has one. */
     const endOf = (index: number): number => {
         const at = map[index]!
@@ -172,7 +186,10 @@ function locator(node: Text, source: string): Locator {
         return Math.min(at + 1, raw.length)
     }
     return {
-        position: (from, to) => ({ start: pointIn(raw, start, map[from]!), end: pointIn(raw, start, endOf(to - 1)) }),
+        position: (from, to) => {
+            breaks ??= lineBreaks(raw)
+            return { start: pointIn(breaks, start, map[from]!), end: pointIn(breaks, start, endOf(to - 1)) }
+        },
         escaped: (index) => raw[map[index]!] === '\\' && value[index] !== '\\',
     }
 }

@@ -120,6 +120,22 @@ describe('wiki links in the tree', () => {
         expect(wikiHeadingHref('Foo & Bar')).toBe('#foo--bar')
     })
 
+    it('places each link in a paragraph of many lines on its own line and column', () => {
+        const lines = Array.from({ length: 400 }, (_, i) => `${'x'.repeat(i % 7)}[[Note ${i}]] after`)
+        const markdown = lines.join('\n')
+        const found: { line: number; column: number; endLine: number; endColumn: number }[] = []
+        visit(run(markdown), 'wikiLink', (node: WikiLink) => {
+            const { start, end } = node.position!
+            found.push({ line: start.line, column: start.column, endLine: end.line, endColumn: end.column })
+        })
+        expect(found).toEqual(
+            lines.map((line, i) => {
+                const column = (i % 7) + 1
+                return { line: i + 1, column, endLine: i + 1, endColumn: column + `[[Note ${i}]]`.length }
+            })
+        )
+    })
+
     it('still makes links when the source is not given, only without a place', () => {
         const tree = processor.parse('[[Note]]') as Root
         applyWikiLinks(tree, '')
