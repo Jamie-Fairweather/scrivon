@@ -26,8 +26,11 @@ import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/s
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
 import { EditorContextMenu } from '@/components/studio/editor/editor-context-menu'
 import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
+import { bindParagraphDimming, type ParagraphDimming } from '@/components/studio/editor/editor-paragraph-dimming'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { formatKeybindForAction } from '@/lib/settings/format-keybind'
+import { editorEmptyMessage } from '@/components/studio/editor/editor-empty-message'
 import { lineEndingsOf } from '@/lib/workspace/text-stats'
 import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -125,6 +128,11 @@ type CodeEditorPanelProps = {
     open?: boolean
     /** True while the preview is hidden: the editor takes the whole row and can't be resized. */
     fill?: boolean
+    /**
+     * In focus mode the editor is all there is: with no file open it says how to leave, and it can take focus
+     * itself, so focus has somewhere to go inside the window.
+     */
+    focusMode?: boolean
     width: number
     onWidthChange: (width: number) => void
     /** Puts the editor back to its default width (double-click or Enter on the resize handle). */
@@ -171,7 +179,7 @@ function languageForTab(tab: DocumentTab) {
     return kind === 'markdown' || tab.readOnly ? 'markdown' : 'plaintext'
 }
 
-export function CodeEditorPanel({ open = true, fill = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
+export function CodeEditorPanel({ open = true, fill = false, focusMode = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
@@ -478,6 +486,15 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
         previewLinkRef.current = { scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview }
     }, [settings.editor.scrollSync, settings.editor.jumpFromPreview])
 
+    // Dim Other Paragraphs, read through a ref by the editor's dimming (bindParagraphDimming).
+    const dimOtherParagraphs = settings.editor.dimOtherParagraphs
+    const dimOtherParagraphsRef = useRef(dimOtherParagraphs)
+    const dimmingRef = useRef<ParagraphDimming | null>(null)
+    useEffect(() => {
+        dimOtherParagraphsRef.current = dimOtherParagraphs
+        dimmingRef.current?.refresh()
+    }, [dimOtherParagraphs])
+
     const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
         tabSizeRef.current = settings.editor.tabSize
@@ -712,6 +729,13 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                 canFocus: () => openRef.current,
             })
             editor.onDidDispose(() => scrollSync.dispose())
+            // Fades the paragraphs the cursor isn't in, while Dim Other Paragraphs is on.
+            const dimming = bindParagraphDimming(editor, () => dimOtherParagraphsRef.current)
+            dimmingRef.current = dimming
+            editor.onDidDispose(() => {
+                dimming.dispose()
+                if (dimmingRef.current === dimming) dimmingRef.current = null
+            })
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)
@@ -747,10 +771,15 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                 // Hidden at full size and out of the way of the preview. Shrunk to nothing, Monaco
                 // would lay out and wrap the whole file one character per line on every hide,
                 // show and tab switch.
-                open ? 'relative' : 'invisible absolute inset-y-0 left-0'
+                open ? 'relative' : 'invisible absolute inset-y-0 left-0',
+                focusMode && 'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset'
             )}
             style={fill ? undefined : { width: shownWidth }}
             inert={!open}
+            tabIndex={focusMode ? -1 : undefined}
+            // Named in focus mode, where focus can land on the panel itself, so a screen reader says where it is.
+            role={focusMode ? 'region' : undefined}
+            aria-label={focusMode ? 'Editor' : undefined}
         >
             <ReadOnlyReasonBar />
             <EditorContextMenu editor={editorPath ? mountedEditor : null} readOnly={isReadOnly} misspeltWordAt={misspeltWordAt} />
@@ -771,7 +800,10 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                     />
                 ) : (
                     <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-                        Select a file from the explorer or create a new file.
+                        {editorEmptyMessage(
+                            focusMode,
+                            focusMode ? formatKeybindForAction('palette.openFiles', settings.keybinds, isMacPlatform()) : undefined
+                        )}
                     </div>
                 )}
                 {/* Tab indents here, so say on screen how to leave with the keyboard. Screen readers

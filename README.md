@@ -50,6 +50,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Themes** — Light and dark UI plus 15+ diagram palettes (Scrivon, Zinc, Tokyo Night, Catppuccin, Nord, Dracula, GitHub, Solarized, One Dark, and more)
 - **Autosave** — Optional autosave to disk; **Ctrl/Cmd+S** saves immediately
 - **Settings** — **Ctrl/Cmd+,** opens preferences for theme, autosave, editor, and configurable keyboard shortcuts
+- **Focus mode** — **View → Focus Mode** (or **F11**) hides the explorer, Outline, tabs, preview and status bar so only the editor shows, filling the window. **Esc** or **F11** leaves it and brings back the panes you had. **Dim other paragraphs** (in **View**, the palette and **Settings → Editor**) fades every line but the paragraph you are writing in, with or without focus mode
 - **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace. Type `:` to go to a line, `@` to jump to a heading, or `?` to see these
 - **Find in Workspace** — **Ctrl/Cmd+Shift+F** searches the text of every file, with Match Case (**Alt+C**), Match Whole Word (**Alt+W**) and Use Regular Expression (**Alt+R**; **Cmd+Option** on macOS). The options are remembered, and a regular expression that runs too long is stopped instead of freezing the window
 - **Desktop-native** — Built with [Tauri 2](https://v2.tauri.app/) for a fast, local-first experience on Windows

@@ -9,6 +9,10 @@ type Layout = { explorerOpen: boolean; editorOpen: boolean; previewOpen: boolean
 let tabs: DocumentTab[] = []
 let activeTabId: string | null = null
 let layout: Layout = { explorerOpen: true, editorOpen: true, previewOpen: true }
+let focusMode = false
+const setFocusMode = vi.fn()
+/** The layout the context gives in focus mode (studio-layout-context.tsx): the editor alone. */
+const FOCUS_LAYOUT: Layout = { explorerOpen: false, editorOpen: true, previewOpen: false, outlineOpen: false }
 /** The pan and zoom memory each canvas mount was given. */
 const canvasMemories: (PanZoomMemory | undefined)[] = []
 /** How many times the editor and the diagram canvas were mounted. A remount loses undo history and zoom. */
@@ -26,7 +30,7 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
         closeOtherTabs: vi.fn(),
         closeAllTabs: vi.fn(),
     }),
-    useStudioLayout: () => ({ layout, setExplorerOpen: vi.fn(), setEditorOpen: vi.fn() }),
+    useStudioLayout: () => ({ layout, focusMode, setFocusMode, setExplorerOpen: vi.fn(), setEditorOpen: vi.fn() }),
 }))
 vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     CanvasControlsProvider: ({ children }: { children: ReactNode }) => children,
@@ -81,12 +85,19 @@ vi.mock('@/components/studio/outline/outline-panel', () => ({
 }))
 // Stands in for Monaco: hidden (not unmounted) when the editor is switched off, like the real panel.
 vi.mock('@/components/studio/editor/code-editor-panel', () => ({
-    CodeEditorPanel: ({ open = true, fill = false }: { open?: boolean; fill?: boolean }) => {
+    CodeEditorPanel: ({ open = true, fill = false, focusMode = false }: { open?: boolean; fill?: boolean; focusMode?: boolean }) => {
         useEffect(() => {
             mounts.editor++
         }, [])
         return (
-            <div data-slot="code-editor" data-fill={fill} className={open ? undefined : 'hidden'}>
+            <div
+                data-slot="code-editor"
+                data-pane="editor"
+                data-fill={fill}
+                data-focus-mode={focusMode}
+                tabIndex={focusMode ? -1 : undefined}
+                className={open ? undefined : 'hidden'}
+            >
                 {activeTabId && <textarea aria-label="Editor" />}
             </div>
         )
@@ -108,6 +119,8 @@ beforeEach(() => {
     tabs = [tab('/w/a.md')]
     activeTabId = '/w/a.md'
     layout = { explorerOpen: true, editorOpen: true, previewOpen: true }
+    focusMode = false
+    setFocusMode.mockReset()
     mounts.editor = 0
     mounts.canvas = 0
     canvasMemories.length = 0
@@ -339,6 +352,88 @@ describe('StudioLayout find box', () => {
     })
 })
 
+describe('StudioLayout focus mode', () => {
+    function enterFocusMode() {
+        focusMode = true
+        layout = FOCUS_LAYOUT
+    }
+
+    it('shows only the editor, filling the window: no explorer, Outline, tab bar, preview or status bar', () => {
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen: true }
+        const view = render(<StudioLayout />)
+        enterFocusMode()
+        view.rerender(<StudioLayout />)
+
+        expect(screen.queryByRole('navigation', { name: 'Explorer' })).toBeNull()
+        expect(screen.queryByRole('navigation', { name: 'Outline' })).toBeNull()
+        expect(screen.queryByRole('tab', { name: 'a.md' })).toBeNull()
+        expect(screen.queryByRole('region', { name: 'Preview' })).toBeNull()
+        expect(screen.queryByRole('contentinfo', { name: 'Status bar' })).toBeNull()
+        const editor = document.querySelector('[data-slot="code-editor"]')
+        expect(editor).toHaveAttribute('data-fill', 'true')
+        expect(editor).toHaveAttribute('data-focus-mode', 'true')
+        expect(screen.getByRole('main')).toContainElement(screen.getByRole('textbox', { name: 'Editor' }))
+    })
+
+    it('keeps the export (File menu, palette, Ctrl+Shift+X) and the folder export mounted', () => {
+        enterFocusMode()
+        render(<StudioLayout />)
+        expect(screen.getByTestId('document-export')).toBeInTheDocument()
+        expect(screen.getByTestId('batch-export')).toBeInTheDocument()
+    })
+
+    it('keeps the same editor, so its undo history and cursor stay, and brings the panes back when it ends', () => {
+        const view = render(<StudioLayout />)
+        enterFocusMode()
+        view.rerender(<StudioLayout />)
+        focusMode = false
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true }
+        view.rerender(<StudioLayout />)
+
+        expect(mounts.editor).toBe(1)
+        expect(screen.getByRole('tab', { name: 'a.md' })).toBeInTheDocument()
+        expect(screen.getByRole('contentinfo', { name: 'Status bar' })).toBeInTheDocument()
+        expect(screen.getByRole('navigation', { name: 'Explorer' })).toBeInTheDocument()
+    })
+
+    it('tells a screen reader focus mode is on, and how to leave it', () => {
+        const view = render(<StudioLayout />)
+        const status = document.querySelector('[data-slot="focus-mode-announcement"]')!
+        expect(status).toHaveAttribute('role', 'status')
+        expect(status).toHaveTextContent('')
+
+        enterFocusMode()
+        view.rerender(<StudioLayout />)
+        expect(status).toHaveTextContent('Focus mode on. Press Escape to leave.')
+    })
+
+    it('leaves on Esc from anywhere, with no file open too', () => {
+        tabs = []
+        activeTabId = null
+        enterFocusMode()
+        render(<StudioLayout />)
+
+        act(() => {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        })
+        expect(setFocusMode).toHaveBeenCalledWith(false)
+    })
+
+    it('leaves Esc alone outside focus mode', () => {
+        render(<StudioLayout />)
+        act(() => {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        })
+        expect(setFocusMode).not.toHaveBeenCalled()
+    })
+
+    it('leaves only the editor for F6 to reach', () => {
+        enterFocusMode()
+        render(<StudioLayout />)
+        expect([...document.querySelectorAll('[data-pane]')].map((pane) => pane.getAttribute('data-pane'))).toEqual(['editor'])
+    })
+})
+
 describe('StudioLayout keeps keyboard focus', () => {
     function focus(el: HTMLElement) {
         act(() => el.focus())
@@ -408,6 +503,33 @@ describe('StudioLayout keeps keyboard focus', () => {
         view.rerender(<StudioLayout />)
 
         await waitFor(() => expect(screen.getByRole('button', { name: 'Toggle explorer' })).toHaveFocus())
+    })
+
+    it('moves focus to the editor region, not the page, when the last tab is closed in focus mode', async () => {
+        focusMode = true
+        layout = FOCUS_LAYOUT
+        const view = render(<StudioLayout />)
+        focus(screen.getByRole('textbox', { name: 'Editor' }))
+
+        tabs = []
+        activeTabId = null
+        view.rerender(<StudioLayout />)
+
+        const region = document.querySelector('[data-pane="editor"]')
+        await waitFor(() => expect(region).toHaveFocus())
+    })
+
+    it('moves focus to the editor when focus mode hides the pane that had it', async () => {
+        layout = { explorerOpen: true, editorOpen: true, previewOpen: true, outlineOpen: true }
+        const view = render(<StudioLayout />)
+        focus(screen.getByRole('button', { name: 'Install' }))
+
+        focusMode = true
+        layout = FOCUS_LAYOUT
+        view.rerender(<StudioLayout />)
+
+        // focusPane('editor') first: Monaco itself, when it has a file (none here, so the region).
+        await waitFor(() => expect(document.querySelector('[data-pane="editor"]')).toHaveFocus())
     })
 
     it('leaves focus alone when the focused element is still there', async () => {

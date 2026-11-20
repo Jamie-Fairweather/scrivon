@@ -10,12 +10,16 @@ import { useCanvasFit, useStudioLayout, useWorkspaceSession } from '@/components
 
 export type LayoutCommandsContext = {
     hasWorkspace: boolean
+    /** The panes on screen: in focus mode, only the editor. */
     explorerOpen: boolean
     editorOpen: boolean
     previewOpen: boolean
     outlineOpen: boolean
+    focusMode: boolean
     /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
     canFitDiagram: boolean
+    setFocusMode: (on: boolean) => void
+    // These leave focus mode first (studio-layout-context.tsx), so the pane they show appears.
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
     setPreviewOpen: (open: boolean) => void
@@ -105,6 +109,16 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
             run: () => ctx.setPreviewOnly(),
         },
         {
+            id: 'toggle-focus-mode',
+            label: 'Focus Mode',
+            keywords: 'distraction free writing zen hide panels full screen editor only',
+            keybind: 'view.toggleFocusMode',
+            checked: ctx.focusMode,
+            disabled: off,
+            disabledReason: NO_FOLDER,
+            run: () => ctx.setFocusMode(!ctx.focusMode),
+        },
+        {
             id: 'fit-diagram',
             label: 'Fit Diagram to Screen',
             keywords: 'fit diagram canvas screen zoom',
@@ -121,7 +135,7 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
 
 export function useLayoutCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
-    const { layout, setExplorerOpen, setEditorOpen, setPreviewOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
+    const { layout, focusMode, setFocusMode, setExplorerOpen, setEditorOpen, setPreviewOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
     // Off when nothing is drawn (an empty file, a Markdown tab with no diagram opened full size).
     const { canFitToView, zoomDiagram } = useCanvasControls()
@@ -135,7 +149,9 @@ export function useLayoutCommands(): void {
                 editorOpen: layout.editorOpen,
                 previewOpen: layout.previewOpen,
                 outlineOpen: layout.outlineOpen,
+                focusMode,
                 canFitDiagram: canFitToView,
+                setFocusMode,
                 setExplorerOpen,
                 setEditorOpen,
                 setPreviewOpen,
@@ -150,7 +166,9 @@ export function useLayoutCommands(): void {
             layout.editorOpen,
             layout.previewOpen,
             layout.outlineOpen,
+            focusMode,
             canFitToView,
+            setFocusMode,
             setExplorerOpen,
             setEditorOpen,
             setPreviewOpen,

@@ -74,6 +74,16 @@ These are the things automated tests can't cover, so they need a person using th
 - [ ] With an unsaved change and autosave off, press Alt+F4 while presenting. The window leaves full screen and asks first. Cancel goes back to the editor, as the window was before presenting.
 - [ ] Maximise the window (or move it to another screen), press F5 at once, then Alt+F4 with nothing unsaved. Start Scrivon again: it opens maximised (or on the other screen), never at the size of the whole screen.
 
+## Focus mode
+
+- [ ] With all panels showing, press F11 while typing. Only the editor and the menu bar stay; the cursor, selection and Ctrl+Z history are as they were. With NVDA or Narrator on, it says "Focus mode on. Press Escape to leave."
+- [ ] In focus mode, select some text and press Esc: the selection clears and focus mode stays. Do the same with the find box (Ctrl+F), Ctrl+Space suggestions, a spelling quick-fix list (Ctrl+.), multiple cursors (Alt+click), F8 on a problem, and a hover over a misspelt word. Each Esc closes that thing only; the next Esc leaves focus mode.
+- [ ] Type Japanese with the Microsoft IME and press Esc while a word is still underlined: the composition is cancelled and focus mode stays.
+- [ ] In focus mode, press Ctrl+W until no tab is left. Focus mode stays, the editor says how to leave, Tab and Esc still work, and Esc brings the panes back.
+- [ ] In focus mode, use Ctrl+Tab, Ctrl+PageUp/PageDown, Ctrl+S with a failing save (a read-only file), change the file in another app, and Ctrl+Shift+X. The title bar dot, the error notification, the file-changed dialog and the export dialog all show.
+- [ ] Press F11, close Scrivon and start it again: it opens in focus mode. Turn Restore panel layout off and do the same: it opens with all panels.
+- [ ] Turn on View > Dim Other Paragraphs. Type, move with the arrow keys and select across two paragraphs: only those paragraphs are at full strength, and the selection, find highlights and spelling squiggles stay clear. In a Windows Contrast theme nothing is faded.
+
 ## PDF export
 
 - [ ] Export a long document. The button spins, Esc and outside clicks do nothing, and a "Saved" notice shows the path. Show in folder opens Explorer with the file selected.

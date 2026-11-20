@@ -55,6 +55,7 @@ const KEYBIND_ACTION_META = {
     'view.togglePreview': { label: 'Toggle preview', category: 'View', when: 'workspace' },
     'view.previewOnly': { label: 'Preview only layout', category: 'View', when: 'workspace' },
     'view.present': { label: 'Present Markdown as slides', category: 'View', when: 'workspace' },
+    'view.toggleFocusMode': { label: 'Toggle focus mode', category: 'View', when: 'workspace' },
     'view.fitDiagram': { label: 'Fit diagram to screen', category: 'View', when: 'workspace' },
     'view.appZoomIn': { label: 'Zoom in', ...APP_ZOOM_META },
     'view.appZoomOut': { label: 'Zoom out', ...APP_ZOOM_META },

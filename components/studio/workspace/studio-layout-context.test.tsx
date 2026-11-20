@@ -78,6 +78,52 @@ describe('StudioLayoutProvider', () => {
         expect(app.settings.layout).toMatchObject({ editorOpen: false, previewOpen: true })
     })
 
+    it('shows only the editor in focus mode, and brings back exactly the panes there were when it ends', () => {
+        app.settings = {
+            ...app.settings,
+            layout: { ...app.settings.layout, explorerOpen: false, outlineOpen: true, previewOpen: false, editorWidth: 520 },
+        }
+        const saved = app.settings.layout
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+
+        act(() => result.current.setFocusMode(true))
+        rerender()
+        expect(result.current.focusMode).toBe(true)
+        expect(result.current.layout).toEqual({ explorerOpen: false, editorOpen: true, previewOpen: false, outlineOpen: false })
+        // The panes' own settings are left alone.
+        expect(app.settings.layout).toEqual({ ...saved, focusMode: true })
+
+        act(() => result.current.setFocusMode(false))
+        rerender()
+        expect(result.current.focusMode).toBe(false)
+        expect(app.settings.layout).toEqual(saved)
+        expect(result.current.layout).toEqual({ explorerOpen: false, editorOpen: true, previewOpen: false, outlineOpen: true })
+    })
+
+    it('shows the editor in focus mode even when the saved layout is Preview Only', () => {
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, editorOpen: false, previewOpen: true, focusMode: true } }
+        const { result } = renderHook(() => useStudioLayout(), { wrapper })
+
+        expect(result.current.layout).toEqual({ explorerOpen: false, editorOpen: true, previewOpen: false, outlineOpen: false })
+    })
+
+    it.each([
+        ['the explorer', (l: ReturnType<typeof useStudioLayout>) => l.setExplorerOpen(true), { explorerOpen: true }],
+        ['the preview', (l: ReturnType<typeof useStudioLayout>) => l.setPreviewOpen(true), { previewOpen: true }],
+        ['the Outline panel', (l: ReturnType<typeof useStudioLayout>) => l.setOutlineOpen(true), { outlineOpen: true }],
+        ['Preview Only', (l: ReturnType<typeof useStudioLayout>) => l.setPreviewOnly(), { editorOpen: false, previewOpen: true }],
+    ])('leaves focus mode when %s is shown', (_, show, expected) => {
+        app.settings = { ...app.settings, layout: { ...app.settings.layout, explorerOpen: false, previewOpen: false, focusMode: true } }
+        const { result, rerender } = renderHook(() => useStudioLayout(), { wrapper })
+
+        act(() => show(result.current))
+        rerender()
+
+        expect(app.settings.layout).toMatchObject({ focusMode: false, ...expected })
+        expect(result.current.focusMode).toBe(false)
+        expect(result.current.layout).toMatchObject(expected)
+    })
+
     it('hides the Outline panel too for Preview Only', () => {
         app.settings = { ...app.settings, layout: { ...app.settings.layout, outlineOpen: true } }
         const { result } = renderHook(() => useStudioLayout(), { wrapper })
