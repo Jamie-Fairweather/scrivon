@@ -200,6 +200,8 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
     const [insertProblem, setInsertProblem] = useState<string | null>(null)
     // What to do once the window has closed: insert into the editor, or ask for the new file's name.
     const afterCloseRef = useRef<(() => void) | null>(null)
+    // Set once Insert or New File is chosen: the editor or the name prompt takes focus then, not the place it came from.
+    const chosenRef = useRef(false)
     const cardsRef = useRef<(HTMLDivElement | null)[]>([])
     const { previews, forgetFailures } = useStarterPreviews(open, themeId)
     const reasonId = useId()
@@ -209,6 +211,7 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
             rememberFocus()
             forgetFailures()
             afterCloseRef.current = null
+            chosenRef.current = false
             setSelected(0)
             setRequest(next)
             setInsertProblem(next.insert?.problem() ?? null)
@@ -228,8 +231,14 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
 
     const closeThen = useCallback((afterClose: () => void) => {
         afterCloseRef.current = afterClose
+        chosenRef.current = true
         setOpen(false)
     }, [])
+
+    // Cancelled, focus goes back where it was. Chosen, the action gives it out: Insert to the editor, New File to the
+    // name prompt, which opens as this window goes, so focus given back here would land behind it. (Cancel the prompt
+    // and it gives focus back to where it was before this window opened.)
+    const finalFocus = useCallback(() => (chosenRef.current ? false : returnTarget()), [returnTarget])
 
     const insert = useCallback(
         (snippet: MermaidSnippet) => {
@@ -297,7 +306,7 @@ export function DiagramStartersProvider({ children }: { children: ReactNode }) {
                     afterClose?.()
                 }}
             >
-                <DialogPopup className="max-w-3xl" initialFocus={() => cardsRef.current[selected] ?? true} finalFocus={returnTarget}>
+                <DialogPopup className="max-w-3xl" initialFocus={() => cardsRef.current[selected] ?? true} finalFocus={finalFocus}>
                     <DialogHeader>
                         <DialogTitle>Diagram starters</DialogTitle>
                         <DialogDescription>
