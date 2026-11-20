@@ -1,10 +1,18 @@
 import { anchorLeadsSomewhere, decode, resolveMarkdownLink, type MarkdownLinkContext } from '@/components/studio/markdown/markdown-links'
-import { addressParts, type AddressParts, type DocumentLink, type DocumentLinks, type TextSpan } from '@/lib/markdown/document-links'
+import {
+    addressParts,
+    type AddressParts,
+    type DocumentLink,
+    type DocumentLinks,
+    type DocumentWikiLink,
+    type TextSpan,
+} from '@/lib/markdown/document-links'
 import { getBaseName, isPathInside, samePath } from '@/lib/tauri/fs'
 import type { DiskAnswer } from '@/lib/workspace/link-target-cache'
 import { lookupLinkTarget, type LinkIndex } from '@/lib/workspace/link-index'
 import type { LinkTargetKind } from '@/lib/workspace/link-suggestions'
 import { resolveDocumentImage } from '@/lib/workspace/workspace-images'
+import { resolveWikiTarget, type WikiIndex } from '@/lib/workspace/wiki-link-lookup'
 
 /** More marks than anyone would fix one by one, so a generated file full of dead links can't slow the editor. */
 export const MAX_LINK_MARKS = 500
@@ -27,6 +35,12 @@ export type LinkFix =
           /** The ids the linked document has, to offer the closest. */
           ids: readonly string[]
       }
+    | {
+          /** A wiki link's note, which nothing is offered for yet. */
+          kind: 'note'
+          /** Where the target is written. */
+          span: TextSpan
+      }
 
 /** A link that leads nowhere: where its address is, what is wrong in plain words, and how it can be fixed. */
 export type BrokenLink = {
@@ -39,6 +53,11 @@ export type BrokenLink = {
 export type LinkCheckContext = MarkdownLinkContext & {
     /** The open folder's tree as a lookup (buildLinkIndex), or null when no folder is open. */
     index: LinkIndex | null
+    /**
+     * The open folder's notes, for wiki links (wikiIndexFor), or null when no folder is open or the file isn't in it.
+     * Left out, wiki links aren't checked.
+     */
+    wikiIndex?: WikiIndex | null
     /** The text of a file open in a tab, or undefined (see openTabText). Another file is never read from disk. */
     openText: (path: string) => string | undefined
     /** The anchors another open document has. */
@@ -139,7 +158,24 @@ async function checkLink(source: string, link: DocumentLink, anchors: readonly s
  * The links in `source` (read by documentLinks) that lead nowhere, in order, at most MAX_LINK_MARKS. Links that
  * resolve in the tree cost a map lookup each: the disk is asked only about a path the tree can't vouch for, once.
  */
-export async function findBrokenLinks(source: string, { links, anchors }: DocumentLinks, context: LinkCheckContext): Promise<BrokenLink[]> {
+export async function findBrokenLinks(
+    source: string,
+    { links, wikiLinks, anchors }: DocumentLinks,
+    context: LinkCheckContext
+): Promise<BrokenLink[]> {
     const found = await Promise.all(links.map((link) => checkLink(source, link, anchors, context)))
-    return found.filter((broken): broken is BrokenLink => broken !== null).slice(0, MAX_LINK_MARKS)
+    const wiki = wikiLinks.map((link) => checkWikiLink(link, context))
+    // In the order they are in the document.
+    const broken = [...found, ...wiki].filter((mark): mark is BrokenLink => mark !== null).sort((a, b) => a.span.start - b.span.start)
+    return broken.slice(0, MAX_LINK_MARKS)
+}
+
+/**
+ * Why a wiki link's note can't be found, or null when it can or the check can't say: the same lookup the preview
+ * uses (resolveWikiTarget). Only a note missing from a folder the tree lists in full is marked.
+ */
+function checkWikiLink(link: DocumentWikiLink, { wikiIndex, documentPath }: LinkCheckContext): BrokenLink | null {
+    if (!wikiIndex || !link.targetSpan) return null
+    if (resolveWikiTarget(wikiIndex, link.target, documentPath).kind !== 'missing') return null
+    return { span: link.targetSpan, message: `No note called ${link.target} in this folder.`, fix: { kind: 'note', span: link.targetSpan } }
 }

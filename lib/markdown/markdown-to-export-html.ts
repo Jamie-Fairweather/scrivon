@@ -26,6 +26,7 @@ import { htmlAlertKind, isAlertTitle } from '@/lib/markdown/github-alerts'
 import { exportSanitizeSchema, rehypeRawWhenNeeded } from '@/lib/markdown/html-sanitize-schema'
 import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { blockDirection } from '@/lib/markdown/text-direction'
+import { isWikiLinkClass } from '@/lib/markdown/wiki-links'
 import { isExportWebImageUrl } from '@/lib/markdown/web-images'
 import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
 import { chooseDiagramEngine, unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
@@ -100,6 +101,13 @@ function resolveLinks(hast: HastRoot): void {
     })
     visit(hast, 'element', (node: Element) => {
         if (node.tagName !== 'a') return
+        // A wiki link names a note the export doesn't have, so it prints as its words (below); `[[#Heading]]` has a
+        // #link to the heading's id, and stays a link. Either way, what the note was is Scrivon's business alone.
+        if (isWikiLinkClass(node.properties.className)) {
+            delete node.properties.className
+            delete node.properties.dataWikiTarget
+            delete node.properties.dataWikiHeading
+        }
         const href = node.properties.href
         if (typeof href === 'string' && href.startsWith('#')) {
             node.properties.href = `#${resolveHeadingAnchor(href.slice(1), ids)}`

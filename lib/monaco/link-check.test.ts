@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readDocumentLinks, type DocumentLinks } from '@/lib/markdown/document-links'
 import type { LinksReader } from '@/lib/markdown/links-reader'
 import { buildLinkIndex } from '@/lib/workspace/link-index'
+import { buildWikiIndex } from '@/lib/workspace/wiki-link-lookup'
 import type { DiskAnswer } from '@/lib/workspace/link-target-cache'
 import type { FileNode } from '@/lib/workspace/types'
 import { closeLinkTargets } from '@/lib/workspace/link-suggestions'
@@ -270,6 +271,15 @@ describe('attachLinkCheck', () => {
         await vi.runAllTimersAsync()
         expect(underlined(markers, other)).toEqual([])
         expect(underlined(markers, model)).toEqual(['gone.md'])
+    })
+
+    it('underlines a wiki link’s note it can’t find, with the lookup the preview uses, and offers no file fixes for it', async () => {
+        const config = configFor(TREE, { wikiIndex: buildWikiIndex(ROOT, TREE) })
+        const { model, markers, providers } = setup('[[set-up]] [[Missing note|x]] [[a]] `[[code]]`\n\n[a]: docs/set-up.md', { config })
+        await vi.runAllTimersAsync()
+        expect(underlined(markers, model)).toEqual(['Missing note', 'a'])
+        expect(markers.get(model)![0]).toMatchObject({ message: 'No note called Missing note in this folder.' })
+        expect(await codeActions([...providers][0]!, model, positionOf(model, 'Missing'))).toEqual([])
     })
 
     it('offers the closest files on Ctrl+., replacing only the path and keeping the title and angle brackets', async () => {

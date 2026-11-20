@@ -2269,6 +2269,35 @@ describe('renderExportDocx', () => {
         expect(body.match(/<w:p>/g)).toHaveLength(10)
     })
 
+    it('writes a wiki link as its words, [[#Heading]] as a link to the heading’s bookmark, and bookmarks a heading by its label', async () => {
+        const { parts } = await render(
+            '# See [[Meeting notes|the notes]]\n\n## Set Up\n\nRead [[Plan]], [[Plan#Goals|the goals]] and [[#Set Up]].\n\n[Plan]: plan.md',
+            (draft) => {
+                draft.frontMatter.toc = true
+                draft.frontMatter.tocExcludeH1 = false
+            }
+        )
+        const body = parts['word/document.xml']!
+        /** Whether the words are inside a link: one starts before them and hasn't ended. */
+        const inLink = (words: string) => {
+            const before = blockWith(body, words, '<w:hyperlink ')
+            return before !== '' && !before.includes('</w:hyperlink>')
+        }
+        for (const words of ['Plan', 'the goals']) {
+            expect(body).toContain(`>${words}</w:t>`)
+            expect(inLink(words)).toBe(false)
+        }
+        expect(inLink(' and ')).toBe(false)
+        expect(body).not.toContain('plan.md')
+        const [title, setUp] = bookmarks(body)
+        // The contents row reads the heading as one text; the heading itself has the label in a run of its own.
+        expect(body).toContain('>See the notes</w:t>')
+        expect(blockWith(body, 'the notes')).toContain('Heading1')
+        // Set Up's bookmark: from the contents page, and from the link in the text.
+        expect([...body.matchAll(/w:anchor="([^"]+)"/g)].map((match) => match[1])).toEqual([title!.name, setUp!.name, setUp!.name])
+        expect(parts['word/_rels/document.xml.rels']).not.toContain('plan')
+    })
+
     it('keeps a paragraph of only &nbsp; as the blank line the preview and PDF show (review)', async () => {
         const { parts } = await render('One\n\n&nbsp;\n\nTwo')
         expect(parts['word/document.xml']!.match(/<w:p>/g)).toHaveLength(3)

@@ -5,6 +5,7 @@ import { buildLinkIndex, lookupLinkTarget } from '@/lib/workspace/link-index'
 import { checkLinkTarget, forgetLinkTargets, subscribeLinkTargets } from '@/lib/workspace/link-target-cache'
 import { MAX_PARALLEL_READS } from '@/lib/tauri/fs'
 import type { FileNode } from '@/lib/workspace/types'
+import { buildWikiIndex } from '@/lib/workspace/wiki-link-lookup'
 
 const ROOT = 'C:\\notes'
 const DOC = 'C:\\notes\\guide.md'
@@ -343,5 +344,35 @@ describe('a newly created file in a hidden folder', () => {
         expect(await broken(source, { checkOnDisk })).toHaveLength(1)
         forgetLinkTargets()
         expect(await broken(source, { checkOnDisk })).toEqual([])
+    })
+})
+
+describe('findBrokenLinks with wiki links', () => {
+    const LISTED: FileNode[] = TREE.filter((node) => node.kind === 'file' || (!node.truncated && !node.unreadable))
+    const wiki = { wikiIndex: buildWikiIndex(ROOT, LISTED), index: buildLinkIndex(ROOT, LISTED) }
+
+    it('underlines the target of a wiki link the lookup can’t find, in order with the other links, and leaves the rest alone', async () => {
+        const source = '[[Nowhere|label]] [[setup]] [[docs/other.md#Part]] [gone](gone.md) [[#Intro]] [[../outside]]'
+        expect(await broken(source, wiki)).toEqual([
+            { text: 'Nowhere', message: 'No note called Nowhere in this folder.' },
+            { text: 'gone.md', message: 'No file called gone.md in this folder.' },
+            { text: '../outside', message: 'No note called ../outside in this folder.' },
+        ])
+    })
+
+    it('checks [[a]] as a wiki link when the document defines [a], and never wiki links in code', async () => {
+        const source = 'See [[a]] and `[[b]]`.\n\n```\n[[c]]\n```\n\n[a]: docs/Setup.md'
+        expect(await broken(source, wiki)).toEqual([{ text: 'a', message: 'No note called a in this folder.' }])
+    })
+
+    it('leaves a note the tree may not list, and every wiki link without a folder, alone', async () => {
+        expect(await broken('[[Nowhere]]', { wikiIndex: buildWikiIndex(ROOT, TREE) })).toEqual([])
+        expect(await broken('[[Nowhere]]', { wikiIndex: null })).toEqual([])
+        expect(await broken('[[Nowhere]]')).toEqual([])
+    })
+
+    it('offers no fix of its own for a missing note', async () => {
+        const [mark] = await findBrokenLinks('[[Nowhere]]', documentLinks('[[Nowhere]]'), context(wiki))
+        expect(mark!.fix).toEqual({ kind: 'note', span: { start: 2, end: 9 } })
     })
 })

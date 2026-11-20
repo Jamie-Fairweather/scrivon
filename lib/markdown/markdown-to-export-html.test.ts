@@ -578,6 +578,21 @@ SHIKI_FAIL
         expect(html).not.toContain('SFT0003')
     })
 
+    it('prints a wiki link as its words, keeps [[#Heading]] a working link, and titles and bookmarks a heading by its label', async () => {
+        const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
+        const source = '# See [[Meeting notes|the notes]]\n\n## Set Up\n\nRead [[Plan]], [[Plan#Goals|the goals]] and [[#Set Up]].\n\n[Plan]: plan.md'
+        const { html, metadata, print } = await markdownToExportHtml(source, { assets: EMPTY_ASSETS })
+        expect(html).toContain('Read <span>Plan</span>, <span>the goals</span> and <a href="#set-up">Set Up</a>.')
+        expect(html).not.toContain('wiki')
+        expect(html).not.toContain('plan.md')
+        expect(html).toContain('<h1 id="see-the-notes"')
+        expect(metadata.title).toBe('See the notes')
+        expect(print.headings).toEqual([
+            { level: 1, text: 'See the notes' },
+            { level: 2, text: 'Set Up' },
+        ])
+    })
+
     it('marks the headings even without a Contents page, but not for the print dialog (F47)', async () => {
         const { markdownToExportHtml } = await import('@/lib/markdown/markdown-to-export-html')
         const stamped = await markdownToExportHtml('# Only\n\nBody', { assets: EMPTY_ASSETS })
