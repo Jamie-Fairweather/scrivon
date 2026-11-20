@@ -9,6 +9,8 @@ function PreviewLinkValues() {
         <>
             <output data-testid="scroll-sync">{String(settings.editor.scrollSync)}</output>
             <output data-testid="jump-from-preview">{String(settings.editor.jumpFromPreview)}</output>
+            <output data-testid="check-links">{String(settings.editor.checkLinks)}</output>
+            <output data-testid="dim-other-paragraphs">{String(settings.editor.dimOtherParagraphs)}</output>
         </>
     )
 }
@@ -63,5 +65,31 @@ describe('EditorSettings', () => {
 
         fireEvent.click(toggle)
         expect(screen.getByTestId('jump-from-preview')).toHaveTextContent('true')
+    })
+
+    it('turns the link check off and on again, on by default', () => {
+        renderSettings()
+        const toggle = screen.getByRole('switch', { name: 'Check links' })
+        expect(toggle).toBeChecked()
+
+        fireEvent.click(toggle)
+        expect(toggle).not.toBeChecked()
+        expect(screen.getByTestId('check-links')).toHaveTextContent('false')
+
+        fireEvent.click(toggle)
+        expect(screen.getByTestId('check-links')).toHaveTextContent('true')
+    })
+
+    it('turns Dim other paragraphs on and off again', () => {
+        renderSettings()
+        const toggle = screen.getByRole('switch', { name: 'Dim other paragraphs' })
+        expect(toggle).not.toBeChecked()
+
+        fireEvent.click(toggle)
+        expect(toggle).toBeChecked()
+        expect(screen.getByTestId('dim-other-paragraphs')).toHaveTextContent('true')
+
+        fireEvent.click(toggle)
+        expect(screen.getByTestId('dim-other-paragraphs')).toHaveTextContent('false')
     })
 })

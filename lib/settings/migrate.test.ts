@@ -144,6 +144,36 @@ describe('mergeStoredSettings', () => {
         expect(layout).toMatchObject({ editorOpen: false, previewOpen: true })
     })
 
+    it('starts out of focus mode, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).layout.focusMode).toBe(false)
+        // Settings saved before focus mode existed, and a damaged value.
+        expect(mergeStoredSettings({ layout: { explorerOpen: false } }, false).layout.focusMode).toBe(false)
+        expect(mergeStoredSettings({ layout: { focusMode: 'yes' } }, false).layout.focusMode).toBe(false)
+        expect(mergeStoredSettings({ layout: { focusMode: true } }, false).layout.focusMode).toBe(true)
+        expect(migrateLegacySettings(() => null, false).layout.focusMode).toBe(false)
+    })
+
+    it('keeps focus mode apart from the panes, so leaving it brings them back as they were', () => {
+        const layout = mergeStoredSettings({ layout: { focusMode: true, explorerOpen: false, outlineOpen: true, previewOpen: false } }, false).layout
+        expect(layout).toMatchObject({ focusMode: true, explorerOpen: false, editorOpen: true, previewOpen: false, outlineOpen: true })
+    })
+
+    it('leaves every paragraph at full strength by default, and reads a saved Dim other paragraphs choice', () => {
+        expect(createDefaultSettings(false).editor.dimOtherParagraphs).toBe(false)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.dimOtherParagraphs).toBe(false)
+        expect(mergeStoredSettings({ editor: { dimOtherParagraphs: true } }, false).editor.dimOtherParagraphs).toBe(true)
+        expect(mergeStoredSettings({ editor: { dimOtherParagraphs: 1 } }, false).editor.dimOtherParagraphs).toBe(false)
+    })
+
+    it('gives Toggle focus mode F11 by default, and keeps a saved change', () => {
+        expect(createDefaultSettings(false).keybinds['view.toggleFocusMode']).toEqual([{ key: 'F11' }])
+        expect(createDefaultSettings(true).keybinds['view.toggleFocusMode']).toEqual([{ key: 'F11' }])
+        expect(mergeStoredSettings({ keybinds: { 'view.toggleFocusMode': [{ key: 'F9' }] } }, false).keybinds['view.toggleFocusMode']).toEqual([
+            { key: 'F9', ctrl: undefined, meta: undefined, shift: undefined, alt: undefined },
+        ])
+    })
+
     it('keeps Tab indenting by default, and reads a saved Tab key moves focus choice', () => {
         expect(createDefaultSettings(false).editor.tabMovesFocus).toBe(false)
         // Settings saved before the option existed.
@@ -166,6 +196,14 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ editor: { scrollSync: false } }, false).editor.jumpFromPreview).toBe(true)
         expect(mergeStoredSettings({ editor: { jumpFromPreview: false } }, false).editor.jumpFromPreview).toBe(false)
         expect(mergeStoredSettings({ editor: { jumpFromPreview: 1 } }, false).editor.jumpFromPreview).toBe(true)
+    })
+
+    it('checks links by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).editor.checkLinks).toBe(true)
+        // Settings saved before the option existed.
+        expect(mergeStoredSettings({ editor: { fontSize: 14 } }, false).editor.checkLinks).toBe(true)
+        expect(mergeStoredSettings({ editor: { checkLinks: false } }, false).editor.checkLinks).toBe(false)
+        expect(mergeStoredSettings({ editor: { checkLinks: 'off' } }, false).editor.checkLinks).toBe(true)
     })
 
     it('reopens the last folder by default, and reads a saved choice', () => {
@@ -487,6 +525,7 @@ describe('dualWriteLegacy helpers', () => {
                 editorWidth: 400,
                 restorePanelsOnOpen: true,
                 outlineOpen: false,
+                focusMode: false,
             })
         ).not.toThrow()
         expect(() => dualWriteLegacyAutosave(true)).not.toThrow()

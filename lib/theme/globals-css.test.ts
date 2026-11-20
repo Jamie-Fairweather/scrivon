@@ -164,6 +164,15 @@ describe('app/globals.css', () => {
         it('outlines the folder something dragged in the explorer would go into', () => {
             expect(rules.get('[data-drop-target]')).toEqual(['outline: 2px dashed Highlight', 'outline-offset: -2px'])
         })
+
+        it('dims no paragraphs, as Dim Other Paragraphs only fades text outside them', () => {
+            const outside = css.replace(`@media (forced-colors: none) {${mediaBlock('(forced-colors: none)')}}`, '')
+            expect(rules.has('.monaco-editor .editor-dimmed-text')).toBe(false)
+            expect(rulesIn(mediaBlock('(forced-colors: none)')).get('.monaco-editor .editor-dimmed-text')).toEqual([
+                'opacity: var(--editor-dim-opacity)',
+            ])
+            expect(outside).not.toContain('editor-dimmed-text')
+        })
     })
 
     it("grows the Markdown preview's text sizes and spacing from Tailwind's own by the preview text scale", () => {

@@ -135,7 +135,13 @@ const openPalette = vi.fn()
 const PALETTE_COMMANDS: AppCommand[] = [{ id: 'command-palette', label: 'Command Palette…', keybind: 'palette.open', run: openPalette }]
 
 function Commands({ codeEditor, readOnly }: { codeEditor: FakeEditor; readOnly: boolean }) {
-    useEditorCommands(codeEditor as unknown as editor.ICodeEditor, { shown: true, readOnly, markdown: true })
+    useEditorCommands(codeEditor as unknown as editor.ICodeEditor, {
+        shown: true,
+        readOnly,
+        markdown: true,
+        inTable: false,
+        askTableSize: async () => null,
+    })
     useRegisterCommands(PALETTE_COMMANDS)
     return null
 }

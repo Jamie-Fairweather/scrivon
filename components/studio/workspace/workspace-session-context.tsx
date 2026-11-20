@@ -57,6 +57,7 @@ import {
 import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '@/lib/workspace/document-tab'
 import { dismissNotification, errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
+import { forgetLinkTargets } from '@/lib/workspace/link-target-cache'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { gitChangesFrom, NO_GIT_CHANGES, type GitChanges } from '@/lib/workspace/git-status'
 import { createGitStatusRefresher, type GitRefreshReason } from '@/lib/workspace/git-status-refresh'
@@ -472,6 +473,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         const root = workspaceRoot
         // Images kept from an earlier visit to this folder may have changed while nothing watched it.
         forgetWorkspaceImages([root])
+        forgetLinkTargets()
         let disposed = false
         let unlisten: (() => void) | undefined
         let unwatch: (() => void) | undefined
@@ -576,6 +578,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         }
         const onFocus = () => {
             gitRefresh.current?.('focus')
+            // A link into a folder the watcher can't see (hidden, cut short or unwatched) is checked on disk again.
+            forgetLinkTargets()
             treeWanted = true
             if (!unwatch) imagesStale = true
             request()
@@ -584,6 +588,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
         const onDiskChange = (change: WorkspaceChange) => {
             gitRefresh.current?.('watch')
             forgetWorkspaceImages([...change.added, ...change.removed, ...change.changed])
+            forgetLinkTargets([...change.added, ...change.removed])
             // A whole read is due anyway, so there is no need to keep what changed (a checkout can touch thousands of files).
             if (!treeWanted) {
                 seen.added.push(...change.added)

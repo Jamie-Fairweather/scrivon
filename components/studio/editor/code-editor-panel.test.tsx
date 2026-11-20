@@ -133,6 +133,12 @@ class FakeModel {
     getLineContent(lineNumber: number) {
         return this.lines[lineNumber - 1] ?? ''
     }
+    getLineCount() {
+        return this.lines.length
+    }
+    getLineMaxColumn(lineNumber: number) {
+        return this.getLineContent(lineNumber).length + 1
+    }
     /** Single-line ranges are enough here. */
     getValueInRange(range: FakeRange) {
         const line = this.lines[range.startLineNumber - 1] ?? ''
@@ -221,6 +227,18 @@ class FakeEditor {
     }
     restoreViewState() {}
     addCommand() {}
+    /** The lines Dim Other Paragraphs fades, as [first, last] with the class on them. */
+    dimmed: Array<[number, number, string | undefined]> = []
+    createDecorationsCollection() {
+        return {
+            set: (decorations: Array<{ range: FakeRange; options: { inlineClassName?: string } }>) => {
+                this.dimmed = decorations.map(({ range, options }) => [range.startLineNumber, range.endLineNumber, options.inlineClassName])
+            },
+            clear: () => {
+                this.dimmed = []
+            },
+        }
+    }
     /** Monaco actions run by id, as the Edit menu and the palette do. */
     readonly triggered: string[] = []
     trigger(_source: string, id: string) {
@@ -256,6 +274,10 @@ class FakeEditor {
         return this.selection ? { lineNumber: this.selection.endLineNumber, column: this.selection.endColumn } : { lineNumber: 1, column: 1 }
     }
     onDidChangeCursorSelection(listener: Listener) {
+        this.cursorListeners.add(listener)
+        return { dispose: () => this.cursorListeners.delete(listener) }
+    }
+    onDidChangeCursorPosition(listener: Listener) {
         this.cursorListeners.add(listener)
         return { dispose: () => this.cursorListeners.delete(listener) }
     }
@@ -334,7 +356,13 @@ const scrollSyncBinding = vi.hoisted(() => ({ dispose: vi.fn() }))
 vi.mock('@/components/studio/editor/editor-scroll-sync', () => ({ bindEditorScrollSync: vi.fn(() => scrollSyncBinding) }))
 
 // The Markdown helpers have their own tests (lib/monaco/markdown-editing.test.ts), with an editor that can edit text.
-vi.mock('@/lib/monaco/markdown-editing', () => ({ formatMarkdown: vi.fn(), bindMarkdownListEnter: vi.fn() }))
+vi.mock('@/lib/monaco/markdown-editing', () => ({
+    formatMarkdown: vi.fn(),
+    bindMarkdownListEnter: vi.fn(),
+    editMarkdownTable: vi.fn(),
+    canInsertMarkdownTable: vi.fn(() => true),
+    insertMarkdownTable: vi.fn(),
+}))
 
 /** Monaco's shared "Tab moves focus" switch; Ctrl+M calls setTabFocusMode with the opposite. */
 const tabFocus = {
@@ -438,6 +466,7 @@ const DEFAULT_EDITOR_SETTINGS = {
     tabMovesFocus: false,
     scrollSync: true,
     jumpFromPreview: true,
+    dimOtherParagraphs: false,
 }
 let editorSettings = DEFAULT_EDITOR_SETTINGS
 vi.mock('@/components/studio/settings/settings-provider', () => ({
@@ -467,6 +496,8 @@ vi.mock('@/components/studio/editor/use-editor-spellcheck', () => ({
         misspeltWordAt: (position: { column: number }) => (position.column <= 4 ? spellcheck.misspelt : null),
     }),
 }))
+// The link check has its own tests (lib/monaco/link-check.test.ts, and with the real Monaco in the quick fix test).
+vi.mock('@/components/studio/editor/use-editor-link-check', () => ({ useEditorLinkCheck: () => () => ({ dispose: () => {} }) }))
 
 const { CodeEditorPanel } = await import('@/components/studio/editor/code-editor-panel')
 const { CommandRegistryProvider, useCommands } = await import('@/components/studio/commands/command-registry')
@@ -481,8 +512,8 @@ function tab(path: string, content: string): DocumentTab {
     return { id: path, path, name: path.split('/').pop()!, content, isDirty: false, isSaving: false }
 }
 
-function Panel({ open = true }: { open?: boolean }) {
-    return <CodeEditorPanel open={open} width={400} onWidthChange={() => {}} />
+function Panel({ open = true, focusMode = false }: { open?: boolean; focusMode?: boolean }) {
+    return <CodeEditorPanel open={open} fill={focusMode} focusMode={focusMode} width={400} onWidthChange={() => {}} />
 }
 
 async function mountEditor() {
@@ -1355,6 +1386,66 @@ describe('CodeEditorPanel with the preview hidden', () => {
     })
 })
 
+describe('CodeEditorPanel in focus mode', () => {
+    it('says how to leave focus mode with no file open, and can take focus itself', () => {
+        const view = render(<Panel focusMode />)
+        const panel = view.getByRole('region', { name: 'Editor' })
+        expect(panel).toHaveAttribute('data-pane', 'editor')
+        expect(panel).toHaveAttribute('tabindex', '-1')
+        expect(panel).toHaveTextContent('Focus mode is on. Press Esc to leave it, or Ctrl+Shift+N to open a file.')
+
+        act(() => panel.focus())
+        expect(panel).toHaveFocus()
+    })
+
+    it('points to the explorer, and takes no focus itself, outside focus mode', () => {
+        const view = render(<Panel />)
+        const panel = view.container.firstElementChild as HTMLElement
+        expect(panel).toHaveTextContent('Select a file from the explorer or create a new file.')
+        expect(panel).not.toHaveAttribute('tabindex')
+        expect(view.queryByRole('region', { name: 'Editor' })).toBeNull()
+    })
+
+    it('keeps the editor and its buffer when focus mode starts and ends', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        act(() => editor.setPosition({ lineNumber: 1, column: 2 }))
+        view.rerender(<Panel focusMode />)
+        view.rerender(<Panel />)
+
+        expect(editors).toEqual([editor])
+        expect(editor.getModel()?.getValue()).toBe('A')
+        expect(editor.getPosition()).toEqual({ lineNumber: 1, column: 2 })
+    })
+})
+
+describe('CodeEditorPanel Dim other paragraphs', () => {
+    const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+
+    it('fades the paragraphs the cursor is not in while the setting is on, and follows the setting', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'One\n\nTwo\nlines\n\nThree')], activeTabId: '/w/a.md' }
+        const { view, editor } = await mountEditor()
+        expect(editor.dimmed).toEqual([])
+
+        editorSettings = { ...DEFAULT_EDITOR_SETTINGS, dimOtherParagraphs: true }
+        view.rerender(<Panel />)
+        await nextFrame()
+        expect(editor.dimmed).toEqual([[2, 6, 'editor-dimmed-text']])
+
+        act(() => editor.setPosition({ lineNumber: 4, column: 2 }))
+        await nextFrame()
+        expect(editor.dimmed).toEqual([
+            [1, 2, 'editor-dimmed-text'],
+            [5, 6, 'editor-dimmed-text'],
+        ])
+
+        editorSettings = DEFAULT_EDITOR_SETTINGS
+        view.rerender(<Panel />)
+        await nextFrame()
+        expect(editor.dimmed).toEqual([])
+    })
+})
+
 describe('CodeEditorPanel scrolling', () => {
     it('shows a horizontal scrollbar when long lines are not wrapped', async () => {
         tabsState = { tabs: [tab('/w/a.md', 'A')], activeTabId: '/w/a.md' }
@@ -1912,5 +2003,51 @@ describe('CodeEditorPanel Edit commands', () => {
         tabsState = { tabs: tabsState.tabs, activeTabId: b }
         view.rerender(<PanelWithCommands />)
         await waitFor(() => expect(command('link')).toMatchObject({ disabled: true, disabledReason: 'Only in Markdown files' }))
+    })
+
+    it('turns the table commands on as the caret moves into a table, and off as it leaves', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |')], activeTabId: '/w/a.md' }
+        render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.format')).toMatchObject({ disabled: true, disabledReason: 'Put the caret in a table' }))
+        const editor = editors[0]!
+
+        act(() => editor.setPosition({ lineNumber: 5, column: 3 }))
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(false))
+        expect(command('table.insert')).toMatchObject({ disabled: true, disabledReason: 'The caret is already in a table' })
+
+        act(() => void command('table.format')!.run())
+        expect(markdownEditing.editMarkdownTable).toHaveBeenCalledWith(editor, 'format')
+
+        act(() => editor.setPosition({ lineNumber: 1, column: 1 }))
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(true))
+        expect(command('table.insert')?.disabled).toBe(false)
+    })
+
+    it('looks for a table at the caret again when the open tab changes to a Markdown file', async () => {
+        const diagram = '/w/a.mmd'
+        const doc = '/w/b.md'
+        const tabs = [tab(diagram, 'graph TD'), tab(doc, '| a | b |\n|---|---|\n| 1 | 2 |')]
+        tabsState = { tabs, activeTabId: diagram }
+        const view = render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.format')).toMatchObject({ disabled: true, disabledReason: 'Only in Markdown files' }))
+
+        // The Markdown file shows with the caret on its header row, and the caret doesn't move after.
+        tabsState = { tabs, activeTabId: doc }
+        view.rerender(<PanelWithCommands />)
+
+        await waitFor(() => expect(command('table.format')?.disabled).toBe(false))
+        expect(editors[0]!.getPosition()).toEqual({ lineNumber: 1, column: 1 })
+        expect(command('table.insert')).toMatchObject({ disabled: true, disabledReason: 'The caret is already in a table' })
+    })
+
+    it('asks for the size of a new table in a dialog', async () => {
+        tabsState = { tabs: [tab('/w/a.md', 'Intro')], activeTabId: '/w/a.md' }
+        render(<PanelWithCommands />)
+        await waitFor(() => expect(command('table.insert')?.disabled).toBe(false))
+
+        act(() => void command('table.insert')!.run())
+
+        expect(await screen.findByRole('dialog', { name: 'Insert table' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Columns')).toHaveValue('3')
     })
 })

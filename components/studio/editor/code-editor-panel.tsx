@@ -19,15 +19,21 @@ import { useDocumentTabs, useWorkspaceCoordinator, useWorkspaceSession } from '@
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import { useEditorCommands } from '@/components/studio/editor/editor-commands'
 import { trackEditorCursor } from '@/components/studio/editor/editor-cursor'
+import { trackCaretInTable } from '@/components/studio/editor/editor-table-caret'
+import { useTableSizePrompt } from '@/components/studio/dialogs/insert-table-dialog'
 import { registerEditorFocus, registerEditorFocusNow } from '@/components/studio/editor/editor-focus'
 import { attachEditorImages, imageDocumentFor, pasteClipboardPicture } from '@/components/studio/editor/editor-images'
 import { ReadOnlyReasonBar } from '@/components/studio/editor/read-only-reason-bar'
 import { clampEditorWidth, maxEditorWidth, minEditorWidth } from '@/components/studio/editor/editor-width'
+import { useEditorLinkCheck } from '@/components/studio/editor/use-editor-link-check'
 import { useEditorSpellcheck } from '@/components/studio/editor/use-editor-spellcheck'
 import { EditorContextMenu } from '@/components/studio/editor/editor-context-menu'
 import { bindEditorScrollSync } from '@/components/studio/editor/editor-scroll-sync'
+import { bindParagraphDimming, type ParagraphDimming } from '@/components/studio/editor/editor-paragraph-dimming'
 import { documentKind, samePath } from '@/lib/tauri/fs'
 import { isMacPlatform } from '@/lib/settings/chord-utils'
+import { formatKeybindForAction } from '@/lib/settings/format-keybind'
+import { editorEmptyMessage } from '@/components/studio/editor/editor-empty-message'
 import { lineEndingsOf } from '@/lib/workspace/text-stats'
 import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
@@ -125,6 +131,11 @@ type CodeEditorPanelProps = {
     open?: boolean
     /** True while the preview is hidden: the editor takes the whole row and can't be resized. */
     fill?: boolean
+    /**
+     * In focus mode the editor is all there is: with no file open it says how to leave, and it can take focus
+     * itself, so focus has somewhere to go inside the window.
+     */
+    focusMode?: boolean
     width: number
     onWidthChange: (width: number) => void
     /** Puts the editor back to its default width (double-click or Enter on the resize handle). */
@@ -171,7 +182,7 @@ function languageForTab(tab: DocumentTab) {
     return kind === 'markdown' || tab.readOnly ? 'markdown' : 'plaintext'
 }
 
-export function CodeEditorPanel({ open = true, fill = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
+export function CodeEditorPanel({ open = true, fill = false, focusMode = false, width, onWidthChange, onResetWidth }: CodeEditorPanelProps) {
     const { isLight, tokens } = useAppTheme()
     const { settings } = useAppSettings()
     const { tabs, activeTab, updateTabContent } = useDocumentTabs()
@@ -428,18 +439,35 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
 
     const editorPath = activeTab ? modelKeys.keys.get(activeTab.path) : undefined
     const { attach: attachEditorSpellcheck, misspeltWordAt } = useEditorSpellcheck(activeTab, editorPath)
+    const attachEditorLinkCheck = useEditorLinkCheck(activeTab, editorPath)
     const isReadOnly = activeTab?.readOnly ?? false
     // Monaco sets up Ctrl+. (the quick fix list) for a file when the file is put in the editor, and only if the
     // editor can be edited at that moment. @monaco-editor/react puts the new file in first and passes on the new
     // options after, so without this, after a read-only tab (an example, say) Ctrl+. would do nothing in the next
     // file. A layout effect runs before those, so the editor is already editable, or not, when the file goes in.
     // Turning read-only off with the same file still showing (Edit as UTF-8, Edit Anyway, a reload) doesn't make
-    // Monaco set it up again either; the spell check does that when it turns on (setConfig in lib/monaco/spellcheck.ts).
+    // Monaco set it up again either; the spell check and the link check do that when they turn on (setConfig in
+    // lib/monaco/spellcheck.ts and lib/monaco/link-check.ts).
     useLayoutEffect(() => {
         editorRef.current?.updateOptions({ readOnly: isReadOnly, domReadOnly: isReadOnly })
     }, [isReadOnly])
+    // Whether the caret is in a Markdown table, for the table commands (set by trackCaretInTable).
+    const [caretInTable, setCaretInTable] = useState(false)
+    const tableCaretRef = useRef<ReturnType<typeof trackCaretInTable> | null>(null)
+    const activeIsMarkdown = isMarkdownTab(activeTab)
+    // The editor swaps in a tab's buffer before activeTabRef follows the tab, so look again once it has.
+    useEffect(() => {
+        tableCaretRef.current?.update()
+    }, [activeTab?.id, activeIsMarkdown])
+    const { askTableSize, dialog: insertTableDialog } = useTableSizePrompt()
     // The Edit menu and the palette's editor commands act on this editor while it shows a file.
-    useEditorCommands(editorPath ? mountedEditor : null, { shown: open, readOnly: isReadOnly, markdown: isMarkdownTab(activeTab) })
+    useEditorCommands(editorPath ? mountedEditor : null, {
+        shown: open,
+        readOnly: isReadOnly,
+        markdown: activeIsMarkdown,
+        inTable: caretInTable,
+        askTableSize,
+    })
     const editorLanguage = useMemo(() => (activeTab ? languageForTab(activeTab) : 'plaintext'), [activeTab])
     const editorDefaultValue = activeTab?.content
     const activeName = activeTab?.name
@@ -477,6 +505,15 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
     useEffect(() => {
         previewLinkRef.current = { scroll: settings.editor.scrollSync, jump: settings.editor.jumpFromPreview }
     }, [settings.editor.scrollSync, settings.editor.jumpFromPreview])
+
+    // Dim Other Paragraphs, read through a ref by the editor's dimming (bindParagraphDimming).
+    const dimOtherParagraphs = settings.editor.dimOtherParagraphs
+    const dimOtherParagraphsRef = useRef(dimOtherParagraphs)
+    const dimmingRef = useRef<ParagraphDimming | null>(null)
+    useEffect(() => {
+        dimOtherParagraphsRef.current = dimOtherParagraphs
+        dimmingRef.current?.refresh()
+    }, [dimOtherParagraphs])
 
     const tabSizeRef = useRef(settings.editor.tabSize)
     useEffect(() => {
@@ -716,8 +753,19 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             editor.onDidDispose(() => paste.dispose())
             const spelling = attachEditorSpellcheck(editor, monaco)
             editor.onDidDispose(() => spelling.dispose())
+            // Links, images and #anchors that lead nowhere are underlined too, with their own Ctrl+. fixes.
+            const links = attachEditorLinkCheck(editor, monaco)
+            editor.onDidDispose(() => links.dispose())
             // Enter continues (or ends) a list in Markdown files.
             bindMarkdownListEnter(editor, monaco, () => isMarkdownTab(activeTabRef.current))
+            // Turns the table commands on and off as the caret moves in and out of a table.
+            const tableCaret = trackCaretInTable(editor, () => isMarkdownTab(activeTabRef.current), setCaretInTable)
+            tableCaretRef.current = tableCaret
+            editor.onDidDispose(() => {
+                tableCaret.dispose()
+                if (tableCaretRef.current === tableCaret) tableCaretRef.current = null
+                setCaretInTable(false)
+            })
             // Scrolls the Markdown preview with the editor, and the other way round.
             const scrollSync = bindEditorScrollSync(editor, {
                 tabId: () => activeTabIdRef.current,
@@ -726,6 +774,13 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                 canFocus: () => openRef.current,
             })
             editor.onDidDispose(() => scrollSync.dispose())
+            // Fades the paragraphs the cursor isn't in, while Dim Other Paragraphs is on.
+            const dimming = bindParagraphDimming(editor, () => dimOtherParagraphsRef.current)
+            dimmingRef.current = dimming
+            editor.onDidDispose(() => {
+                dimming.dispose()
+                if (dimmingRef.current === dimming) dimmingRef.current = null
+            })
             const applyToAttachedModel = () => {
                 const model = editor.getModel()
                 if (model) applyIndentation(model, tabSizeRef.current)
@@ -741,7 +796,7 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             }
             focusPendingTab()
         },
-        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck]
+        [syncEditorWithActiveTab, applyCurrentTheme, fontFamily, focusPendingTab, showHintAgain, attachEditorSpellcheck, attachEditorLinkCheck]
     )
 
     useEffect(() => {
@@ -761,13 +816,19 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                 // Hidden at full size and out of the way of the preview. Shrunk to nothing, Monaco
                 // would lay out and wrap the whole file one character per line on every hide,
                 // show and tab switch.
-                open ? 'relative' : 'invisible absolute inset-y-0 left-0'
+                open ? 'relative' : 'invisible absolute inset-y-0 left-0',
+                focusMode && 'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset'
             )}
             style={fill ? undefined : { width: shownWidth }}
             inert={!open}
+            tabIndex={focusMode ? -1 : undefined}
+            // Named in focus mode, where focus can land on the panel itself, so a screen reader says where it is.
+            role={focusMode ? 'region' : undefined}
+            aria-label={focusMode ? 'Editor' : undefined}
         >
             <ReadOnlyReasonBar />
             <EditorContextMenu editor={editorPath ? mountedEditor : null} readOnly={isReadOnly} misspeltWordAt={misspeltWordAt} />
+            {insertTableDialog}
             {/* data-find-overflow-host: lets the find box's tooltips past this clip (app/globals.css). */}
             <div className="relative min-h-0 flex-1 overflow-hidden bg-code" data-find-overflow-host>
                 {editorPath ? (
@@ -785,7 +846,10 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
                     />
                 ) : (
                     <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-                        Select a file from the explorer or create a new file.
+                        {editorEmptyMessage(
+                            focusMode,
+                            focusMode ? formatKeybindForAction('palette.openFiles', settings.keybinds, isMacPlatform()) : undefined
+                        )}
                     </div>
                 )}
                 {/* Tab indents here, so say on screen how to leave with the keyboard. Screen readers

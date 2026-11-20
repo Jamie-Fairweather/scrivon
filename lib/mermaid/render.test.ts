@@ -1,12 +1,16 @@
 import { renderMermaidSVG } from 'beautiful-mermaid'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
     addMessageLabelHalo,
     getMermaidRenderOptions,
     renderMermaidDiagram,
     renderMermaidDiagramForExport,
+    renderMermaidDiagramForExportAsync,
     stripRemoteFontImports,
 } from '@/lib/mermaid/render'
+
+const renderOfficialDiagram = vi.hoisted(() => vi.fn(async () => '<svg official/>'))
+vi.mock('@/lib/mermaid/render-official', () => ({ renderOfficialDiagram }))
 
 const FLOWCHART = 'graph TD\n  A[Start] --> B[End]'
 const CLASS_DIAGRAM = 'classDiagram\n  class Animal {\n    +String name\n    +eat() void\n  }'
@@ -71,10 +75,31 @@ describe('diagram rendering', () => {
         expect(renderMermaidDiagram(source, 'scrivon-light')).toBe(before)
     })
 
-    it('says a pie chart is not supported yet, for the preview and for exports', () => {
+    it('says ZenUML is not supported yet, for the preview and for exports', async () => {
+        const zenuml = 'zenuml\n  A.method()'
+        expect(() => renderMermaidDiagram(zenuml, 'scrivon-light')).toThrow(/^ZenUML diagrams aren't supported yet\. Scrivon can draw:\n• Flowcharts/)
+        expect(() => renderMermaidDiagramForExport(zenuml, 'scrivon-light')).toThrow(/^ZenUML diagrams aren't supported yet/)
+        await expect(renderMermaidDiagramForExportAsync(zenuml, 'scrivon-light')).rejects.toThrow(/^ZenUML diagrams aren't supported yet/)
+    })
+
+    it("exports the official mermaid package's types through it, on a background unless transparent", async () => {
         const pie = 'pie title Pets\n  "Dogs" : 386'
-        expect(() => renderMermaidDiagram(pie, 'scrivon-light')).toThrow(/^Pie charts aren't supported yet\. Scrivon can draw:\n• Flowcharts/)
-        expect(() => renderMermaidDiagramForExport(pie, 'scrivon-light')).toThrow(/^Pie charts aren't supported yet/)
+        renderOfficialDiagram.mockClear()
+        await expect(renderMermaidDiagramForExportAsync(pie, 'nord')).resolves.toBe('<svg official/>')
+        await renderMermaidDiagramForExportAsync(pie, 'nord', { transparent: true, labelHalo: false })
+        expect(renderOfficialDiagram.mock.calls).toEqual([
+            [pie, 'nord', { transparent: false }],
+            [pie, 'nord', { transparent: true }],
+        ])
+    })
+
+    it("exports beautiful-mermaid's own types as before, never through the official package", async () => {
+        renderOfficialDiagram.mockClear()
+        expect(await renderMermaidDiagramForExportAsync(SEQUENCE, 'scrivon-light')).toBe(renderMermaidDiagramForExport(SEQUENCE, 'scrivon-light'))
+        expect(await renderMermaidDiagramForExportAsync(SEQUENCE, 'scrivon-light', { labelHalo: false, transparent: true })).toBe(
+            renderMermaidDiagramForExport(SEQUENCE, 'scrivon-light', { labelHalo: false, transparent: true })
+        )
+        expect(renderOfficialDiagram).not.toHaveBeenCalled()
     })
 
     it('only edits style blocks, never diagram text', () => {

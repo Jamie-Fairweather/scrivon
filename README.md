@@ -30,8 +30,8 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 ### Mermaid diagrams
 
 - **Dedicated diagram files** — Edit standalone `.mmd` / `.mermaid` sources with a split editor and canvas preview
-- **Supported diagram types** — Flowcharts (`flowchart` / `graph`), sequence diagrams, class diagrams, state diagrams, entity relationship diagrams and XY charts. Other Mermaid types (pie, Gantt, mindmap and so on) show a "not supported yet" message instead of a diagram
-- **Mermaid highlighting and starters** — Keywords, arrows, node labels and `%%` comments are coloured in diagram files and in `mermaid` blocks in Markdown. Press **Ctrl+Space** in a diagram file for a starter for each diagram type
+- **Supported diagram types** — Flowcharts (`flowchart` / `graph`), sequence diagrams, class diagrams, state diagrams, entity relationship diagrams and XY charts, drawn by beautiful-mermaid. Pie charts, Gantt charts, mind maps, timelines, user journeys, git graphs, quadrant charts, requirement diagrams, C4 diagrams, Sankey diagrams, block diagrams, packet diagrams, kanban boards, architecture diagrams (built-in icons only), radar charts and treemaps are drawn by the official Mermaid package, in the same diagram theme and offline. Each one is drawn on the canvas, in Markdown, and in every export. A diagram's own `%%{init}%%` or front matter can't change the theme or turn off strict security. ZenUML isn't supported yet. A diagram drawn with HTML labels can be saved as SVG, PDF or HTML, but not as PNG or in Word
+- **Mermaid highlighting and starters** — Keywords, arrows, node labels and `%%` comments are coloured in diagram files and in `mermaid` blocks in Markdown. Press **Ctrl+Space** in a diagram file for a starter for flowcharts, sequence, class, state and ER diagrams and XY charts
 - **Canvas tools** — Pan and zoom the preview, fit diagram to screen, or switch to preview-only layout
 - **Diagram export** — Save the active diagram as SVG or PNG (1×, 2×, or 4×), or copy it to the clipboard. Pick a light or dark diagram theme and a transparent background in the export menu
 - **Export every diagram in a folder** — **File → Export → All Diagrams in Folder…**, the command palette, or **Export Diagrams…** on a folder in the explorer saves every `.mmd` and `.mermaid` file as SVG or PNG into a folder you choose, keeping the subfolders if you like. Files already there are never replaced: you choose Keep Both or Skip, and a summary lists what was saved, skipped and failed
@@ -41,6 +41,8 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Live Markdown preview** — [GFM](https://github.github.com/gfm/)-style rendering beside the editor (tables, task lists, strikethrough, and more)
 - **Syntax-highlighted code** — Fenced code blocks use [Shiki](https://shiki.style/) themes that follow your UI light/dark mode
 - **Embedded Mermaid** — `mermaid` fenced blocks render inline; expand any block to the full canvas for pan, zoom, and export
+- **Broken link check** — Links, images, reference definitions and `#heading` links that lead nowhere in the open folder get a warning underline that says what is wrong ("No file called docs/setup.md in this folder"). **F8** goes to the next one, and **Ctrl+.** offers the closest files, folders or headings, replacing only the path or `#fragment` as one step you can undo. Web, `mailto:` and `tel:` links are never checked. Turn it off in **Settings → Editor**
+- **Table helpers** — **Edit → Table → Insert Table…** adds a tidy GFM table of the size you choose. With the caret in a table, insert, delete and move rows and columns, set a column's alignment (left, centre, right or none), and **Format Table** (**Shift+Alt+F**) lines the pipes up, counting Chinese, Japanese and Korean characters and emoji as double width. Every command is one **Ctrl+Z** step and never loses text. Also in the F1 palette, and Insert Table and Format Table can be rebound in **Settings → Keyboard**
 - **Present as slides** — **View → Present** (or **F5**) shows the open document full screen, one slide at a time, with a new slide at each top-level `---`. Move with the arrow keys, Page Up/Down, Space, Home and End, and leave with **Esc**. The slides follow your edits as you make them
 - **PDF, Word and HTML export** — Save the rendered document as PDF (native export on Windows via WebView2), Word (.docx) or a standalone HTML page, styled by named export profiles (page size, margins, fonts, brand colour, title page, table of contents, header/footer, watermark) in **Settings → Document export**. In Word, math (`$…$`, `$$` blocks and ` ```math ` blocks) comes out as Word equations you can click into and edit, and any math Word can't hold keeps its TeX source. Export from **File → Export**, the command palette, or **Ctrl/Cmd+Shift+X**
 
@@ -50,6 +52,7 @@ Scrivon is a desktop editor for [Mermaid](https://mermaid.js.org/) diagrams and 
 - **Themes** — Light and dark UI plus 15+ diagram palettes (Scrivon, Zinc, Tokyo Night, Catppuccin, Nord, Dracula, GitHub, Solarized, One Dark, and more)
 - **Autosave** — Optional autosave to disk; **Ctrl/Cmd+S** saves immediately
 - **Settings** — **Ctrl/Cmd+,** opens preferences for theme, autosave, editor, and configurable keyboard shortcuts
+- **Focus mode** — **View → Focus Mode** (or **F11**) hides the explorer, Outline, tabs, preview and status bar so only the editor shows, filling the window. **Esc** or **F11** leaves it and brings back the panes you had. **Dim other paragraphs** (in **View**, the palette and **Settings → Editor**) fades every line but the paragraph you are writing in, with or without focus mode
 - **Command palette** — **F1** to search files, open tabs, run commands, and find text across the workspace. Type `:` to go to a line, `@` to jump to a heading, or `?` to see these
 - **Find in Workspace** — **Ctrl/Cmd+Shift+F** searches the text of every file, with Match Case (**Alt+C**), Match Whole Word (**Alt+W**) and Use Regular Expression (**Alt+R**; **Cmd+Option** on macOS). The options are remembered, and a regular expression that runs too long is stopped instead of freezing the window
 - **Replace in Workspace** — **Ctrl/Cmd+Shift+H** adds a Replace box to Find in Workspace and previews each change, grouped by file. Replace one match (**Ctrl/Cmd+Shift+1**) or every match in a file as an unsaved edit you can undo, or Replace All (**Ctrl/Cmd+Alt+Enter**) after confirming the true totals. In regex mode, `$1`, `$<name>` and `$&` fill in what was matched. Files keep their encoding and line endings, and a file changed elsewhere in the meantime is skipped
@@ -114,15 +117,15 @@ For release builds, signing keys, branch workflow, and semantic-release setup, s
 
 ## Tech stack
 
-| Layer              | Technologies                                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| Desktop shell      | [Tauri 2](https://v2.tauri.app/) (Rust)                                                                            |
-| UI                 | [Next.js](https://nextjs.org/), [React 19](https://react.dev/)                                                     |
-| Editor             | [Monaco](https://microsoft.github.io/monaco-editor/)                                                               |
-| Diagram rendering  | [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid)                                                 |
-| Markdown rendering | [react-markdown](https://github.com/remarkjs/react-markdown), [remark-gfm](https://github.com/remarkjs/remark-gfm) |
-| Code highlighting  | [Shiki](https://shiki.style/)                                                                                      |
-| Styling            | [Tailwind CSS](https://tailwindcss.com/)                                                                           |
+| Layer              | Technologies                                                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Desktop shell      | [Tauri 2](https://v2.tauri.app/) (Rust)                                                                                    |
+| UI                 | [Next.js](https://nextjs.org/), [React 19](https://react.dev/)                                                             |
+| Editor             | [Monaco](https://microsoft.github.io/monaco-editor/)                                                                       |
+| Diagram rendering  | [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid), [Mermaid](https://mermaid.js.org/) for the other types |
+| Markdown rendering | [react-markdown](https://github.com/remarkjs/react-markdown), [remark-gfm](https://github.com/remarkjs/remark-gfm)         |
+| Code highlighting  | [Shiki](https://shiki.style/)                                                                                              |
+| Styling            | [Tailwind CSS](https://tailwindcss.com/)                                                                                   |
 
 ## Project layout
 

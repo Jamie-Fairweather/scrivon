@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { useCanvasControls } from '@/components/studio/canvas/canvas-controls-provider'
+import { focusPaneSoon } from '@/components/studio/shell/pane-focus'
 import type { DiagramZoom } from '@/components/studio/canvas/use-pan-zoom'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import type { KeybindActionId } from '@/lib/settings/types'
@@ -10,12 +11,21 @@ import { useCanvasFit, useStudioLayout, useWorkspaceSession } from '@/components
 
 export type LayoutCommandsContext = {
     hasWorkspace: boolean
+    /** The panes on screen: in focus mode, only the editor. */
     explorerOpen: boolean
     editorOpen: boolean
     previewOpen: boolean
     outlineOpen: boolean
+    focusMode: boolean
     /** True while a diagram is drawn on screen (a Mermaid tab, or a Markdown diagram opened full size). */
     canFitDiagram: boolean
+    setFocusMode: (on: boolean) => void
+    /**
+     * Moves the keyboard to the editor once the menu or palette the command came from has let go of focus. Focus mode
+     * calls it as it turns on, since the pane that had focus may be gone.
+     */
+    focusEditorSoon: () => void
+    // These leave focus mode when they show a pane it hides (studio-layout-context.tsx), so that pane appears.
     setExplorerOpen: (open: boolean) => void
     setEditorOpen: (open: boolean) => void
     setPreviewOpen: (open: boolean) => void
@@ -26,6 +36,9 @@ export type LayoutCommandsContext = {
 }
 
 const NO_FOLDER = 'No folder open'
+
+/** The editor, or its region while no file is open (pane-focus.ts). */
+const focusEditorSoon = () => focusPaneSoon('editor')
 
 /** Which panes show, the layouts, and fitting and zooming the diagram. */
 export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
@@ -105,6 +118,20 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
             run: () => ctx.setPreviewOnly(),
         },
         {
+            id: 'toggle-focus-mode',
+            label: 'Focus Mode',
+            keywords: 'distraction free writing zen hide panels full screen editor only',
+            keybind: 'view.toggleFocusMode',
+            checked: ctx.focusMode,
+            disabled: off,
+            disabledReason: NO_FOLDER,
+            run: () => {
+                const on = !ctx.focusMode
+                ctx.setFocusMode(on)
+                if (on) ctx.focusEditorSoon()
+            },
+        },
+        {
             id: 'fit-diagram',
             label: 'Fit Diagram to Screen',
             keywords: 'fit diagram canvas screen zoom',
@@ -121,7 +148,7 @@ export function buildLayoutCommands(ctx: LayoutCommandsContext): AppCommand[] {
 
 export function useLayoutCommands(): void {
     const { workspaceRoot } = useWorkspaceSession()
-    const { layout, setExplorerOpen, setEditorOpen, setPreviewOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
+    const { layout, focusMode, setFocusMode, setExplorerOpen, setEditorOpen, setPreviewOpen, setOutlineOpen, setPreviewOnly } = useStudioLayout()
     const { requestCanvasFit } = useCanvasFit()
     // Off when nothing is drawn (an empty file, a Markdown tab with no diagram opened full size).
     const { canFitToView, zoomDiagram } = useCanvasControls()
@@ -135,7 +162,10 @@ export function useLayoutCommands(): void {
                 editorOpen: layout.editorOpen,
                 previewOpen: layout.previewOpen,
                 outlineOpen: layout.outlineOpen,
+                focusMode,
                 canFitDiagram: canFitToView,
+                setFocusMode,
+                focusEditorSoon,
                 setExplorerOpen,
                 setEditorOpen,
                 setPreviewOpen,
@@ -150,7 +180,9 @@ export function useLayoutCommands(): void {
             layout.editorOpen,
             layout.previewOpen,
             layout.outlineOpen,
+            focusMode,
             canFitToView,
+            setFocusMode,
             setExplorerOpen,
             setEditorOpen,
             setPreviewOpen,

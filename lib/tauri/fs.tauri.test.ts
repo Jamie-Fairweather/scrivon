@@ -754,7 +754,13 @@ describe('workspace fs (Tauri)', () => {
         const tree = await listWorkspaceTree('C:\\ws')
 
         expect(tree).toEqual([
-            { kind: 'directory', name: 'shared', path: 'C:\\ws\\shared', children: [{ kind: 'file', name: 'a.md', path: 'C:\\ws\\shared\\a.md' }] },
+            {
+                kind: 'directory',
+                name: 'shared',
+                path: 'C:\\ws\\shared',
+                children: [{ kind: 'file', name: 'a.md', path: 'C:\\ws\\shared\\a.md' }],
+                linked: true,
+            },
             { kind: 'file', name: 'todo.md', path: 'C:\\ws\\todo.md' },
         ])
         expect(statMock).not.toHaveBeenCalledWith('C:\\ws\\shared\\back-to-ws')

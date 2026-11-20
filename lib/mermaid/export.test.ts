@@ -30,10 +30,31 @@ vi.mock('@/lib/mermaid/render', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/mermaid/render')>()
     return {
         ...actual,
-        renderMermaidDiagramForExport: (...args: Parameters<typeof actual.renderMermaidDiagramForExport>) =>
-            render.fakeSvg ?? actual.renderMermaidDiagramForExport(...args),
+        renderMermaidDiagramForExportAsync: async (...args: Parameters<typeof actual.renderMermaidDiagramForExportAsync>) =>
+            render.fakeSvg ?? actual.renderMermaidDiagramForExportAsync(...args),
     }
 })
+
+/**
+ * The official mermaid package, which can't lay a diagram out without a real page. It draws as Mermaid does: a root
+ * with `width="100%"` and an inline max-width, and styles scoped to its id. `htmlLabels` diagrams get an HTML label.
+ */
+const officialMermaid = vi.hoisted(() => ({ htmlLabel: false }))
+vi.mock('mermaid', () => ({
+    default: {
+        initialize: vi.fn(),
+        render: vi.fn(async (id: string) => ({
+            svg:
+                `<svg id="${id}" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-width: 300px;" viewBox="-8 -8 300 150">` +
+                `<style>#${id} .slice{fill:#336699;font-family:var(--mermaid-font-family);}#${id} :root{--mermaid-font-family:Inter;}</style>` +
+                `<path class="slice" d="M0 0h10"/>` +
+                (officialMermaid.htmlLabel
+                    ? '<foreignObject width="10" height="10"><div xmlns="http://www.w3.org/1999/xhtml">Root</div></foreignObject>'
+                    : '') +
+                '</svg>',
+        })),
+    },
+}))
 
 import {
     buildExportSvg,
@@ -58,6 +79,7 @@ beforeEach(() => {
     vi.clearAllMocks()
     vi.unstubAllGlobals()
     render.fakeSvg = null
+    officialMermaid.htmlLabel = false
 })
 
 /** A stand-in canvas: records the size it was given and what was painted, and encodes anything. */
@@ -83,7 +105,8 @@ function stubCanvas() {
             queueMicrotask(() => this.onload?.())
         }
     }
-    vi.stubGlobal('document', { createElement: () => canvas })
+    // With what render-official.ts tidies up after the official mermaid package.
+    vi.stubGlobal('document', { createElement: () => canvas, getElementById: () => null, body: { querySelectorAll: () => [] } })
     vi.stubGlobal('Image', LoadedImage)
     return canvas
 }
@@ -199,18 +222,88 @@ describe('exportSvg', () => {
 describe('diagram look (F45)', () => {
     const FLOW = 'graph TD\n  A --> B'
 
-    it('paints the theme background by default', () => {
-        const svg = buildExportSvg(FLOW, 'scrivon-light')
+    it('paints the theme background by default', async () => {
+        const svg = await buildExportSvg(FLOW, 'scrivon-light')
         expect(svg).toMatch(/<rect x="0" y="0" width="[\d.]+" height="[\d.]+" fill="#ffffff"\/>/)
         expect(svg).toContain('background:#ffffff')
     })
 
-    it('leaves the background out when asked for a transparent one', () => {
-        const svg = buildExportSvg(FLOW, 'scrivon-light', { transparent: true })
+    it('leaves the background out when asked for a transparent one', async () => {
+        const svg = await buildExportSvg(FLOW, 'scrivon-light', { transparent: true })
         expect(svg).not.toMatch(/<rect x="0" y="0" width="[\d.]+" height="[\d.]+" fill="#ffffff"\/>/)
         expect(svg).not.toContain('background:')
         // Still drawn in the theme's colours.
         expect(svg).toContain('A')
+    })
+
+    // A type the official mermaid package draws.
+    const PIE = 'pie title Pets\n  "Dogs" : 386'
+    const DARK: DiagramLook = { themeId: 'scrivon-dark', transparent: false }
+
+    it('exports an official mermaid SVG sized from its viewBox, self-contained, on the theme background', async () => {
+        const svg = await buildExportSvg(PIE, 'scrivon-dark')
+        const root = /<svg\b[^>]*>/.exec(svg)![0]
+        expect(root).toContain('width="300" height="150"')
+        expect(root).not.toContain('100%')
+        expect(svg).not.toContain('max-width')
+        expect(svg).not.toContain('var(')
+        const bg = getDiagramColors('scrivon-dark').bg
+        expect(svg).toContain(`<rect x="-8" y="-8" width="300" height="150" fill="${bg}"/>`)
+    })
+
+    it('leaves the background rectangle out when transparent', async () => {
+        const svg = await buildExportSvg(PIE, 'scrivon-dark', { transparent: true })
+        expect(svg).not.toContain('<rect')
+        expect(svg).not.toContain('background')
+        expect(svg).not.toContain('var(')
+    })
+
+    it.each([1, 2, 4] as const)('saves a PNG at %i×', async (scale) => {
+        const canvas = stubCanvas()
+        const image = await renderDiagramImage(PIE, DARK, { format: 'png', scale })
+        expect(image.bytes.length).toBeGreaterThan(0)
+        expect(canvas.width).toBe(300 * scale)
+        expect(canvas.height).toBe(150 * scale)
+    })
+
+    it('saves and copies with or without a background', async () => {
+        for (const transparent of [false, true]) {
+            const look: DiagramLook = { themeId: 'scrivon-light', transparent }
+            const canvas = stubCanvas()
+            await copyPng(PIE, look)
+            expect(canvas.fills).toEqual(transparent ? [] : [getDiagramColors('scrivon-light').bg])
+            await copySvg(PIE, look)
+        }
+        expect(clipboard.writeClipboardPng).toHaveBeenCalledTimes(2)
+        expect(clipboard.writeClipboardSvg).toHaveBeenCalledTimes(2)
+        expect(notify.notifyError).not.toHaveBeenCalled()
+    })
+
+    it("won't draw a diagram with HTML labels into a PNG, and says to use SVG or PDF", async () => {
+        officialMermaid.htmlLabel = true
+        const canvas = stubCanvas()
+        const err = await renderDiagramImage('mindmap\n  Root', DARK, { format: 'png', scale: 2 }).catch((error: unknown) => error)
+        expect(err).toBeInstanceOf(DiagramExportError)
+        expect(err).toMatchObject({
+            problem: 'html-labels',
+            message: "This diagram type can't be saved as a picture yet. Export as SVG or PDF instead.",
+        })
+        expect(canvas.width).toBe(0)
+
+        await exportPng('mindmap\n  Root', DARK, { tabName: 'plan.mmd' }, 2)
+        expect(dialog.pickSavePath).not.toHaveBeenCalled()
+        expect(notify.notifyError).toHaveBeenCalledWith('Export failed', err)
+
+        await copyPng('mindmap\n  Root', DARK)
+        expect(clipboard.writeClipboardPng).not.toHaveBeenCalled()
+        expect(notify.notifyError).toHaveBeenLastCalledWith(
+            "Couldn't copy the diagram",
+            new Error("This diagram type can't be copied as a picture yet. Copy it as SVG instead.")
+        )
+
+        // SVG keeps the label: browsers draw it.
+        const { svg } = await renderDiagramImage('mindmap\n  Root', DARK, { format: 'svg' })
+        expect(svg).toContain('<foreignObject')
     })
 
     it('saves a PNG with no background painted under a transparent diagram', async () => {
@@ -351,8 +444,8 @@ describe('copy to the clipboard (F45)', () => {
 })
 
 describe('empty diagrams (U39)', () => {
-    it('refuses to build an SVG for a diagram with nothing to draw', () => {
-        expect(() => buildExportSvg('graph TD', 'scrivon-light')).toThrow('The diagram is empty, so there is nothing to export.')
+    it('refuses to build an SVG for a diagram with nothing to draw', async () => {
+        await expect(buildExportSvg('graph TD', 'scrivon-light')).rejects.toThrow('The diagram is empty, so there is nothing to export.')
     })
 
     it('says so instead of saving an empty file', async () => {
@@ -366,8 +459,8 @@ describe('empty diagrams (U39)', () => {
 describe('sequence label halo (U82)', () => {
     const SEQUENCE = 'sequenceDiagram\n  Alice->>Bob: Hello\n  Bob-->>Alice: Reply'
 
-    it('keeps the halo for PNG, baked to the background colour', () => {
-        expect(buildExportSvg(SEQUENCE, 'scrivon-light')).toMatch(/\.message text \{ paint-order: stroke; stroke: #ffffff;/)
+    it('keeps the halo for PNG, baked to the background colour', async () => {
+        expect(await buildExportSvg(SEQUENCE, 'scrivon-light')).toMatch(/\.message text \{ paint-order: stroke; stroke: #ffffff;/)
     })
 
     it('leaves it out of saved .svg files, since some apps would draw it over the letters', async () => {
@@ -519,8 +612,13 @@ describe('the shared render function', () => {
 
         await expect(problem('  ', { format: 'svg' })).resolves.toBe('empty')
         await expect(problem('graph TD', { format: 'svg' })).resolves.toBe('empty')
-        await expect(problem('pie\n  "A": 1', { format: 'svg' })).resolves.toBe('unsupported')
-        await expect(renderDiagramImage('pie\n  "A": 1', LIGHT, { format: 'svg' })).rejects.toThrow(/^Pie charts aren't supported yet/)
+        await expect(problem('zenuml\n  A.method()', { format: 'svg' })).resolves.toBe('unsupported')
+        await expect(renderDiagramImage('zenuml\n  A.method()', LIGHT, { format: 'svg' })).rejects.toThrow(/^ZenUML diagrams aren't supported yet/)
+        officialMermaid.htmlLabel = true
+        stubCanvas()
+        await expect(problem('mindmap\n  Root', { format: 'png', scale: 1 })).resolves.toBe('html-labels')
+        await expect(problem('mindmap\n  Root', { format: 'svg' })).resolves.toBeNull()
+        officialMermaid.htmlLabel = false
         // A parse error is not one of them.
         await expect(problem('notADiagram\n  A --> B', { format: 'svg' })).resolves.toBeNull()
 

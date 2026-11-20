@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
     buildPreview,
     createContentCache,
+    fileText,
     meetsTextQueryMinimum,
+    openTabText,
     searchWorkspaceContent,
     textHitToPaletteItem,
 } from '@/components/studio/command-palette/search-content'
@@ -910,5 +912,41 @@ describe('createContentCache', () => {
         cache.set('/a.md', stamp(1), 'a')
         cache.clear()
         expect(cache.get('/a.md', stamp(1))).toBeUndefined()
+    })
+})
+
+describe('openTabText and fileText', () => {
+    const tabs = [
+        { path: 'C:\\notes\\docs\\other.md', content: '# Install (unsaved)' },
+        { path: 'C:\\notes\\readme.md', content: 'Read me' },
+    ]
+
+    it('finds an open tab however the path is written', () => {
+        expect(openTabText(tabs, 'C:/notes/Docs/Other.MD')).toBe('# Install (unsaved)')
+        expect(openTabText(tabs, 'c:\\NOTES\\readme.md')).toBe('Read me')
+        expect(openTabText(new Map([['C:\\notes\\a.md', 'A']]), 'C:/Notes/A.md')).toBe('A')
+        expect(openTabText(tabs, 'C:\\notes\\missing.md')).toBeUndefined()
+    })
+
+    it('takes the open tab’s text over the disk’s, and reads the disk only with a reader and no tab', async () => {
+        const readFile = vi.fn(async (path: string) => `disk text of ${path}`)
+        expect(await fileText('C:/notes/docs/OTHER.md', tabs, readFile)).toBe('# Install (unsaved)')
+        expect(readFile).not.toHaveBeenCalled()
+        expect(await fileText('C:\\notes\\closed.md', tabs, readFile)).toBe('disk text of C:\\notes\\closed.md')
+        expect(readFile).toHaveBeenCalledTimes(1)
+        expect(await fileText('C:\\notes\\closed.md', tabs)).toBeUndefined()
+    })
+
+    it('searches a file open in a tab once, in the tab’s text, however the tree spells its path', async () => {
+        const readFile = vi.fn(async () => 'disk needle')
+        const result = await searchWorkspaceContent({
+            matcher: plain('needle'),
+            paths: ['C:\\notes\\Docs\\Other.md'],
+            openBuffers: new Map([['C:\\notes\\docs\\other.md', 'buffer needle']]),
+            readFile,
+            signal: new AbortController().signal,
+        })
+        expect(result.hits.map((hit) => hit.source)).toEqual(['buffer'])
+        expect(readFile).not.toHaveBeenCalled()
     })
 })

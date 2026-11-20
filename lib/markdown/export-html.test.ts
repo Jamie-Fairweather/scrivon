@@ -9,7 +9,7 @@ import { exportMarkdown } from '@/lib/markdown/export-pdf'
 import { renderExportHtml } from './export-html'
 
 vi.mock('@/lib/mermaid/render', () => ({
-    renderMermaidDiagramForExport: vi.fn((source: string) => `<svg data-mermaid="${source.trim()}" viewBox="0 0 100 50"></svg>`),
+    renderMermaidDiagramForExportAsync: vi.fn(async (source: string) => `<svg data-mermaid="${source.trim()}" viewBox="0 0 100 50"></svg>`),
 }))
 
 vi.mock('@/lib/markdown/shiki-highlighter', () => ({
@@ -97,16 +97,19 @@ describe('renderExportHtml', () => {
     })
 
     it("prints a diagram type Scrivon can't draw as a short note and its source", async () => {
-        const { html, diagramsNotDrawn } = await renderExportHtml(buildExportDocument('# Notes\n\n```mermaid\npie\n  "Dogs" : 3\n```\n'))
-        expect(html).toContain('Pie chart: not supported in Scrivon yet')
-        expect(html).toContain('"Dogs" : 3')
+        const { html, diagramsNotDrawn } = await renderExportHtml(buildExportDocument('# Notes\n\n```mermaid\nzenuml\n  A.method()\n```\n'))
+        expect(html).toContain('ZenUML diagram: not supported in Scrivon yet')
+        expect(html).toContain('A.method()')
         expect(html).not.toContain('Scrivon can draw')
         expect(diagramsNotDrawn).toBe(1)
     })
 
-    it('draws diagrams into the page', async () => {
-        const { html } = await renderExportHtml(buildExportDocument('# Plan\n\n```mermaid\ngraph TD; A-->B\n```', { tabName: 'plan.md' }))
+    it('draws diagrams into the page, those the official mermaid package draws too', async () => {
+        const { html } = await renderExportHtml(
+            buildExportDocument('# Plan\n\n```mermaid\ngraph TD; A-->B\n```\n\n```mermaid\npie\n  "Dogs" : 3\n```', { tabName: 'plan.md' })
+        )
         expect(html).toContain('<svg data-mermaid="graph TD; A-->B"')
+        expect(html).toContain('<svg data-mermaid="pie\n')
     })
 })
 

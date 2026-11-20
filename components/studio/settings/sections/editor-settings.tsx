@@ -106,6 +106,13 @@ export function EditorSettings() {
             />
 
             <SwitchSetting
+                label="Dim other paragraphs"
+                description="Fade every line but the paragraph you are writing in. A selection keeps every paragraph it touches."
+                checked={settings.editor.dimOtherParagraphs}
+                onChange={(dimOtherParagraphs) => setEditor({ dimOtherParagraphs })}
+            />
+
+            <SwitchSetting
                 label="Scroll with the preview"
                 description="The editor and the Markdown preview scroll together."
                 checked={settings.editor.scrollSync}
@@ -117,6 +124,13 @@ export function EditorSettings() {
                 description="Double-clicking the Markdown preview puts the editor's cursor on that line. Turn off to select words in the preview by double-clicking."
                 checked={settings.editor.jumpFromPreview}
                 onChange={(jumpFromPreview) => setEditor({ jumpFromPreview })}
+            />
+
+            <SwitchSetting
+                label="Check links"
+                description="Underline links, images and #headings in Markdown files that lead to nothing in the open folder. Press Ctrl+. on one for the closest matches."
+                checked={settings.editor.checkLinks}
+                onChange={(checkLinks) => setEditor({ checkLinks })}
             />
 
             <Field>

@@ -1,6 +1,7 @@
 'use client'
 
 import { Download, Loader2 } from 'lucide-react'
+import { useRef } from 'react'
 import { useDocumentExport } from '@/components/studio/editor/document-export-provider'
 import { DIAGRAM_THEMES, PNG_SCALES } from '@/components/studio/editor/export-commands'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
@@ -26,15 +27,12 @@ import {
 
 /** The tab bar's Export button and menu. What it can export, and the export itself, live in DocumentExportProvider. */
 export function DocumentExportMenu() {
-    const { availability, exporting, menuOpen, setMenuOpen, openDialog, exportDiagram, diagramOptions, setDiagramOptions } = useDocumentExport()
+    const { availability, exporting, menuOpen, setMenuOpen } = useDocumentExport()
     const { settings } = useAppSettings()
-    const { trigger, document, diagram } = availability
+    const { trigger } = availability
 
     const keys = formatKeybindForAction('document.export', settings.keybinds)
     const triggerTitle = trigger.disabled ? trigger.reason : keys ? `Export document (${keys})` : 'Export document'
-    // A spinner on the diagram items says they are waiting for the drawing, not broken.
-    const drawing = diagram.drawing ? <Loader2 className="animate-spin" aria-hidden /> : null
-    const busy = diagram.drawing || undefined
 
     return (
         // The button is aria-disabled rather than disabled, so it can still be focused or hovered to say why.
@@ -57,84 +55,117 @@ export function DocumentExportMenu() {
                 </MenuTrigger>
             </IconTooltip>
             <MenuPopup align="end" className="min-w-44">
-                <MenuGroup>
-                    {document.shown ? (
-                        <>
-                            <MenuItem disabled={document.disabled} onClick={() => openDialog('pdf')}>
-                                Export as PDF…
-                                <BetaBadge className="ms-auto" />
-                            </MenuItem>
-                            <MenuItem disabled={document.disabled} onClick={() => openDialog('docx')}>
-                                Export as Word…
-                                <BetaBadge className="ms-auto" />
-                            </MenuItem>
-                            <MenuItem disabled={document.disabled} onClick={() => openDialog('html')}>
-                                Export as HTML…
-                            </MenuItem>
-                        </>
-                    ) : null}
-                    {diagram.shown ? (
-                        <>
-                            <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('svg')}>
-                                Export Diagram as SVG…
-                                {drawing}
-                            </MenuItem>
-                            <MenuSub>
-                                <MenuSubTrigger disabled={diagram.disabled} aria-busy={busy}>
-                                    Export Diagram as PNG
-                                    {drawing}
-                                </MenuSubTrigger>
-                                <MenuSubPopup className="min-w-36">
-                                    <MenuGroup>
-                                        {PNG_SCALES.map((scale) => (
-                                            <MenuItem key={scale} disabled={diagram.disabled} onClick={() => exportDiagram(scale)}>
-                                                {scale}×…
-                                            </MenuItem>
-                                        ))}
-                                    </MenuGroup>
-                                </MenuSubPopup>
-                            </MenuSub>
-                            <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('copy-svg')}>
-                                Copy Diagram as SVG
-                                {drawing}
-                            </MenuItem>
-                            <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('copy-png')}>
-                                Copy Diagram as PNG
-                                {drawing}
-                            </MenuItem>
-                        </>
-                    ) : null}
-                </MenuGroup>
-                {diagram.shown ? (
-                    <>
-                        <MenuSeparator />
-                        {/* How saved and copied diagrams look. Ticking keeps the menu open, to export next. */}
-                        <MenuGroup>
-                            <MenuCheckboxItem
-                                checked={diagramOptions.transparent}
-                                onCheckedChange={(transparent) => setDiagramOptions({ transparent })}
-                            >
-                                Transparent Background
-                            </MenuCheckboxItem>
-                            <MenuSub>
-                                <MenuSubTrigger>Diagram Theme</MenuSubTrigger>
-                                <MenuSubPopup className="min-w-36">
-                                    <MenuRadioGroup
-                                        value={diagramOptions.theme}
-                                        onValueChange={(theme: DiagramExportTheme) => setDiagramOptions({ theme })}
-                                    >
-                                        {DIAGRAM_THEMES.map(({ theme, name }) => (
-                                            <MenuRadioItem key={theme} value={theme}>
-                                                {name}
-                                            </MenuRadioItem>
-                                        ))}
-                                    </MenuRadioGroup>
-                                </MenuSubPopup>
-                            </MenuSub>
-                        </MenuGroup>
-                    </>
-                ) : null}
+                <ExportMenuItems />
             </MenuPopup>
         </Menu>
+    )
+}
+
+/** What the export menu offers for the active tab. */
+function ExportMenuItems() {
+    const { availability, openDialog, exportDiagram, diagramOptions, setDiagramOptions } = useDocumentExport()
+    const { document, diagram } = availability
+    // A spinner on the diagram items says they are waiting for the drawing, not broken.
+    const drawing = diagram.drawing ? <Loader2 className="animate-spin" aria-hidden /> : null
+    const busy = diagram.drawing || undefined
+
+    return (
+        <>
+            <MenuGroup>
+                {document.shown ? (
+                    <>
+                        <MenuItem disabled={document.disabled} onClick={() => openDialog('pdf')}>
+                            Export as PDF…
+                            <BetaBadge className="ms-auto" />
+                        </MenuItem>
+                        <MenuItem disabled={document.disabled} onClick={() => openDialog('docx')}>
+                            Export as Word…
+                            <BetaBadge className="ms-auto" />
+                        </MenuItem>
+                        <MenuItem disabled={document.disabled} onClick={() => openDialog('html')}>
+                            Export as HTML…
+                        </MenuItem>
+                    </>
+                ) : null}
+                {diagram.shown ? (
+                    <>
+                        <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('svg')}>
+                            Export Diagram as SVG…
+                            {drawing}
+                        </MenuItem>
+                        <MenuSub>
+                            <MenuSubTrigger disabled={diagram.disabled} aria-busy={busy}>
+                                Export Diagram as PNG
+                                {drawing}
+                            </MenuSubTrigger>
+                            <MenuSubPopup className="min-w-36">
+                                <MenuGroup>
+                                    {PNG_SCALES.map((scale) => (
+                                        <MenuItem key={scale} disabled={diagram.disabled} onClick={() => exportDiagram(scale)}>
+                                            {scale}×…
+                                        </MenuItem>
+                                    ))}
+                                </MenuGroup>
+                            </MenuSubPopup>
+                        </MenuSub>
+                        <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('copy-svg')}>
+                            Copy Diagram as SVG
+                            {drawing}
+                        </MenuItem>
+                        <MenuItem disabled={diagram.disabled} aria-busy={busy} onClick={() => exportDiagram('copy-png')}>
+                            Copy Diagram as PNG
+                            {drawing}
+                        </MenuItem>
+                    </>
+                ) : null}
+            </MenuGroup>
+            {diagram.shown ? (
+                <>
+                    <MenuSeparator />
+                    {/* How saved and copied diagrams look. Ticking keeps the menu open, to export next. */}
+                    <MenuGroup>
+                        <MenuCheckboxItem checked={diagramOptions.transparent} onCheckedChange={(transparent) => setDiagramOptions({ transparent })}>
+                            Transparent Background
+                        </MenuCheckboxItem>
+                        <MenuSub>
+                            <MenuSubTrigger>Diagram Theme</MenuSubTrigger>
+                            <MenuSubPopup className="min-w-36">
+                                <MenuRadioGroup
+                                    value={diagramOptions.theme}
+                                    onValueChange={(theme: DiagramExportTheme) => setDiagramOptions({ theme })}
+                                >
+                                    {DIAGRAM_THEMES.map(({ theme, name }) => (
+                                        <MenuRadioItem key={theme} value={theme}>
+                                            {name}
+                                        </MenuRadioItem>
+                                    ))}
+                                </MenuRadioGroup>
+                            </MenuSubPopup>
+                        </MenuSub>
+                    </MenuGroup>
+                </>
+            ) : null}
+        </>
+    )
+}
+
+/**
+ * The export menu in focus mode, which hides the tab bar and its Export button. It has no button of its own:
+ * Export… (Ctrl+Shift+X, the palette) opens it for a tab that only has a diagram, at the top right of the editor.
+ * Closing it puts focus back where it was as it opened (Base UI's own handling), which is the editor.
+ */
+export function FocusModeExportMenu() {
+    const { availability, menuOpen, setMenuOpen } = useDocumentExport()
+    const anchorRef = useRef<HTMLSpanElement>(null)
+
+    return (
+        <>
+            <span ref={anchorRef} aria-hidden className="pointer-events-none absolute top-1 right-3 size-0" data-slot="focus-mode-export-anchor" />
+            <Menu open={menuOpen} onOpenChange={(next) => setMenuOpen(next && !availability.trigger.disabled)}>
+                <MenuPopup align="end" anchor={anchorRef} className="min-w-44">
+                    <ExportMenuItems />
+                </MenuPopup>
+            </Menu>
+        </>
     )
 }

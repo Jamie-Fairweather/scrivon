@@ -1,8 +1,10 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { APP_THEME_IDS, isLightTheme } from '@/lib/theme/catalog'
 import { MONACO_DIAGRAM_THEME_ID, buildMonacoDiagramTheme, defineMonacoDiagramTheme } from '@/lib/theme/monaco-theme'
 import { resolveThemeTokensForId } from '@/lib/theme/resolve-theme-tokens'
-import { hexColorMix } from '@/lib/theme/color-mix'
+import { contrastRatio, hexColorMix } from '@/lib/theme/color-mix'
 import { TokenTheme } from 'monaco-editor/editor/common/languages/supports/tokenization.js'
 import { vs, vs_dark } from 'monaco-editor/editor/standalone/common/themes.js'
 import { MERMAID_LANGUAGE_ID, mermaidMonarchLanguage } from '@/lib/monaco/mermaid-language'
@@ -243,6 +245,32 @@ describe('Mermaid syntax colours in the editor', () => {
         const theme = buildMonacoDiagramTheme(resolveThemeTokensForId('scrivon-dark'), false)
         expect(theme.rules.find((r) => r.token === 'keyword.mermaid')?.fontStyle).toBe('')
         expect(theme.rules.find((r) => r.token === 'keyword')?.fontStyle).toBe('bold')
+    })
+})
+
+/** The opacity Dim Other Paragraphs fades text to: the --editor-dim-opacity token in app/globals.css. */
+const DIM_OPACITY = Number(
+    /--editor-dim-opacity:\s*([\d.]+)\s*;/.exec(readFileSync(path.resolve(__dirname, '../../app/globals.css'), 'utf8'))?.[1] ?? Number.NaN
+)
+
+describe('Dim Other Paragraphs', () => {
+    it('fades text to a set opacity', () => {
+        expect(DIM_OPACITY).toBeGreaterThan(0)
+        expect(DIM_OPACITY).toBeLessThan(1)
+    })
+
+    it.each(APP_THEME_IDS)('keeps every syntax colour at 3:1 or more on the editor background when faded, in %s', (id) => {
+        const theme = buildMonacoDiagramTheme(resolveThemeTokensForId(id), isLightTheme(id))
+        const background = theme.colors['editor.background']!
+        const colors = new Set([
+            theme.colors['editor.foreground']!.toLowerCase(),
+            ...[...MARKDOWN_TOKENS, ...MERMAID_TOKENS].map((token) => resolvedTokenColor(id, token)),
+        ])
+        for (const color of colors) {
+            // Opacity on the text mixes it with the editor background behind it.
+            const faded = hexColorMix(color, background, DIM_OPACITY * 100)
+            expect(contrastRatio(faded, background), `${color} faded to ${faded} on ${background}`).toBeGreaterThanOrEqual(3)
+        }
     })
 })
 

@@ -1,3 +1,5 @@
+import { chooseDiagramEngine } from '@/lib/mermaid/prepare-source'
+import { RENDER_TIMEOUT_MESSAGE, RENDER_TIMEOUT_MS, RendererLoadError, SupersededRenderError } from '@/lib/mermaid/render-errors'
 import type { RenderRequest, RenderResponse } from '@/lib/mermaid/render-worker-core'
 import type { AppThemeId } from '@/lib/theme/catalog'
 
@@ -7,32 +9,15 @@ import type { AppThemeId } from '@/lib/theme/catalog'
  * one still waiting is dropped when every view that asked for it has gone.
  * Views showing the same text in the same theme share one render, whichever document they belong to.
  * If the worker can't start or can't render, everything quietly runs on the main thread as before.
+ *
+ * The types only the official mermaid package draws (a pie chart, say) skip the worker: they need a page, so they
+ * queue for render-official.ts on the main thread instead, by the same rules, one at a time beside the worker's.
  */
 
-/** A render taking longer than this is stopped, so a huge or hostile diagram can't tie the worker up. */
-export const RENDER_TIMEOUT_MS = 20_000
+export { RENDER_TIMEOUT_MESSAGE, RENDER_TIMEOUT_MS, RendererLoadError, SupersededRenderError } from '@/lib/mermaid/render-errors'
+
 /** A worker that hasn't said it can render by now is given up on. */
 export const WORKER_START_TIMEOUT_MS = 10_000
-export const RENDER_TIMEOUT_MESSAGE = 'This diagram is too big to draw. Try splitting it into smaller diagrams.'
-
-/** The render was dropped before it started: a newer text for the same document came in, or every view waiting for it went away. */
-export class SupersededRenderError extends Error {
-    constructor() {
-        super('A newer version of this diagram replaced this render.')
-        this.name = 'SupersededRenderError'
-    }
-}
-
-/**
- * The renderer couldn't be loaded on the main thread. Nothing is wrong with the diagram, so this isn't
- * remembered like a parse error: the next render tries the load again.
- */
-export class RendererLoadError extends Error {
-    constructor(cause: unknown) {
-        super("Couldn't load the diagram renderer. Edit the diagram or switch tabs to try again.", { cause })
-        this.name = 'RendererLoadError'
-    }
-}
 
 /** One view waiting for a render. */
 type Caller = { documentKey: string }
@@ -98,6 +83,43 @@ function renderOnMainThread(job: Job): void {
         },
         (err: unknown) => settle(job, { error: new RendererLoadError(err) })
     )
+}
+
+type OfficialModule = typeof import('@/lib/mermaid/render-official')
+let officialModule: Promise<OfficialModule> | null = null
+/** The official mermaid render running now, and those waiting for it: one at a time, beside the worker's. */
+let officialActive: Job | null = null
+const officialQueue: Job[] = []
+
+/** render-official.ts (and through it mermaid) is loaded only once such a diagram is drawn. A failed load is tried again. */
+function loadOfficialRenderer(): Promise<OfficialModule> {
+    officialModule ??= import('@/lib/mermaid/render-official').catch((err: unknown) => {
+        officialModule = null
+        throw err
+    })
+    return officialModule
+}
+
+function pumpOfficial(): void {
+    if (officialActive || officialQueue.length === 0) return
+    const job = officialQueue.shift()!
+    officialActive = job
+    // render-official.ts times a render out itself, from when it starts: an export may be drawing first.
+    loadOfficialRenderer()
+        .then(
+            ({ renderOfficialDiagram }) => renderOfficialDiagram(job.source, job.themeId),
+            (err: unknown) => {
+                throw new RendererLoadError(err)
+            }
+        )
+        .then(
+            (svg) => settle(job, { svg }),
+            (err: unknown) => settle(job, { error: asError(err) })
+        )
+        .finally(() => {
+            officialActive = null
+            pumpOfficial()
+        })
 }
 
 function clearTimer(timer: ReturnType<typeof setTimeout> | null): null {
@@ -203,9 +225,9 @@ function pump(): void {
 
 /** Drops a job that hasn't started. One already running is left to finish, so its picture still lands in the cache. */
 function dropIfWaiting(job: Job): void {
-    const index = queue.indexOf(job)
-    if (index === -1) return
-    queue.splice(index, 1)
+    const waitingIn = queue.includes(job) ? queue : officialQueue.includes(job) ? officialQueue : null
+    if (!waitingIn) return
+    waitingIn.splice(waitingIn.indexOf(job), 1)
     if (pending.get(job.requestKey) === job) pending.delete(job.requestKey)
     settle(job, { error: new SupersededRenderError() })
 }
@@ -231,7 +253,7 @@ function createJob(source: string, themeId: AppThemeId, requestKey: string): Job
 /**
  * Renders a diagram for the live preview. Rejects with the parser's error for invalid text, with
  * RENDER_TIMEOUT_MESSAGE when it takes too long, with RendererLoadError when the main-thread fallback
- * couldn't load the renderer, and with SupersededRenderError when it was dropped
+ * (or the official mermaid package) couldn't be loaded, and with SupersededRenderError when it was dropped
  * before it started: a newer text for the same document replaced it, or `signal` was aborted, and no
  * other view still wanted it. Abort `signal` when the view goes away.
  */
@@ -239,7 +261,7 @@ export function renderMermaidDiagramAsync(source: string, themeId: AppThemeId, d
     const requestKey = `${themeId}\0${source}`
 
     // This document has moved on from any older text still waiting, so it no longer needs those renders.
-    for (const job of [...queue]) {
+    for (const job of [...queue, ...officialQueue]) {
         if (job.requestKey === requestKey) continue
         for (const caller of job.callers) {
             if (caller.documentKey === documentKey) job.callers.delete(caller)
@@ -263,8 +285,13 @@ export function renderMermaidDiagramAsync(source: string, themeId: AppThemeId, d
         job.promise.then(stopListening, stopListening)
     }
     if (!shared) {
-        queue.push(job)
-        pump()
+        if (chooseDiagramEngine(source).engine === 'mermaid') {
+            officialQueue.push(job)
+            pumpOfficial()
+        } else {
+            queue.push(job)
+            pump()
+        }
     }
     return job.promise
 }

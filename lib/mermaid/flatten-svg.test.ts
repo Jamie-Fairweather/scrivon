@@ -76,14 +76,14 @@ describe('flattenSvgForExport', () => {
 })
 
 describe('buildExportSvg', () => {
-    it('returns the flattened, self-contained SVG', () => {
-        const svg = buildExportSvg('  graph TD\n  A --> B  ', 'scrivon-dark')
+    it('returns the flattened, self-contained SVG', async () => {
+        const svg = await buildExportSvg('  graph TD\n  A --> B  ', 'scrivon-dark')
 
         expect(svg).not.toMatch(LEFTOVERS)
         expect(svg).toContain(`fill="${getDiagramColors('scrivon-dark').bg}"`)
     })
 
-    it('rejects empty source', () => {
-        expect(() => buildExportSvg('   ', 'scrivon-light')).toThrow('Nothing to export.')
+    it('rejects empty source', async () => {
+        await expect(buildExportSvg('   ', 'scrivon-light')).rejects.toThrow('Nothing to export.')
     })
 })

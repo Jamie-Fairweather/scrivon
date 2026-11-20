@@ -50,6 +50,7 @@ function readOutFile(url) {
 /** The workers the app starts, each told apart by a string only its own code has. The first that matches wins. */
 const KINDS = [
     ['spell check', '"suggested"'], // lib/spellcheck/spellcheck-worker-core.ts
+    ['links', '"links-read"'], // lib/markdown/links.worker.ts
     ['outline', 'headings:'], // lib/markdown/outline.worker.ts
     ['Mermaid', '"rendered"'], // lib/mermaid/render-worker-core.ts
     ['regex', '"regex-matched"'], // components/studio/command-palette/regex-match.worker.ts

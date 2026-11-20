@@ -12,6 +12,11 @@ export type FileNode =
           linksOutside?: true
           /** Not read: the opened folder has too many files and folders to list them all, so `children` is empty. */
           truncated?: true
+          /**
+           * It is a link (symlink or junction) to a folder, listed through the link. The links inside it aren't
+           * followed, so they aren't listed although they are there.
+           */
+          linked?: true
       }
     | {
           kind: 'file'

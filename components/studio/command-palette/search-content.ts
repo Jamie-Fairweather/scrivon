@@ -158,6 +158,42 @@ function matchesToHits(content: string, matches: Array<TextMatch | TextReplaceme
     })
 }
 
+/** An open tab's file and its text as the tab has it now, unsaved edits included. */
+export type OpenFileText = { path: string; content: string }
+
+/** The open tabs' texts, as tabs (`{ path, content }`) or as a map from path to text. */
+export type OpenFileTexts = Iterable<OpenFileText> | ReadonlyMap<string, string>
+
+function* eachOpenText(open: OpenFileTexts): Iterable<OpenFileText> {
+    if (open instanceof Map) {
+        for (const [path, content] of open as ReadonlyMap<string, string>) yield { path, content }
+    } else {
+        yield* open as Iterable<OpenFileText>
+    }
+}
+
+/**
+ * The text of `path` from the tab it is open in, however its path is written (`Docs\Other.MD` finds the tab opened
+ * as `docs/other.md`, see samePath), or undefined when no tab has it. Never reads the disk.
+ */
+export function openTabText(open: OpenFileTexts, path: string): string | undefined {
+    const key = comparablePath(path)
+    for (const tab of eachOpenText(open)) {
+        if (comparablePath(tab.path) === key) return tab.content
+    }
+    return undefined
+}
+
+/**
+ * A file's text: the open tab's when a tab has it (so unsaved edits win over what is on disk), otherwise what
+ * `readFile` reads from disk. Without a reader the disk is never read, and a file no tab has gives undefined.
+ */
+export async function fileText(path: string, open: OpenFileTexts, readFile?: (path: string) => Promise<string>): Promise<string | undefined> {
+    const inTab = openTabText(open, path)
+    if (inTab !== undefined || !readFile) return inTab
+    return readFile(path)
+}
+
 /** Why a regex search stopped before it had looked at every file. */
 export type SearchStop = { reason: 'timedOut'; path: string } | { reason: 'unavailable' }
 

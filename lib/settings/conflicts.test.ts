@@ -56,6 +56,20 @@ describe('findKeybindConflicts', () => {
     })
 })
 
+describe('Toggle focus mode on F11', () => {
+    it.each([false, true])('has F11, which no other action, the editor, the explorer or the menu bar uses (mac: %s)', (isMac) => {
+        const bindings = createDefaultKeybinds(isMac)
+        const f11 = { key: 'F11' }
+        expect(bindings['view.toggleFocusMode']).toEqual([f11])
+        expect(findKeybindConflicts(bindings)).toEqual([])
+        expect(describeEditorChordClash(f11, isMac, 'view.toggleFocusMode')).toBeNull()
+        expect(describeDisallowedChord(f11, isMac)).toBeNull()
+        expect(wouldChordConflict(bindings, 'view.toggleFocusMode', f11)).toBeNull()
+        // Giving F11 to another action would clash with it.
+        expect(wouldChordConflict(bindings, 'view.present', f11)).toBe('view.toggleFocusMode')
+    })
+})
+
 describe('editorActionsSharingKeys', () => {
     it("names the Markdown actions that take an app action's keys while typing in the editor", () => {
         const bindings = createDefaultKeybinds(false)

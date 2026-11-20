@@ -83,10 +83,14 @@ function focusNotifications(region: HTMLElement): boolean {
     return region.ownerDocument.activeElement === region || tryFocus(region)
 }
 
-/** Puts focus in the pane now. False when nothing in it can take focus (the editor with no file open, say). */
+/**
+ * Puts focus in the pane now. False when nothing in it can take focus (the editor with no file open, say, outside
+ * focus mode).
+ */
 function focusInPane(pane: HTMLElement): boolean {
-    // Monaco takes focus through its own API, which also brings back its cursor.
-    if (pane.dataset.pane === 'editor') return focusEditorNow()
+    // Monaco takes focus through its own API, which also brings back its cursor. With no file open there is no Monaco,
+    // and in focus mode the editor's region takes focus itself (it has a tabIndex only then), so F6 can still reach it.
+    if (pane.dataset.pane === 'editor') return focusEditorNow() || paneItself(pane).some(tryFocus)
     if (pane.matches(NOTIFICATIONS)) return focusNotifications(pane)
     return focusTargets(pane).some(tryFocus)
 }

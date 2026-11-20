@@ -224,7 +224,8 @@ async function readLink(entry: DirEntry, fullPath: string, siblingNames: string[
     if (target.isFile) return { kind: 'file', name: entry.name, path: fullPath }
     if (!target.isDirectory || isHiddenFolder(entry.name, siblingNames)) return null
     const node = await readFolderNode(entry.name, fullPath, read, true)
-    return node.kind === 'directory' && node.unreadable ? null : node
+    if (node.kind !== 'directory') return node
+    return node.unreadable ? null : { ...node, linked: true }
 }
 
 /** The entries of a folder and everything in it, or null when it wasn't listed because the budget had run out. */

@@ -125,6 +125,20 @@ vi.mock('@/lib/mermaid/export', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/mermaid/export')>()
     return { ...actual, renderDiagramImage: vi.fn(actual.renderDiagramImage) }
 })
+// The official mermaid package can't lay a diagram out without a real page. A mind map comes back with an HTML label.
+vi.mock('mermaid', () => ({
+    default: {
+        initialize: vi.fn(),
+        render: vi.fn(async (id: string, text: string) => ({
+            svg:
+                `<svg id="${id}" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-width: 120px;" viewBox="0 0 120 60">` +
+                (text.startsWith('mindmap')
+                    ? '<foreignObject><div xmlns="http://www.w3.org/1999/xhtml">Root</div></foreignObject>'
+                    : '<path d="M0 0h1"/>') +
+                '</svg>',
+        })),
+    },
+}))
 
 import {
     batchHeadline,
@@ -380,9 +394,10 @@ describe('exporting a folder', () => {
     it('skips empty and unsupported diagrams, fails broken ones with the reason, and carries on', async () => {
         disk.file('C:\\work\\notes\\a-empty.mmd', '   ')
         disk.file('C:\\work\\notes\\b-blank.mmd', 'graph TD')
-        disk.file('C:\\work\\notes\\c-pie.mmd', 'pie\n  "A": 1')
+        disk.file('C:\\work\\notes\\c-zenuml.mmd', 'zenuml\n  A.method()')
         disk.file('C:\\work\\notes\\d-broken.mmd', 'notADiagram\n  A --> B')
         disk.file('C:\\work\\notes\\e-fine.mmd', FLOW)
+        disk.file('C:\\work\\notes\\f-pie.mmd', 'pie\n  "A": 1')
 
         const { result } = await exportNotes()
 
@@ -390,13 +405,30 @@ describe('exporting a folder', () => {
         expect(outcomes).toEqual([
             { status: 'skipped', source: 'a-empty.mmd', reason: 'Nothing to export.' },
             { status: 'skipped', source: 'b-blank.mmd', reason: 'The diagram is empty, so there is nothing to export.' },
-            { status: 'skipped', source: 'c-pie.mmd', reason: expect.stringContaining('Pie charts') },
+            { status: 'skipped', source: 'c-zenuml.mmd', reason: expect.stringContaining('ZenUML diagrams') },
             { status: 'failed', source: 'd-broken.mmd', reason: expect.stringContaining('Invalid mermaid header') },
             { status: 'saved', source: 'e-fine.mmd', output: 'e-fine.svg', outputPath: 'C:\\out\\e-fine.svg' },
+            // Drawn by the official mermaid package.
+            { status: 'saved', source: 'f-pie.mmd', output: 'f-pie.svg', outputPath: 'C:\\out\\f-pie.svg' },
         ])
-        expect(countOutcomes(outcomes)).toEqual({ saved: 1, skipped: 3, failed: 1 })
-        expect(batchHeadline(ran(result))).toBe('Saved 1 of 5 diagrams.')
-        expect(disk.paths().filter((path) => path.startsWith('C:\\out\\'))).toEqual(['C:\\out\\e-fine.svg'])
+        expect(countOutcomes(outcomes)).toEqual({ saved: 2, skipped: 3, failed: 1 })
+        expect(batchHeadline(ran(result))).toBe('Saved 2 of 6 diagrams.')
+        expect(disk.paths().filter((path) => path.startsWith('C:\\out\\'))).toEqual(['C:\\out\\e-fine.svg', 'C:\\out\\f-pie.svg'])
+    })
+
+    it('fails a diagram with HTML labels in a PNG export, with the plain reason, and saves the rest', async () => {
+        disk.file('C:\\work\\notes\\a-flow.mmd', FLOW)
+        disk.file('C:\\work\\notes\\b-mind.mmd', 'mindmap\n  Root')
+        // The flowchart's PNG is drawn elsewhere: there's no canvas here. The mind map goes through the real render.
+        render.mockResolvedValueOnce({ format: 'png', bytes: PNG_BYTES })
+
+        const { result } = await exportNotes({ settings: { ...SVG, image: { format: 'png', scale: 2 } } })
+
+        expect(ran(result).outcomes).toEqual([
+            { status: 'saved', source: 'a-flow.mmd', output: 'a-flow.png', outputPath: 'C:\\out\\a-flow.png' },
+            { status: 'failed', source: 'b-mind.mmd', reason: "This diagram type can't be saved as a picture yet. Export as SVG or PDF instead." },
+        ])
+        expect(disk.paths().filter((path) => path.startsWith('C:\\out\\'))).toEqual(['C:\\out\\a-flow.png'])
     })
 
     it('fails a diagram too big for a PNG, and saves the next one', async () => {

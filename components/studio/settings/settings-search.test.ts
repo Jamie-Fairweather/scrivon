@@ -55,6 +55,12 @@ describe('searchSettings', () => {
         expect(searchSettings('body', BROWSER).map((entry) => entry.label)).toContain('Number pages from the body')
     })
 
+    it('finds the link check by the words people use for it', () => {
+        for (const query of ['check links', 'broken', 'anchors']) {
+            expect(searchSettings(query, BROWSER)).toContainEqual(expect.objectContaining({ section: 'editor', label: 'Check links' }))
+        }
+    })
+
     it('lists settings whose name starts with the search first', () => {
         const labels = searchSettings('margin', BROWSER).map((entry) => entry.label)
         expect(labels.slice(0, 4)).toEqual(['Margin top (mm)', 'Margin right (mm)', 'Margin bottom (mm)', 'Margin left (mm)'])
@@ -100,5 +106,14 @@ describe('searchSettings', () => {
 
     it('finds the status bar', () => {
         expect(searchSettings('word count', BROWSER)).toEqual([expect.objectContaining({ section: 'editor', label: 'Status bar' })])
+    })
+
+    it('finds Dim other paragraphs, by its name and by the words people use for it', () => {
+        expect(searchSettings('dim', BROWSER)).toEqual([expect.objectContaining({ section: 'editor', label: 'Dim other paragraphs' })])
+        expect(searchSettings('fade paragraph', BROWSER).map((entry) => entry.label)).toEqual(['Dim other paragraphs'])
+    })
+
+    it('finds the focus mode shortcut in Keyboard settings', () => {
+        expect(searchSettings('focus mode', BROWSER)).toEqual([expect.objectContaining({ section: 'keyboard', label: 'Toggle focus mode' })])
     })
 })

@@ -28,8 +28,8 @@ import { highlightFencedCode } from '@/lib/markdown/shiki-highlighter'
 import { blockDirection } from '@/lib/markdown/text-direction'
 import { isExportWebImageUrl } from '@/lib/markdown/web-images'
 import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
-import { unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
-import { renderMermaidDiagramForExport } from '@/lib/mermaid/render'
+import { chooseDiagramEngine, unsupportedDiagramNote } from '@/lib/mermaid/prepare-source'
+import { renderMermaidDiagramForExportAsync } from '@/lib/mermaid/render'
 import { EMPTY_DIAGRAM_MESSAGE, getSvgDimensions } from '@/lib/mermaid/svg-dimensions'
 import type { PdfExportDocument, PdfExportMetadata, PdfExportProfile, PdfExportResolvedAssets } from '@/lib/settings/pdf-export-types'
 
@@ -283,17 +283,18 @@ function diagramErrorHtml(message: string): BlockHtml {
 }
 
 /**
- * A Mermaid block's HTML: the picture, or what went wrong. A type Scrivon can't draw gets a short note
- * for readers and its source, so its data (a pie chart's numbers, say) still reaches them.
+ * A Mermaid block's HTML: the picture, or what went wrong. A type Scrivon can't draw (ZenUML) gets a short
+ * note for readers and its source, so what it says still reaches them. Each picture is drawn on its own, so
+ * two of the official mermaid package's on the page never share an id or each other's styles.
  */
 async function diagramToHtml(text: string, profile: PdfExportProfile): Promise<BlockHtml> {
-    const unsupported = unsupportedDiagramNote(text)
-    if (unsupported) {
-        const note = `<p dir="ltr" class="export-diagram-note">${escapeHtml(unsupported)}</p>`
+    const engine = chooseDiagramEngine(text)
+    if (engine.engine === 'unsupported') {
+        const note = `<p dir="ltr" class="export-diagram-note">${escapeHtml(unsupportedDiagramNote(engine.name))}</p>`
         return { html: `${note}${await codeToHtml(text, 'mermaid', profile)}`, notDrawn: true }
     }
     try {
-        const svg = renderMermaidDiagramForExport(text, profile.content.mermaidThemeId)
+        const svg = await renderMermaidDiagramForExportAsync(text, profile.content.mermaidThemeId)
         // Nothing to draw yet renders a 0×0 picture, which would print as an empty box. Say so, as Word does.
         if (!getSvgDimensions(svg)) return diagramErrorHtml(EMPTY_DIAGRAM_MESSAGE)
         // One named picture, as in Word, so a screen reader doesn't read every node label in turn.

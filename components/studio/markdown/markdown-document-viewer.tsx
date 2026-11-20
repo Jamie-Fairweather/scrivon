@@ -6,7 +6,15 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { MermaidCanvas } from '@/components/studio/canvas/mermaid-canvas'
 import { useFrameSyncedValue } from '@/components/studio/hooks/use-frame-synced-value'
 import { lastMermaidBlockSources } from '@/components/studio/markdown/markdown-block-ordinals'
-import { anchorKey, isPathInside, isSamePath, resolveMarkdownLink, workspaceFilePath } from '@/components/studio/markdown/markdown-links'
+import {
+    DOCUMENT_ID_PREFIX,
+    findAnchorId,
+    isPathInside,
+    isSamePath,
+    isTopOfDocument,
+    resolveMarkdownLink,
+    workspaceFilePath,
+} from '@/components/studio/markdown/markdown-links'
 import { MarkdownPreview } from '@/components/studio/markdown/markdown-preview'
 import { markdownPreviewBody } from '@/components/studio/markdown/markdown-preview-body'
 import { openExternalLink } from '@/components/studio/markdown/open-external-link'
@@ -38,9 +46,6 @@ type MarkdownDocumentViewerProps = {
 const LARGE_PREVIEW_CHARS = 10_000
 const LARGE_PREVIEW_DELAY_MS = 200
 
-/** The prefix the preview's sanitizer gives every id in the document, as GitHub does (see previewSanitizeSchema). */
-const DOCUMENT_ID_PREFIX = 'user-content-'
-
 /**
  * An element's id as the document wrote it, without the preview's prefix. For an old-style `<a name="install">`
  * anchor with no id, its name, which the sanitizer prefixes the same way.
@@ -51,26 +56,15 @@ function documentId(element: HTMLElement): string {
 }
 
 /**
- * The heading, footnote or `<a name>` anchor a `#fragment` points at: an exact id match first (with or without the
- * preview's `user-content-` prefix), then one that differs only in case, then one that matches once both are
- * reduced to export's id rules (GitHub-style links such as `#foo--bar`).
+ * The heading, footnote or `<a name>` anchor a `#fragment` points at, matched by findAnchorId (the link check
+ * matches the same way, so what it underlines is what the preview can't follow).
  */
 function findAnchorTarget(root: HTMLElement | null, id: string): HTMLElement | null {
     if (!root) return null
-    const lower = id.toLowerCase()
-    const key = anchorKey(id)
-    let exactMatch: HTMLElement | null = null
-    let caseMatch: HTMLElement | null = null
-    let keyMatch: HTMLElement | null = null
-    for (const element of root.querySelectorAll<HTMLElement>('[id], a[name]')) {
-        if (element.id && element.id === id) return element
-        const written = documentId(element)
-        if (!written) continue
-        if (!exactMatch && written === id) exactMatch = element
-        if (!caseMatch && written.toLowerCase() === lower) caseMatch = element
-        if (!keyMatch && key && anchorKey(written) === key) keyMatch = element
-    }
-    return exactMatch ?? caseMatch ?? keyMatch
+    const elements = [...root.querySelectorAll<HTMLElement>('[id], a[name]')]
+    const written = elements.map(documentId)
+    const found = findAnchorId(written, id)
+    return found === null ? null : elements[written.indexOf(found)]!
 }
 
 /**
@@ -96,14 +90,6 @@ function focusAnchorTarget(target: HTMLElement): void {
         target.removeAttribute('tabindex')
     }
     target.addEventListener('blur', onBlur)
-}
-
-/**
- * Whether a `#fragment` that nothing in the document has means its top, as in a browser: `#top` in any letter case,
- * as in a README's `[Back to top](#top)`.
- */
-function isTopOfDocument(id: string): boolean {
-    return id.toLowerCase() === 'top'
 }
 
 /** How long a linked section is held at the top of the preview while the diagrams above it are drawn. */
