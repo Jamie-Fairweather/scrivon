@@ -8,6 +8,7 @@ import { useMermaidSvg } from '@/components/studio/canvas/use-mermaid-svg'
 import { stopCanvasGesture, usePanZoom, type PanZoomMemory } from '@/components/studio/canvas/use-pan-zoom'
 import { useCanvasFit, useDocumentTabs } from '@/components/studio/workspace/workspace-provider'
 import { readDiagramAccessibility } from '@/lib/mermaid/accessibility'
+import { diagramAltText, diagramKindName } from '@/lib/mermaid/diagram-alt-text'
 import { supportedDiagramsSentence } from '@/lib/mermaid/prepare-source'
 import { pruneSvgCache } from '@/lib/mermaid/svg-cache'
 import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
@@ -103,9 +104,15 @@ export function MermaidCanvas({ source, className, canvasKey, viewMemory }: Merm
     const { canvasFitRequestId } = useCanvasFit()
     const openTabIds = useMemo(() => tabs.map((t) => t.id), [tabs])
     const tabName = tabs.find((t) => t.id === activeTabId)?.name
-    // A diagram can name and describe itself with accTitle and accDescr; otherwise it's named after the tab.
+    // A diagram can name itself with accTitle or its own title (as in the exports' alt text), and describe itself with
+    // accDescr; otherwise it's named for its kind and the tab: `Pie chart: pets.mmd`.
     const accessibility = useMemo(() => readDiagramAccessibility(source), [source])
-    const diagramLabel = accessibility.title ?? (tabName ? `Diagram: ${tabName}` : 'Diagram')
+    const diagramLabel = useMemo(() => {
+        const { name } = diagramAltText(source)
+        const kind = diagramKindName(source)
+        if (name !== kind) return name
+        return tabName ? `${kind}: ${tabName}` : kind
+    }, [source, tabName])
     const { reset, zoom, zoomLevel, fitToView, hasViewStateForTab, handlers } = usePanZoom(
         containerRef,
         transformRef,

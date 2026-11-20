@@ -3,9 +3,11 @@ import { withoutAccessibilityLines } from '@/lib/mermaid/accessibility'
 /**
  * Tidies Mermaid text before beautiful-mermaid reads it, so common input that Mermaid itself accepts
  * draws here too. Lines are blanked rather than removed, except where one line holds several statements.
+ * Also says which engine draws a diagram (chooseDiagramEngine): beautiful-mermaid for the six types it
+ * knows, the official `mermaid` package for most others (render-official.ts), and neither for ZenUML.
  */
 
-/** The diagram types beautiful-mermaid draws, with the header that starts each one. */
+/** The diagram types Scrivon draws, with the header that starts each one. The first six are beautiful-mermaid's. */
 export const SUPPORTED_DIAGRAMS = [
     { name: 'Flowcharts', header: 'flowchart TD or graph LR' },
     { name: 'Sequence diagrams', header: 'sequenceDiagram' },
@@ -13,10 +15,30 @@ export const SUPPORTED_DIAGRAMS = [
     { name: 'State diagrams', header: 'stateDiagram-v2' },
     { name: 'Entity relationship diagrams', header: 'erDiagram' },
     { name: 'XY charts', header: 'xychart-beta' },
+    { name: 'Pie charts', header: 'pie' },
+    { name: 'Gantt charts', header: 'gantt' },
+    { name: 'Mind maps', header: 'mindmap' },
+    { name: 'Timelines', header: 'timeline' },
+    { name: 'User journeys', header: 'journey' },
+    { name: 'Git graphs', header: 'gitGraph' },
+    { name: 'Quadrant charts', header: 'quadrantChart' },
+    { name: 'Requirement diagrams', header: 'requirementDiagram' },
+    { name: 'C4 diagrams', header: 'C4Context' },
+    { name: 'Sankey diagrams', header: 'sankey-beta' },
+    { name: 'Block diagrams', header: 'block-beta' },
+    { name: 'Packet diagrams', header: 'packet-beta' },
+    { name: 'Kanban boards', header: 'kanban' },
+    { name: 'Architecture diagrams', header: 'architecture-beta' },
+    { name: 'Radar charts', header: 'radar-beta' },
+    { name: 'Treemaps', header: 'treemap-beta' },
 ] as const
 
-/** Other Mermaid diagram types, by their header in lower case without `-beta`. Each name is a plural ending in s. */
-export const UNSUPPORTED_DIAGRAMS: ReadonlyMap<string, string> = new Map(
+/**
+ * The types beautiful-mermaid can't draw that the official `mermaid` package does, by their header in lower case
+ * without `-beta`. Each name is a plural ending in s. Mermaid reads the header itself, so it still has to be
+ * spelt as Mermaid documents it (`gitGraph`, `radar-beta`); otherwise Mermaid's own error says so.
+ */
+export const OFFICIAL_MERMAID_DIAGRAMS: ReadonlyMap<string, string> = new Map(
     Object.entries({
         pie: 'Pie charts',
         gantt: 'Gantt charts',
@@ -25,6 +47,7 @@ export const UNSUPPORTED_DIAGRAMS: ReadonlyMap<string, string> = new Map(
         gitgraph: 'Git graphs',
         timeline: 'Timelines',
         quadrantchart: 'Quadrant charts',
+        requirement: 'Requirement diagrams',
         requirementdiagram: 'Requirement diagrams',
         c4context: 'C4 diagrams',
         c4container: 'C4 diagrams',
@@ -38,19 +61,28 @@ export const UNSUPPORTED_DIAGRAMS: ReadonlyMap<string, string> = new Map(
         architecture: 'Architecture diagrams',
         radar: 'Radar charts',
         treemap: 'Treemaps',
-        zenuml: 'ZenUML diagrams',
     })
 )
 
-/** The supported types for a sentence: `flowcharts, sequence diagrams, … and XY charts`. */
+/** Mermaid types Scrivon can't draw at all, named as in OFFICIAL_MERMAID_DIAGRAMS. ZenUML needs a separate plugin. */
+export const UNSUPPORTED_DIAGRAMS: ReadonlyMap<string, string> = new Map(Object.entries({ zenuml: 'ZenUML diagrams' }))
+
+/** Names that keep their capital in a sentence: an initialism (XY, C4) or a name (Gantt). */
+const KEEPS_CAPITAL = /^(?:[A-Z]{2}|C4\b|Gantt\b)/
+
+/** How many types the canvas hint names before it says how many more there are. */
+const SENTENCE_NAMES = 10
+
+/** The types for a sentence: `flowcharts, sequence diagrams, … timelines and 12 other types`. */
 export function supportedDiagramsSentence(): string {
-    // Lower case, except a name that starts with an initialism (XY).
-    const names = SUPPORTED_DIAGRAMS.map(({ name }) => (/^[A-Z]{2}/.test(name) ? name : name[0]!.toLowerCase() + name.slice(1)))
-    return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+    const names = SUPPORTED_DIAGRAMS.map(({ name }) => (KEEPS_CAPITAL.test(name) ? name : name[0]!.toLowerCase() + name.slice(1)))
+    const more = names.length - SENTENCE_NAMES
+    if (more <= 0) return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+    return `${names.slice(0, SENTENCE_NAMES).join(', ')} and ${more} other ${more === 1 ? 'type' : 'types'}`
 }
 
-/** The preview card's help for a type it can't draw: `Pie charts aren't supported yet. Scrivon can draw:` and the list. */
-function unsupportedMessage(name: string): string {
+/** The preview card's help for a type it can't draw: `ZenUML diagrams aren't supported yet. Scrivon can draw:` and the list. */
+export function unsupportedDiagramMessage(name: string): string {
     const supported = SUPPORTED_DIAGRAMS.map((diagram) => `• ${diagram.name} (${diagram.header})`).join('\n')
     return `${name} aren't supported yet. Scrivon can draw:\n${supported}`
 }
@@ -156,34 +188,56 @@ function readableLines(source: string): { lines: string[]; headerIndex: number }
     return { lines, headerIndex: lines.findIndex((line) => line.trim() !== '') }
 }
 
-/** The name, in the plural, of the Mermaid type this header starts that Scrivon can't draw, if it is one. */
-function unsupportedType(header: string | undefined): string | undefined {
+/** Which engine draws a diagram, and for the official package or none, the type's name in the plural (`Pie charts`). */
+export type DiagramEngine = { engine: 'beautiful-mermaid' } | { engine: 'mermaid'; name: string } | { engine: 'unsupported'; name: string }
+
+const BEAUTIFUL_MERMAID: DiagramEngine = { engine: 'beautiful-mermaid' }
+
+function engineForHeader(header: string | undefined): DiagramEngine {
     const word = header === undefined ? undefined : HEADER_WORD.exec(header)?.[1]?.toLowerCase()
-    return word === undefined ? undefined : UNSUPPORTED_DIAGRAMS.get(word)
+    if (word === undefined) return BEAUTIFUL_MERMAID
+    const official = OFFICIAL_MERMAID_DIAGRAMS.get(word)
+    if (official) return { engine: 'mermaid', name: official }
+    const unsupported = UNSUPPORTED_DIAGRAMS.get(word)
+    return unsupported ? { engine: 'unsupported', name: unsupported } : BEAUTIFUL_MERMAID
 }
 
 /**
- * For a Mermaid type Scrivon can't draw (a pie chart, say), the line an exported file shows its readers in
- * its place: `Pie chart: not supported in Scrivon yet`. The preview's help would be out of place there.
- * Null for any other diagram.
+ * Which engine draws the diagram, read from its header after any front matter, `%%` comments and accessibility
+ * lines. beautiful-mermaid draws its six types, and text with no header or one nobody knows, so its parser can
+ * quote it. The official `mermaid` package draws the types in OFFICIAL_MERMAID_DIAGRAMS, and nothing draws ZenUML.
  */
-export function unsupportedDiagramNote(source: string): string | null {
+export function chooseDiagramEngine(source: string): DiagramEngine {
     const { lines, headerIndex } = readableLines(source)
-    const name = unsupportedType(lines[headerIndex])
-    // Every name is a plural that ends in s.
-    return name ? `${name.slice(0, -1)}: not supported in Scrivon yet` : null
+    return engineForHeader(lines[headerIndex])
+}
+
+/** A type's name in the singular (`Pie chart`): every name is a plural that ends in s. */
+export function singularDiagramName(name: string): string {
+    return name.slice(0, -1)
 }
 
 /**
- * The text to give beautiful-mermaid. Throws an error that names the supported types when the
- * diagram is a Mermaid type it can't draw (a pie chart, say), instead of its "Invalid mermaid header".
+ * For a type Scrivon can't draw (ZenUML), named in the plural, the line an exported file shows its readers in
+ * its place: `ZenUML diagram: not supported in Scrivon yet`. The preview's help would be out of place there.
+ */
+export function unsupportedDiagramNote(name: string): string {
+    return `${singularDiagramName(name)}: not supported in Scrivon yet`
+}
+
+/**
+ * The text to give beautiful-mermaid. Throws an error that names the types Scrivon draws when the diagram is
+ * one it can't draw at all (ZenUML), instead of the parser's "Invalid mermaid header". A type the official
+ * package draws is only tidied (front matter, comments and accessibility lines blanked): it never reaches
+ * beautiful-mermaid, but the alt text reads it this way.
  */
 export function prepareMermaidSource(source: string): string {
     const { lines, headerIndex } = readableLines(source)
     if (headerIndex === -1) return lines.join('\n')
 
-    const unsupported = unsupportedType(lines[headerIndex])
-    if (unsupported) throw new Error(unsupportedMessage(unsupported))
+    const choice = engineForHeader(lines[headerIndex])
+    if (choice.engine === 'unsupported') throw new Error(unsupportedDiagramMessage(choice.name))
+    if (choice.engine === 'mermaid') return lines.join('\n')
 
     const flowchart = FLOWCHART_HEADER.exec(lines[headerIndex]!)
     if (!flowchart) {

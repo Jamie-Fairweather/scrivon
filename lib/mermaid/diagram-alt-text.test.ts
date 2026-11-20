@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diagramAltText } from '@/lib/mermaid/diagram-alt-text'
+import { diagramAltText, diagramKindName } from '@/lib/mermaid/diagram-alt-text'
 
 describe('diagramAltText', () => {
     it("uses the diagram's own accTitle and accDescr", () => {
@@ -86,8 +86,64 @@ describe('diagramAltText', () => {
 
     it('falls back to the kind alone when there is nothing to name', () => {
         expect(diagramAltText('graph TD\n  A --> B')).toEqual({ name: 'Flowchart', description: 'Flowchart' })
-        expect(diagramAltText('pie\n  "Dogs" : 3')).toEqual({ name: 'Diagram', description: 'Diagram' })
+        expect(diagramAltText('gantt\n  dateFormat YYYY-MM-DD')).toEqual({ name: 'Gantt chart', description: 'Gantt chart' })
+        expect(diagramAltText('zenuml\n  A.method()')).toEqual({ name: 'Diagram', description: 'Diagram' })
         expect(diagramAltText('')).toEqual({ name: 'Diagram', description: 'Diagram' })
+    })
+
+    it.each([
+        ['pie\n  "Dogs" : 3', 'Pie chart'],
+        ['gantt\n  dateFormat YYYY-MM-DD', 'Gantt chart'],
+        ['mindmap\n  root((Plans))', 'Mind map'],
+        ['journey\n  section Morning', 'User journey'],
+        ['gitGraph\n  commit', 'Git graph'],
+        ['timeline\n  2024 : Launch', 'Timeline'],
+        ['quadrantChart\n  x-axis Low --> High', 'Quadrant chart'],
+        ['requirementDiagram\n  requirement r { id: 1 }', 'Requirement diagram'],
+        ['C4Context\n  Person(a, "A")', 'C4 diagram'],
+        ['C4Deployment\n  Node(a, "A")', 'C4 diagram'],
+        ['sankey-beta\n  a,b,1', 'Sankey diagram'],
+        ['block-beta\n  a b', 'Block diagram'],
+        ['packet-beta\n  0-15: "Source"', 'Packet diagram'],
+        ['kanban\n  Todo', 'Kanban board'],
+        ['architecture-beta\n  service db(database)[DB]', 'Architecture diagram'],
+        ['radar-beta\n  axis a, b, c', 'Radar chart'],
+        ['treemap-beta\n  "A": 1', 'Treemap'],
+    ])('names %j for what it is', (source, name) => {
+        expect(diagramAltText(source).name).toBe(name)
+        expect(diagramKindName(source)).toBe(name)
+    })
+
+    it("names the official package's types after their own title", () => {
+        expect(diagramAltText('pie title Pets\n  "Dogs" : 386\n  "Cats" : 85')).toEqual({ name: 'Pets', description: 'Pets' })
+        expect(diagramAltText('pie showData title Pets adopted\n  "Dogs" : 386')).toEqual({ name: 'Pets adopted', description: 'Pets adopted' })
+        expect(diagramAltText('gantt\n  title Release plan\n  dateFormat YYYY-MM-DD\n  Build :a1, 2024-01-01, 3d')).toEqual({
+            name: 'Release plan',
+            description: 'Release plan',
+        })
+        expect(diagramAltText('journey\n  title: My working day\n  section Go to work')).toEqual({
+            name: 'My working day',
+            description: 'My working day',
+        })
+        expect(diagramAltText('---\ntitle: Branches\n---\ngitGraph\n  commit')).toEqual({ name: 'Branches', description: 'Branches' })
+    })
+
+    it('uses accTitle and accDescr before the chart title', () => {
+        expect(diagramAltText('pie title Pets\n  accTitle: Pet count\n  accDescr: Dogs win\n  "Dogs" : 386')).toEqual({
+            name: 'Pet count',
+            description: 'Pet count. Dogs win',
+        })
+        expect(diagramAltText('gantt\n  accDescr: Two weeks of work\n  title Release plan')).toEqual({
+            name: 'Release plan',
+            description: 'Release plan. Two weeks of work',
+        })
+    })
+
+    it("names a pie chart's first few slices when it has no title", () => {
+        expect(diagramAltText('pie\n  "Dogs" : 386\n  "Cats" : 85\n  "Rats" : 15')).toEqual({
+            name: 'Pie chart',
+            description: 'Pie chart: Dogs, Cats, Rats',
+        })
     })
 })
 

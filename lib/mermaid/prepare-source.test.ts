@@ -1,17 +1,84 @@
 import { describe, expect, it } from 'vitest'
 import {
+    chooseDiagramEngine,
+    OFFICIAL_MERMAID_DIAGRAMS,
     prepareMermaidSource,
     readFrontMatterTitle,
+    SUPPORTED_DIAGRAMS,
     supportedDiagramsSentence,
     UNSUPPORTED_DIAGRAMS,
     unsupportedDiagramNote,
 } from '@/lib/mermaid/prepare-source'
 
 describe('supportedDiagramsSentence', () => {
-    it('names the supported types for a sentence', () => {
+    it('names the first types Scrivon draws for a sentence, and how many more there are', () => {
         expect(supportedDiagramsSentence()).toBe(
-            'flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams and XY charts'
+            'flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams, XY charts, pie charts, ' +
+                'Gantt charts, mind maps, timelines and 12 other types'
         )
+    })
+})
+
+describe('chooseDiagramEngine', () => {
+    it.each([
+        'graph TD\n  A --> B',
+        'flowchart LR\n  A --> B',
+        'sequenceDiagram\n  A->>B: hi',
+        'classDiagram\n  A <|-- B',
+        'stateDiagram-v2\n  [*] --> A',
+        'erDiagram\n  A ||--o{ B : has',
+        'xychart-beta\n  bar [1, 2]',
+        // Nothing to go on, or a header nobody knows: beautiful-mermaid's parser says what is wrong.
+        '',
+        '%% just a note',
+        'graf TD',
+        'constructor\n  A --> B',
+    ])('leaves %j to beautiful-mermaid', (source) => {
+        expect(chooseDiagramEngine(source)).toEqual({ engine: 'beautiful-mermaid' })
+    })
+
+    it.each([
+        ['pie title Pets\n  "Dogs" : 386', 'Pie charts'],
+        ['pie showData\n  "Dogs" : 386', 'Pie charts'],
+        ['gantt\n  title Plan', 'Gantt charts'],
+        ['mindmap\n  root', 'Mind maps'],
+        ['---\ntitle: Week\n---\njourney\n  title My day', 'User journeys'],
+        ['%% branches\ngitGraph\n  commit', 'Git graphs'],
+        ['gitGraph:\n  commit', 'Git graphs'],
+        ['timeline\n  2024 : Launch', 'Timelines'],
+        ['quadrantChart\n  title Reach', 'Quadrant charts'],
+        ['requirementDiagram\n  requirement r { id: 1 }', 'Requirement diagrams'],
+        ['requirement\n  requirement r { id: 1 }', 'Requirement diagrams'],
+        ['C4Context\n  title System', 'C4 diagrams'],
+        ['C4Container\n  title System', 'C4 diagrams'],
+        ['C4Component\n  title System', 'C4 diagrams'],
+        ['C4Dynamic\n  title System', 'C4 diagrams'],
+        ['C4Deployment\n  title System', 'C4 diagrams'],
+        ['sankey-beta\n  a,b,1', 'Sankey diagrams'],
+        ['sankey\n  a,b,1', 'Sankey diagrams'],
+        ['block-beta\n  a b', 'Block diagrams'],
+        ['packet-beta\n  0-15: "Source"', 'Packet diagrams'],
+        ['kanban\n  Todo', 'Kanban boards'],
+        ['architecture-beta\n  service db(database)[DB]', 'Architecture diagrams'],
+        ['radar-beta\n  axis a, b, c', 'Radar charts'],
+        ['treemap-beta\n  "A": 1', 'Treemaps'],
+        ['accTitle: Pets\naccDescr: Who has which\npie\n  "Dogs" : 386', 'Pie charts'],
+        ['%%{init: {"theme": "dark"}}%%\npie\n  "Dogs" : 386', 'Pie charts'],
+    ])('sends %j to the official mermaid package', (source, name) => {
+        expect(chooseDiagramEngine(source)).toEqual({ engine: 'mermaid', name })
+    })
+
+    it('draws nothing for ZenUML, which needs a separate plugin', () => {
+        expect(chooseDiagramEngine('zenuml\n  A.method()')).toEqual({ engine: 'unsupported', name: 'ZenUML diagrams' })
+    })
+
+    it('offers every type the official package draws in the list of what Scrivon draws', () => {
+        const listed = SUPPORTED_DIAGRAMS.map((diagram) => diagram.name)
+        for (const name of OFFICIAL_MERMAID_DIAGRAMS.values()) expect(listed).toContain(name)
+        // Each header in the list goes to the engine that draws it.
+        for (const { header, name } of SUPPORTED_DIAGRAMS.slice(6)) expect(chooseDiagramEngine(header)).toEqual({ engine: 'mermaid', name })
+        for (const { header } of SUPPORTED_DIAGRAMS.slice(0, 6))
+            expect(chooseDiagramEngine(header.split(' ')[0]!)).toEqual({ engine: 'beautiful-mermaid' })
     })
 })
 
@@ -88,24 +155,23 @@ describe('prepareMermaidSource', () => {
         expect(prepareMermaidSource('graph TD\n  accTitle: Login\n  A --> B')).toBe('graph TD\n\n  A --> B')
     })
 
-    it.each([
-        ['pie title Pets\n  "Dogs" : 386', 'Pie charts'],
-        ['gantt\n  title Plan', 'Gantt charts'],
-        ['mindmap\n  root', 'Mind maps'],
-        ['---\ntitle: Week\n---\njourney\n  title My day', 'User journeys'],
-        ['%% branches\ngitGraph\n  commit', 'Git graphs'],
-        ['C4Context\n  title System', 'C4 diagrams'],
-        ['sankey-beta\n  a,b,1', 'Sankey diagrams'],
-    ])('says plainly that %j is not supported yet, and lists what is', (source, name) => {
-        expect(() => prepareMermaidSource(source)).toThrow(
-            `${name} aren't supported yet. Scrivon can draw:\n` +
-                '• Flowcharts (flowchart TD or graph LR)\n' +
-                '• Sequence diagrams (sequenceDiagram)\n' +
-                '• Class diagrams (classDiagram)\n' +
-                '• State diagrams (stateDiagram-v2)\n' +
-                '• Entity relationship diagrams (erDiagram)\n' +
-                '• XY charts (xychart-beta)'
-        )
+    it('says plainly that ZenUML is not supported yet, and lists what Scrivon draws', () => {
+        let message = ''
+        try {
+            prepareMermaidSource('zenuml\n  A.method()')
+        } catch (err) {
+            message = (err as Error).message
+        }
+        const lines = message.split('\n')
+        expect(lines[0]).toBe("ZenUML diagrams aren't supported yet. Scrivon can draw:")
+        expect(lines.slice(1, 3)).toEqual(['• Flowcharts (flowchart TD or graph LR)', '• Sequence diagrams (sequenceDiagram)'])
+        expect(lines).toContain('• Pie charts (pie)')
+        expect(lines).toContain('• Treemaps (treemap-beta)')
+        expect(lines).toHaveLength(SUPPORTED_DIAGRAMS.length + 1)
+    })
+
+    it('only tidies a type the official package draws, which reads front matter and comments itself', () => {
+        expect(prepareMermaidSource('---\ntitle: Pets\n---\n%% count\npie\n  accTitle: Pets\n  "Dogs" : 386')).toBe('\n\n\n\npie\n\n  "Dogs" : 386')
     })
 
     it.each(['graf TD\n  A --> B', 'constructor\n  A --> B'])('leaves a header it does not know to the renderer, which quotes it: %j', (source) => {
@@ -114,21 +180,17 @@ describe('prepareMermaidSource', () => {
 })
 
 describe('unsupportedDiagramNote', () => {
-    it.each([
-        ['pie title Pets\n  "Dogs" : 386', 'Pie chart: not supported in Scrivon yet'],
-        ['---\ntitle: Week\n---\njourney\n  title My day', 'User journey: not supported in Scrivon yet'],
-        ['%% branches\ngitGraph\n  commit', 'Git graph: not supported in Scrivon yet'],
-        ['sankey-beta\n  a,b,1', 'Sankey diagram: not supported in Scrivon yet'],
-        ['treemap\n  "A": 1', 'Treemap: not supported in Scrivon yet'],
-    ])('gives readers of an export one short line for %j, without the help', (source, note) => {
-        expect(unsupportedDiagramNote(source)).toBe(note)
+    it("gives readers of an export one short line for a type Scrivon can't draw, without the help", () => {
+        expect(unsupportedDiagramNote(UNSUPPORTED_DIAGRAMS.get('zenuml')!)).toBe('ZenUML diagram: not supported in Scrivon yet')
     })
 
-    it("names every type it can't draw in the singular", () => {
-        // A new type fails here until its note is checked and added.
-        const notes = Object.fromEntries([...UNSUPPORTED_DIAGRAMS.keys()].map((header) => [header, unsupportedDiagramNote(header)]))
+    it('names every type in the singular', () => {
+        // A new type fails here until its singular is checked and added.
+        const names = Object.fromEntries(
+            [...OFFICIAL_MERMAID_DIAGRAMS, ...UNSUPPORTED_DIAGRAMS].map(([header, name]) => [header, unsupportedDiagramNote(name)])
+        )
         const note = (name: string) => `${name}: not supported in Scrivon yet`
-        expect(notes).toEqual({
+        expect(names).toEqual({
             pie: note('Pie chart'),
             gantt: note('Gantt chart'),
             mindmap: note('Mind map'),
@@ -136,6 +198,7 @@ describe('unsupportedDiagramNote', () => {
             gitgraph: note('Git graph'),
             timeline: note('Timeline'),
             quadrantchart: note('Quadrant chart'),
+            requirement: note('Requirement diagram'),
             requirementdiagram: note('Requirement diagram'),
             c4context: note('C4 diagram'),
             c4container: note('C4 diagram'),
@@ -151,10 +214,6 @@ describe('unsupportedDiagramNote', () => {
             treemap: note('Treemap'),
             zenuml: note('ZenUML diagram'),
         })
-    })
-
-    it.each(['graph TD\n  A --> B', 'sequenceDiagram\n  A->>B: hi', '', '%% just a note', 'graf TD'])('has nothing to say about %j', (source) => {
-        expect(unsupportedDiagramNote(source)).toBeNull()
     })
 })
 

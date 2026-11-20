@@ -124,7 +124,8 @@ describe('MermaidCanvas', () => {
 
         expect(
             screen.getByText(
-                'Scrivon draws flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams and XY charts. Press Ctrl+Space in the editor for a starter.'
+                'Scrivon draws flowcharts, sequence diagrams, class diagrams, state diagrams, entity relationship diagrams, XY charts, ' +
+                    'pie charts, Gantt charts, mind maps, timelines and 12 other types. Press Ctrl+Space in the editor for a starter.'
             )
         ).toBeInTheDocument()
     })
@@ -169,7 +170,7 @@ describe('MermaidCanvas', () => {
 
         render(<MermaidCanvas source="graph TD" />)
 
-        expect(screen.getByRole('img', { name: 'Diagram: flow.mmd' })).toBeInTheDocument()
+        expect(screen.getByRole('img', { name: 'Flowchart: flow.mmd' })).toBeInTheDocument()
         const frames = screen.getAllByTitle('Diagram preview')
         for (const frame of frames) {
             expect(frame).toHaveAttribute('tabindex', '-1')
@@ -185,6 +186,16 @@ describe('MermaidCanvas', () => {
 
         const image = screen.getByRole('img', { name: 'Sign-in flow' })
         expect(image).toHaveAccessibleDescription('How a user signs in')
+    })
+
+    it('names a diagram the official package draws as the alt text does: its title, or its kind and the tab', () => {
+        mockHook({ svgForDisplay: SVG, dimensions: { width: 100, height: 50 } })
+
+        const { rerender } = render(<MermaidCanvas source={'pie title Pets\n  "Dogs" : 386'} />)
+        expect(screen.getByRole('img', { name: 'Pets' })).toBeInTheDocument()
+
+        rerender(<MermaidCanvas source={'mindmap\n  root((Plans))'} />)
+        expect(screen.getByRole('img', { name: 'Mind map: flow.mmd' })).toBeInTheDocument()
     })
 
     it('shows a diagram as it was left when the canvas comes back after a Markdown tab (N05)', () => {
