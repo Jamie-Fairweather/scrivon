@@ -35,6 +35,7 @@ vi.mock('@/components/studio/canvas/canvas-controls-provider', () => ({
     useCanvasControls: () => ({ canFitToView, fitToView }),
 }))
 vi.mock('@/components/studio/markdown/markdown-expand-context', () => ({ useMarkdownExpand: () => ({ expanded: false }) }))
+vi.mock('@/components/studio/dialogs/file-history-provider', () => ({ useFileHistory: () => ({ showFileHistory: vi.fn() }) }))
 vi.mock('@/components/studio/editor/document-export-menu', () => ({ DocumentExportMenu: () => null }))
 vi.mock('@/components/studio/editor/layout-toggle-buttons', () => ({ LayoutToggleButtons: () => null }))
 

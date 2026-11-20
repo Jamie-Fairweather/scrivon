@@ -21,6 +21,8 @@ vi.mock('@/components/studio/workspace/workspace-provider', () => ({
     useDocumentTabs: () => ({ tabs, ...tabActions }),
     useWorkspaceSession: () => ({ workspaceRoot: ROOT }),
 }))
+const showFileHistory = vi.hoisted(() => vi.fn<(tabId: string) => Promise<void>>(async () => undefined))
+vi.mock('@/components/studio/dialogs/file-history-provider', () => ({ useFileHistory: () => ({ showFileHistory }) }))
 vi.mock('@/components/studio/workspace/use-save-example-copy', () => ({ useSaveExampleCopy: () => saveExampleCopy }))
 vi.mock('@/lib/workspace/path-actions', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/workspace/path-actions')>()),
@@ -61,6 +63,7 @@ describe('EditorTabRowContextMenu', () => {
             'Move Left',
             'Move Right',
             'Revert File',
+            'Show File History…',
             'Reveal in File Explorer',
             'Copy Path',
             'Copy Relative Path',
@@ -75,6 +78,15 @@ describe('EditorTabRowContextMenu', () => {
         rightClickTab()
         fireEvent.click(await screen.findByRole('menuitem', { name: 'Revert File' }))
         expect(tabActions.revertTab).toHaveBeenCalledWith('C:/w/b.md')
+    })
+
+    it('opens File History for the tab right-clicked, which the provider makes the active one first', async () => {
+        tabs = [tab('C:/w/a.md'), tab('C:/w/b.md')]
+        openMenuFor('C:/w/b.md')
+
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Show File History…' }))
+
+        expect(showFileHistory).toHaveBeenCalledExactlyOnceWith('C:/w/b.md')
     })
 
     it('turns off Close to the Right for the last tab, and Close Saved when every tab has unsaved changes', async () => {
@@ -150,6 +162,7 @@ describe('EditorTabRowContextMenu', () => {
 
         expect(await screen.findByRole('menuitem', { name: 'Close' })).toBeInTheDocument()
         expect(screen.queryByRole('menuitem', { name: 'Revert File' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('menuitem', { name: 'Show File History…' })).not.toBeInTheDocument()
         expect(screen.queryByRole('menuitem', { name: 'Reveal in File Explorer' })).not.toBeInTheDocument()
         expect(screen.queryByRole('menuitem', { name: 'Copy Path' })).not.toBeInTheDocument()
         expect(screen.queryByRole('menuitem', { name: 'Copy Relative Path' })).not.toBeInTheDocument()

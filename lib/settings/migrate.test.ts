@@ -185,6 +185,16 @@ describe('mergeStoredSettings', () => {
         expect(mergeStoredSettings({ workspace: { showGitChanges: 'off' } }, false).workspace.showGitChanges).toBe(true)
     })
 
+    it('keeps file history by default, and reads a saved choice', () => {
+        expect(createDefaultSettings(false).fileHistory.enabled).toBe(true)
+        // Settings saved before file history existed.
+        expect(mergeStoredSettings({ autosave: { enabled: false, delayMs: 900 } }, false).fileHistory.enabled).toBe(true)
+        expect(mergeStoredSettings({ fileHistory: { enabled: false } }, false).fileHistory.enabled).toBe(false)
+        expect(mergeStoredSettings({ fileHistory: { enabled: 'no' } }, false).fileHistory.enabled).toBe(true)
+        expect(mergeStoredSettings({ fileHistory: null }, false).fileHistory.enabled).toBe(true)
+        expect(migrateLegacySettings(() => null, false).fileHistory.enabled).toBe(true)
+    })
+
     it('shows the status bar unless the user hid it', () => {
         expect(createDefaultSettings(false).statusBar.visible).toBe(true)
         // Settings saved before the option existed.

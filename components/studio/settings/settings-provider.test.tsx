@@ -99,6 +99,24 @@ describe('SettingsProvider persistence', () => {
         expect(stored().layout.editorWidth).toBe(640)
     })
 
+    it('turns file history off and on, and keeps the choice', () => {
+        const { result } = renderSettings()
+        expect(result.current.settings.fileHistory.enabled).toBe(true)
+
+        act(() => {
+            result.current.setFileHistoryEnabled(false)
+        })
+        waitForSave()
+        expect(stored().fileHistory).toEqual({ enabled: false })
+        expect(result.current.settings.fileHistory.enabled).toBe(false)
+
+        act(() => {
+            result.current.setFileHistoryEnabled(true)
+        })
+        waitForSave()
+        expect(stored().fileHistory).toEqual({ enabled: true })
+    })
+
     it('saves changes made while the settings dialog is open', () => {
         const { result } = renderSettings()
 

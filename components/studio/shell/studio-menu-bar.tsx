@@ -202,6 +202,7 @@ export function StudioMenuBar() {
                             {item('save')}
                             {item('save-all')}
                             {item('revert-file')}
+                            {item('show-file-history')}
                         </MenuGroup>
                         <ExportSubmenu byId={byId} hasWorkspace={hasWorkspace} />
                         <MenuSeparator />

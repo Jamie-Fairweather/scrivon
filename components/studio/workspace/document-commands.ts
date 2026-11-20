@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import type { AppCommand } from '@/components/studio/commands/app-command'
 import { useRegisterCommands } from '@/components/studio/commands/command-registry'
+import { useFileHistory } from '@/components/studio/dialogs/file-history-provider'
 import { useSaveExampleCopy } from '@/components/studio/workspace/use-save-example-copy'
 import { useDocumentSave, useDocumentTabs, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
 import { APP_EXAMPLES } from '@/lib/examples/app-samples'
@@ -39,6 +40,8 @@ export type DocumentCommandsContext = {
     canReopenClosedTab: boolean
     reopenClosedTab: () => Promise<void>
     revertTab: (id: string) => Promise<void>
+    /** Opens File History for the tab. */
+    showFileHistory: (id: string) => Promise<void>
     openExample: (exampleId: string) => void
     saveExampleCopy: (exampleId: string) => Promise<void>
 }
@@ -83,6 +86,17 @@ export function buildDocumentCommands(ctx: DocumentCommandsContext): AppCommand[
             disabledReason: 'No workspace file open',
             run: () => {
                 if (activeTabId) void ctx.revertTab(activeTabId)
+            },
+        },
+        {
+            id: 'show-file-history',
+            label: 'Show File History…',
+            keywords: 'local history versions saved earlier restore compare diff changes',
+            disabled: !hasWorkspaceTab,
+            // Examples aren't files, so nothing of theirs is kept.
+            disabledReason: activeExampleId !== null ? 'Examples have no file history' : 'No workspace file open',
+            run: () => {
+                if (activeTabId) void ctx.showFileHistory(activeTabId)
             },
         },
         {
@@ -234,6 +248,7 @@ export function useDocumentCommands(): void {
     } = useDocumentTabs()
     const { autosaveEnabled, setAutosaveEnabled, flushSave, flushAllSaves } = useDocumentSave()
     const saveExampleCopy = useSaveExampleCopy()
+    const { showFileHistory } = useFileHistory()
 
     // Only what the commands show, so typing in a tab doesn't rebuild them.
     const hasWorkspace = Boolean(workspaceRoot)
@@ -271,6 +286,7 @@ export function useDocumentCommands(): void {
                 canReopenClosedTab,
                 reopenClosedTab,
                 revertTab,
+                showFileHistory,
                 openExample,
                 saveExampleCopy,
             }),
@@ -298,6 +314,7 @@ export function useDocumentCommands(): void {
             canReopenClosedTab,
             reopenClosedTab,
             revertTab,
+            showFileHistory,
             openExample,
             saveExampleCopy,
         ]

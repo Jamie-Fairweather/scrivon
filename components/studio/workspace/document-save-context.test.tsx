@@ -1,17 +1,20 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { rename, writeFile } from '@tauri-apps/plugin-fs'
+import { lstat, rename, writeFile } from '@tauri-apps/plugin-fs'
+import { confirmOverwriteDiskChange } from '@/components/studio/dialogs/disk-change-dialog'
 import { dismissNotification, notifyError, type NotifyOptions } from '@/lib/notify'
 import { deleteUnsavedBackup, saveUnsavedBackup, settleUnsavedBackups } from '@/lib/tauri/backups'
+import { keepDiskVersion, recordFileVersion } from '@/lib/tauri/file-history'
 import { confirmCloseAfterSaveFailure, confirmUnsavedChanges } from '@/lib/tauri/dialog'
 import { isTauri } from '@/lib/tauri/platform'
+import { applyTextEdits, wholeTextRange } from '@/lib/workspace/text-edits'
 import type { DocumentTab } from '@/lib/workspace/types'
-import { BACKUP_DELAY_MS, DocumentSaveProvider, useDocumentSave } from './document-save-context'
+import { BACKUP_DELAY_MS, DISK_VERSION_TIMEOUT_MS, DocumentSaveProvider, useDocumentSave } from './document-save-context'
 import { DocumentTabsProvider, useDocumentTabs, useDocumentTabsState } from './document-tabs-context'
 import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from './workspace-coordinator'
 
-const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 } }))
+const settingsState = vi.hoisted(() => ({ autosave: { enabled: true, delayMs: 400 }, fileHistory: { enabled: true } }))
 
 vi.mock('@/components/studio/settings/settings-provider', () => ({
     useAppSettings: () => ({ settings: settingsState, setAutosaveEnabled: vi.fn() }),
@@ -27,6 +30,16 @@ vi.mock('@/lib/tauri/dialog', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/tauri/dialog')>()),
     confirmCloseAfterSaveFailure: vi.fn(async () => 'cancel' as const),
     confirmUnsavedChanges: vi.fn(async () => 'cancel' as const),
+}))
+
+vi.mock('@/lib/tauri/file-history', () => ({
+    keepDiskVersion: vi.fn(async () => true),
+    recordFileVersion: vi.fn(async () => true),
+}))
+
+vi.mock('@/components/studio/dialogs/disk-change-dialog', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/components/studio/dialogs/disk-change-dialog')>()),
+    confirmOverwriteDiskChange: vi.fn(async () => 'overwrite' as const),
 }))
 
 vi.mock('@/lib/tauri/backups', () => ({
@@ -494,5 +507,201 @@ describe('turning autosave back on', () => {
 
         await waitFor(() => expect(result.current.tabs.tabs.map((t) => t.isDirty)).toEqual([false, false, true]))
         expect(writeFile).toHaveBeenCalledTimes(2)
+    })
+})
+
+describe('file history', () => {
+    const path = '/ws/a.md'
+    /** The tab as read from disk: its disk record is what tells a first write from a later one. */
+    const fromDisk = () => tab(path, { disk: { stamp: { size: 0, mtimeMs: null } } })
+
+    beforeEach(() => {
+        vi.clearAllMocks()
+        settingsState.autosave = { enabled: false, delayMs: 400 }
+        settingsState.fileHistory = { enabled: true }
+        vi.mocked(isTauri).mockReturnValue(true)
+        vi.mocked(writeFile).mockResolvedValue(undefined)
+        vi.mocked(rename).mockResolvedValue(undefined)
+        vi.mocked(keepDiskVersion).mockResolvedValue(true)
+        vi.mocked(recordFileVersion).mockResolvedValue(true)
+        vi.mocked(confirmOverwriteDiskChange).mockResolvedValue('overwrite')
+    })
+
+    async function openTab(coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}) {
+        const rendered = renderHook(useHarness, { wrapper: createWrapper([fromDisk()], coordinatorOut) })
+        await waitFor(() => expect(rendered.result.current.tabs.tabs).toHaveLength(1))
+        return rendered
+    }
+
+    async function saveText(result: { current: ReturnType<typeof useHarness> }, text: string) {
+        act(() => result.current.tabs.updateTabContent(path, text))
+        let saved!: boolean
+        await act(async () => {
+            saved = await result.current.save.flushSave(path)
+        })
+        return saved
+    }
+
+    /** A file another program saved since: bigger than when Scrivon last wrote it. */
+    function changedOnDisk() {
+        vi.mocked(lstat).mockResolvedValueOnce({ isFile: true, isDirectory: false, isSymlink: false, size: 7, mtime: null } as never)
+    }
+
+    const order = (mock: { mock: { invocationCallOrder: number[] } }) => mock.mock.invocationCallOrder
+
+    it("keeps the file on disk before the tab's first write, then each saved text, without waiting for that", async () => {
+        // Keeping the saved text never finishes, and the save still does.
+        vi.mocked(recordFileVersion).mockReturnValue(new Promise(() => {}))
+        const { result, rerender } = await openTab()
+
+        await expect(saveText(result, 'first')).resolves.toBe(true)
+
+        expect(keepDiskVersion).toHaveBeenCalledExactlyOnceWith(path, 'before-first-write', expect.any(AbortSignal))
+        expect(order(vi.mocked(keepDiskVersion))[0]).toBeLessThan(order(vi.mocked(writeFile))[0]!)
+        expect(recordFileVersion).toHaveBeenCalledExactlyOnceWith(path, 'first', 'manual')
+        expect(order(vi.mocked(recordFileVersion))[0]).toBeGreaterThan(order(vi.mocked(writeFile))[0]!)
+        expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: false, isSaving: false })
+
+        // Only before the first write this session.
+        await expect(saveText(result, 'second')).resolves.toBe(true)
+        settingsState.autosave = { enabled: true, delayMs: 10 }
+        rerender()
+        act(() => result.current.tabs.updateTabContent(path, 'third'))
+        await waitFor(() => expect(recordFileVersion).toHaveBeenCalledTimes(3))
+
+        expect(keepDiskVersion).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(recordFileVersion).mock.calls).toEqual([
+            [path, 'first', 'manual'],
+            [path, 'second', 'manual'],
+            [path, 'third', 'autosave'],
+        ])
+    })
+
+    it('keeps the disk version again before the first write after the file was read again', async () => {
+        const coordinatorOut: { current?: WorkspaceCoordinatorRefs } = {}
+        const { result } = await openTab(coordinatorOut)
+        await saveText(result, 'first')
+
+        await act(async () => {
+            await coordinatorOut.current!.reloadTabFromDisk.current(path)
+        })
+        await saveText(result, 'second')
+        await saveText(result, 'third')
+
+        expect(vi.mocked(keepDiskVersion).mock.calls).toEqual([
+            [path, 'before-first-write', expect.any(AbortSignal)],
+            [path, 'before-first-write', expect.any(AbortSignal)],
+        ])
+    })
+
+    it('only logs a warning when keeping a version fails, and saves all the same', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        vi.mocked(keepDiskVersion).mockRejectedValue(new Error('disk version failed'))
+        vi.mocked(recordFileVersion).mockRejectedValue(new Error('history failed'))
+        const { result } = await openTab()
+
+        await expect(saveText(result, 'mine')).resolves.toBe(true)
+
+        expect(writeFile).toHaveBeenCalledTimes(1)
+        await waitFor(() => expect(warn).toHaveBeenCalledTimes(2))
+        expect(warn.mock.calls.map((call) => (call[1] as Error).message)).toEqual(['disk version failed', 'history failed'])
+        expect(notifyError).not.toHaveBeenCalled()
+        expect(result.current.tabs.tabs[0]).toMatchObject({ isDirty: false, saveError: undefined })
+        warn.mockRestore()
+    })
+
+    it('saves anyway once keeping the disk version has taken too long', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        vi.mocked(keepDiskVersion).mockReturnValue(new Promise(() => {}))
+        const { result } = await openTab()
+        act(() => result.current.tabs.updateTabContent(path, 'mine'))
+
+        vi.useFakeTimers()
+        let saved: Promise<boolean> | undefined
+        try {
+            act(() => {
+                saved = result.current.save.flushSave(path)
+            })
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(DISK_VERSION_TIMEOUT_MS - 1)
+            })
+            expect(writeFile).not.toHaveBeenCalled()
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(1)
+            })
+        } finally {
+            vi.useRealTimers()
+        }
+        await act(async () => {
+            await expect(saved).resolves.toBe(true)
+        })
+        expect(writeFile).toHaveBeenCalledTimes(1)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('took too long'))
+        // A read that finishes now could see the new text, so it is told to keep nothing.
+        const signal = vi.mocked(keepDiskVersion).mock.calls[0]![2]!
+        expect(signal.aborted).toBe(true)
+        warn.mockRestore()
+    })
+
+    it("keeps the other program's version before each overwrite the user chooses", async () => {
+        const { result } = await openTab()
+        await saveText(result, 'first')
+        vi.mocked(keepDiskVersion).mockClear()
+        vi.mocked(writeFile).mockClear()
+
+        for (const text of ['over theirs', 'over theirs again']) {
+            changedOnDisk()
+            await expect(saveText(result, text)).resolves.toBe(true)
+        }
+
+        expect(confirmOverwriteDiskChange).toHaveBeenCalledTimes(2)
+        expect(vi.mocked(keepDiskVersion).mock.calls).toEqual([
+            [path, 'before-overwrite', expect.any(AbortSignal)],
+            [path, 'before-overwrite', expect.any(AbortSignal)],
+        ])
+        // Each copy comes before the write it goes with.
+        const [firstCopy, secondCopy] = order(vi.mocked(keepDiskVersion))
+        const [firstWrite, secondWrite] = order(vi.mocked(writeFile))
+        expect(firstCopy).toBeLessThan(firstWrite!)
+        expect(secondCopy).toBeGreaterThan(firstWrite!)
+        expect(secondCopy).toBeLessThan(secondWrite!)
+    })
+
+    it('saves a version restored into a UTF-16 file as UTF-16 with its byte-order mark', async () => {
+        const written = new Map<string, Uint8Array>()
+        vi.mocked(writeFile).mockImplementation(async (to, data) => {
+            written.set(String(to), data as Uint8Array)
+        })
+        vi.mocked(rename).mockImplementation(async (from, to) => {
+            written.set(String(to), written.get(String(from))!)
+        })
+        const unicode = tab(path, { content: 'Alt', format: { encoding: 'utf-16le', bom: true }, disk: { stamp: { size: 8, mtimeMs: null } } })
+        const { result } = renderHook(useHarness, { wrapper: createWrapper([unicode]) })
+        await waitFor(() => expect(result.current.tabs.tabs).toHaveLength(1))
+
+        // What Restore does: one edit over the whole text (applyTabEdits, which passes the text on as typing does).
+        const restored = 'Grüße 日本'
+        act(() => result.current.tabs.updateTabContent(path, applyTextEdits('Alt', [{ range: wholeTextRange('Alt'), text: restored }])))
+        await act(async () => {
+            await result.current.save.flushSave(path)
+        })
+
+        expect(result.current.tabs.tabs[0]!.format).toEqual({ encoding: 'utf-16le', bom: true })
+        const expected = [0xff, 0xfe, ...Array.from(restored).flatMap((char) => [char.charCodeAt(0) & 0xff, char.charCodeAt(0) >> 8])]
+        expect(Array.from(written.get(path)!)).toEqual(expected)
+        // The history keeps the text, which is the same whatever the file's encoding.
+        expect(recordFileVersion).toHaveBeenCalledWith(path, restored, 'manual')
+    })
+
+    it('keeps nothing while file history is off', async () => {
+        settingsState.fileHistory = { enabled: false }
+        const { result } = await openTab()
+        await saveText(result, 'first')
+        changedOnDisk()
+        await saveText(result, 'over theirs')
+
+        expect(writeFile).toHaveBeenCalledTimes(2)
+        expect(keepDiskVersion).not.toHaveBeenCalled()
+        expect(recordFileVersion).not.toHaveBeenCalled()
     })
 })

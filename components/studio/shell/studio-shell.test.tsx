@@ -3,7 +3,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StudioShell } from './studio-shell'
 
-type Crashable = 'name-prompt' | 'delete-confirm' | 'app-update'
+type Crashable = 'name-prompt' | 'delete-confirm' | 'file-history' | 'app-update'
 
 const crash = vi.hoisted(() => ({ in: null as string | null }))
 
@@ -62,6 +62,7 @@ vi.mock('@/components/studio/shell/studio-menu-bar', () => ({ StudioMenuBar: () 
 vi.mock('@/components/studio/shell/welcome-screen', () => ({ WelcomeScreen: () => null }))
 vi.mock('@/components/studio/dialogs/name-prompt-provider', () => ({ NamePromptProvider: providerWithDialog('name-prompt') }))
 vi.mock('@/components/studio/dialogs/delete-confirm-provider', () => ({ DeleteConfirmProvider: providerWithDialog('delete-confirm') }))
+vi.mock('@/components/studio/dialogs/file-history-provider', () => ({ FileHistoryProvider: providerWithDialog('file-history') }))
 vi.mock('@/components/studio/app-update-provider', () => ({ AppUpdateProvider: providerWithDialog('app-update') }))
 
 beforeEach(() => {
@@ -79,16 +80,19 @@ describe('StudioShell', () => {
     it('puts the command palette below the dialog and update providers, so its commands can use them', () => {
         render(<StudioShell />)
 
-        expect(screen.getByText('Palette below: name-prompt, delete-confirm, app-update')).toBeInTheDocument()
+        expect(screen.getByText('Palette below: name-prompt, delete-confirm, file-history, app-update')).toBeInTheDocument()
     })
 
-    it.each<Crashable>(['name-prompt', 'delete-confirm', 'app-update'])('offers to save open files when the %s dialog crashes', (owner) => {
-        crash.in = owner
-        render(<StudioShell />)
+    it.each<Crashable>(['name-prompt', 'delete-confirm', 'file-history', 'app-update'])(
+        'offers to save open files when the %s dialog crashes',
+        (owner) => {
+            crash.in = owner
+            render(<StudioShell />)
 
-        expect(screen.getByRole('alert')).toHaveTextContent(`${owner} dialog exploded`)
-        expect(screen.getByRole('button', { name: 'Save and reload' })).toBeInTheDocument()
-    })
+            expect(screen.getByRole('alert')).toHaveTextContent(`${owner} dialog exploded`)
+            expect(screen.getByRole('button', { name: 'Save and reload' })).toBeInTheDocument()
+        }
+    )
 
     it('lists the folder export, greyed out, on the welcome screen, where the studio layout that has it is not there', () => {
         session.hydrated = true

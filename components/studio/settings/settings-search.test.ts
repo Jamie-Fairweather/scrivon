@@ -89,6 +89,15 @@ describe('searchSettings', () => {
         expect(searchSettings('contents title', BROWSER)[0]).toEqual(expect.objectContaining({ group: 'Table of contents', label: 'Contents title' }))
     })
 
+    it('finds file history and deleting it, in the desktop app, where they are shown', () => {
+        expect(searchSettings('history', { desktop: false })).toEqual([expect.objectContaining({ label: 'Recent folders limit' })])
+        expect(searchSettings('file history', { desktop: true })).toEqual([
+            expect.objectContaining({ section: 'general', label: 'File history' }),
+            expect.objectContaining({ section: 'general', label: 'Delete All File History…' }),
+        ])
+        expect(searchSettings('versions', { desktop: true }).map((entry) => entry.label)).toEqual(['File history', 'Delete All File History…'])
+    })
+
     it('finds the status bar', () => {
         expect(searchSettings('word count', BROWSER)).toEqual([expect.objectContaining({ section: 'editor', label: 'Status bar' })])
     })

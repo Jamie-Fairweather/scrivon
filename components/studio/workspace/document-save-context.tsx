@@ -6,7 +6,8 @@ import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { isExampleTabId } from '@/lib/examples/example-tab'
 import { dismissNotification, errorMessage, notifyError } from '@/lib/notify'
 import { deleteUnsavedBackup, saveUnsavedBackup } from '@/lib/tauri/backups'
-import { DiskChangedError, writeWorkspaceFile } from '@/lib/tauri/fs'
+import { keepDiskVersion, recordFileVersion, type DiskVersionKind } from '@/lib/tauri/file-history'
+import { comparablePath, DiskChangedError, writeWorkspaceFile } from '@/lib/tauri/fs'
 import { tabsToCloseOnDelete } from '@/lib/workspace/tab-paths'
 import type { DocumentTab, FileStamp } from '@/lib/workspace/types'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
@@ -51,6 +52,39 @@ function warnBackupFailed(err: unknown) {
     console.warn("Couldn't keep a copy of unsaved changes", err)
 }
 
+function warnHistoryFailed(err: unknown) {
+    // Only the file history failed; the file itself is saved, so the user isn't interrupted.
+    console.warn("Couldn't keep a version in the file history", err)
+}
+
+/**
+ * How long a save waits for the file as it is on disk to be kept in the file history, before it writes over
+ * the file anyway. Reading it can hang on a network drive that went away; the save itself then says so.
+ */
+export const DISK_VERSION_TIMEOUT_MS = 2000
+
+/**
+ * Keeps the file on disk as a version before it is written over (lib/tauri/file-history.ts). It can't be done
+ * in the app's save command: a file that can't be replaced is written in place by the page instead. Waits at
+ * most DISK_VERSION_TIMEOUT_MS, and never throws: a copy that fails or takes too long only logs a warning.
+ */
+async function keepDiskVersionBeforeWrite(path: string, kind: DiskVersionKind): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<'timeout'>((resolve) => (timer = setTimeout(() => resolve('timeout'), DISK_VERSION_TIMEOUT_MS)))
+    // A read that finishes after the save gave up on it could see the new text, so it keeps nothing then.
+    const late = new AbortController()
+    try {
+        if ((await Promise.race([keepDiskVersion(path, kind, late.signal), timeout])) === 'timeout') {
+            late.abort()
+            console.warn(`Keeping ${path} as it is on disk took too long, so it is saved without that copy`)
+        }
+    } catch (err) {
+        warnHistoryFailed(err)
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
 export function useDocumentSave(): DocumentSaveContextValue {
     const ctx = useContext(DocumentSaveContext)
     if (!ctx) throw new Error('useDocumentSave must be used within WorkspaceProvider')
@@ -70,6 +104,14 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
     const { settings, setAutosaveEnabled } = useAppSettings()
     const autosaveEnabled = settings.autosave.enabled
     const autosaveDelayMs = settings.autosave.delayMs
+    const fileHistoryEnabled = settings.fileHistory.enabled
+    const fileHistoryEnabledRef = useRef(fileHistoryEnabled)
+    // Tabs whose file on disk was kept before their first write. Keyed by the tab's disk record, which a tab
+    // gets each time its file is read (opened or reloaded), so a file another program changed while it was
+    // closed is kept again before Scrivon next writes it.
+    const diskVersionsKept = useRef(new WeakSet<object>())
+    // The same for the odd tab with no disk record, by path.
+    const diskVersionsKeptByPath = useRef(new Set<string>())
     const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
     const backupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
     const inFlightSaves = useRef<Map<string, Promise<boolean>>>(new Map())
@@ -86,6 +128,23 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
     useEffect(() => {
         autosaveDelayMsRef.current = autosaveDelayMs
     }, [autosaveDelayMs])
+
+    useEffect(() => {
+        fileHistoryEnabledRef.current = fileHistoryEnabled
+    }, [fileHistoryEnabled])
+
+    /** True the first time it is asked about a tab's file since it was read, so its disk version is kept once. */
+    const takeFirstWrite = useCallback((tab: DocumentTab): boolean => {
+        if (tab.disk) {
+            if (diskVersionsKept.current.has(tab.disk)) return false
+            diskVersionsKept.current.add(tab.disk)
+            return true
+        }
+        const key = comparablePath(tab.path)
+        if (diskVersionsKeptByPath.current.has(key)) return false
+        diskVersionsKeptByPath.current.add(key)
+        return true
+    }, [])
 
     useEffect(() => {
         workspaceRootRef.current = workspaceRoot
@@ -174,6 +233,9 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
             }
 
             try {
+                // The file as it was before Scrivon first writes it this session goes in the file history, so the
+                // version from before the user's edits can always be got back.
+                if (fileHistoryEnabledRef.current && takeFirstWrite(tab)) await keepDiskVersionBeforeWrite(tab.path, 'before-first-write')
                 let stamp: FileStamp | null
                 try {
                     // Refused if the file was changed or deleted outside Scrivon since it was read or last saved.
@@ -198,7 +260,16 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                         }
                         return true
                     }
+                    // The other program's version goes in the file history first, so overwriting it loses nothing.
+                    if (fileHistoryEnabledRef.current) await keepDiskVersionBeforeWrite(tab.path, 'before-overwrite')
                     stamp = await writeWorkspaceFile(tab.path, content, { format: tab.format })
+                }
+                // Not waited for: the file is saved, and the history is only a copy. Its own pruning runs in the app.
+                if (fileHistoryEnabledRef.current) {
+                    const kind = background ? 'autosave' : 'manual'
+                    void Promise.resolve()
+                        .then(() => recordFileVersion(tab.path, content, kind))
+                        .catch(warnHistoryFailed)
                 }
                 if (disk) {
                     disk.stamp = stamp
@@ -231,7 +302,7 @@ export function DocumentSaveProvider({ children, coordinator, tabsRef, setTabs, 
                 return false
             }
         },
-        [askAboutDiskChange, clearBackup, coordinator, retrySave, setTabs, tabsRef]
+        [askAboutDiskChange, clearBackup, coordinator, retrySave, setTabs, tabsRef, takeFirstWrite]
     )
 
     // Tabs whose file is being renamed or deleted. A save asked for meanwhile waits, then goes to wherever

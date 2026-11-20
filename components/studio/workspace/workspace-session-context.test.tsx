@@ -58,6 +58,8 @@ import { createWorkspaceCoordinatorRefs, type WorkspaceCoordinatorRefs } from '.
 
 const settingsState = vi.hoisted(() => ({
     autosave: { enabled: true, delayMs: 400 },
+    // File history has its own tests (document-save-context.test.tsx); off here, so saves read nothing more.
+    fileHistory: { enabled: false },
     workspace: { maxRecentFolders: 10 } as { maxRecentFolders: number; reopenLastFolder?: boolean; showGitChanges?: boolean },
 }))
 
