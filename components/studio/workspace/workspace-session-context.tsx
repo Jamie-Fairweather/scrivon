@@ -58,6 +58,7 @@ import { formatFileSize, isLargeFile, tabFromFile, tabWithRecoveredText } from '
 import { dismissNotification, errorMessage, notifyError, notifyInfo, notifySuccess, notifyWarning } from '@/lib/notify'
 import { isMarkdownFile, isSupportedDocument } from '@/lib/workspace/file-types'
 import { forgetLinkTargets } from '@/lib/workspace/link-target-cache'
+import { notifyWorkspaceDiskChange } from '@/lib/workspace/disk-changes'
 import { forgetWorkspaceImages } from '@/lib/workspace/workspace-images'
 import { gitChangesFrom, NO_GIT_CHANGES, type GitChanges } from '@/lib/workspace/git-status'
 import { createGitStatusRefresher, type GitRefreshReason } from '@/lib/workspace/git-status-refresh'
@@ -580,6 +581,7 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             gitRefresh.current?.('focus')
             // A link into a folder the watcher can't see (hidden, cut short or unwatched) is checked on disk again.
             forgetLinkTargets()
+            notifyWorkspaceDiskChange()
             treeWanted = true
             if (!unwatch) imagesStale = true
             request()
@@ -589,6 +591,8 @@ export function WorkspaceSessionProvider({ children, coordinator }: WorkspaceSes
             gitRefresh.current?.('watch')
             forgetWorkspaceImages([...change.added, ...change.removed, ...change.changed])
             forgetLinkTargets([...change.added, ...change.removed])
+            // Files' text too, such as the wiki links "Linked from" lists.
+            notifyWorkspaceDiskChange()
             // A whole read is due anyway, so there is no need to keep what changed (a checkout can touch thousands of files).
             if (!treeWanted) {
                 seen.added.push(...change.added)
