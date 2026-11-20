@@ -11,11 +11,19 @@ import { DiagramIframe } from '@/lib/mermaid/svg-iframe'
 import { overlayButtonClassName } from '@/lib/ui/button-classes'
 import { cn } from '@/lib/utils'
 
+/**
+ * The diagram's padding, in pixels, not in the text's spacing (px-4), which grows with the Preview text size and a
+ * slide's larger text: the fit below takes it off the width and height the diagram has.
+ */
 const DIAGRAM_PADDING_X = 32
-/** Top padding (pt-10) plus bottom padding (pb-4): the top strip keeps the Expand button off the diagram. */
+const DIAGRAM_PADDING_CLASS = 'px-[16px] pb-[16px]'
+/** Top padding (pt-10) plus bottom padding: the top strip keeps the Expand button off the diagram. */
 const DIAGRAM_PADDING_Y = 56
-/** Top and bottom padding (pt-4, pb-4) of a block with no Expand button. */
+/** Top and bottom padding of a block with no Expand button (a slide's), which a diagram is fitted into. */
 const DIAGRAM_PADDING_Y_WITHOUT_EXPAND = 32
+const DIAGRAM_PADDING_TOP_WITHOUT_EXPAND_CLASS = 'pt-[16px]'
+/** The box's border, above and below. */
+const DIAGRAM_BORDER_Y = 2
 
 /**
  * The most height a diagram's box may take, in pixels, as well as the width it has: a slide's, so the whole diagram
@@ -108,7 +116,7 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
     const fitWidth = dimensions?.width
     const fitHeight = dimensions?.height
     const availableWidth = Math.max(0, containerWidth - DIAGRAM_PADDING_X)
-    const availableHeight = heightLimit === null ? null : Math.max(1, heightLimit - paddingY)
+    const availableHeight = heightLimit === null ? null : Math.max(1, heightLimit - paddingY - DIAGRAM_BORDER_Y)
     const widthScale = fitWidth && availableWidth > 0 ? Math.min(1, availableWidth / fitWidth) : 1
     const scale = fitHeight && availableHeight !== null ? Math.min(widthScale, availableHeight / fitHeight) : widthScale
     const layoutWidth = fitWidth ? fitWidth * scale : undefined
@@ -157,7 +165,13 @@ export const EmbeddedMermaidBlock = memo(function EmbeddedMermaidBlock({
                     </div>
                 ) : showDiagram && layoutWidth != null && layoutHeight != null ? (
                     <>
-                        <div className={cn('flex min-w-0 justify-center px-4 pb-4', expandable ? 'pt-10' : 'pt-4')}>
+                        <div
+                            className={cn(
+                                'flex min-w-0 justify-center',
+                                DIAGRAM_PADDING_CLASS,
+                                expandable ? 'pt-10' : DIAGRAM_PADDING_TOP_WITHOUT_EXPAND_CLASS
+                            )}
+                        >
                             <div className="relative shrink-0" style={{ width: layoutWidth, height: layoutHeight }}>
                                 <div
                                     className={cn('absolute top-0 left-0 origin-top-left transition-opacity', staleError && 'opacity-40')}

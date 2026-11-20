@@ -9,10 +9,11 @@
 //! the middle of the screen. A window closed while maximised opens maximised,
 //! and goes back to its saved size when restored. Nothing is saved while the
 //! window is full screen (present mode): leaving full screen puts it back as it
-//! was, and the resize that makes saves that again.
+//! was, and the resize that makes saves that again. A close asked for while
+//! full screen saves when the page has left it, just before the window goes.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -188,18 +189,65 @@ impl Changes {
     }
 }
 
+/// Whether a close found the window full screen, so its size and place are
+/// still to be saved. The page leaves full screen before the window goes
+/// (present mode's way out), and the window may be gone before a save made a
+/// moment later runs, so until it has settled each move and resize is saved
+/// at once.
+struct OwedSave(AtomicBool);
+
+impl OwedSave {
+    fn owe(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    fn is_owed(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+
+    fn settle(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+static CLOSE_SAVE: OwedSave = OwedSave(AtomicBool::new(false));
+
+/// Saves the main window's size and place as it is asked to close. While it is
+/// full screen there is nothing to save yet: that is done as it leaves full
+/// screen (see [`OwedSave`]).
+pub fn save_on_close(window: &tauri::Window) {
+    if window.is_fullscreen().unwrap_or(false) {
+        CLOSE_SAVE.owe();
+    } else {
+        save(window);
+    }
+}
+
 /// Saves the main window's size and place once it has stayed still for a
 /// moment. Call each time it moves or changes size. Closing saves too, but a
 /// Windows shutdown or sign-out, or the restart after an update, ends Scrivon
 /// without a close.
 pub fn save_soon(window: &tauri::Window) {
     static CHANGES: Changes = Changes(AtomicU64::new(0));
+    if CLOSE_SAVE.is_owed() {
+        // Leaving full screen on the way to closing. The last of these moves
+        // is where the window goes back to.
+        save(window);
+    }
     let change = CHANGES.next();
     let window = window.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(SAVE_DELAY).await;
         if CHANGES.is_latest(change) {
-            let _ = tauri::async_runtime::spawn_blocking(move || save(&window)).await;
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                save(&window);
+                // Still here and out of full screen (the close was cancelled,
+                // or is still asking): moves are saved a moment later again.
+                if !window.is_fullscreen().unwrap_or(true) {
+                    CLOSE_SAVE.settle();
+                }
+            })
+            .await;
         }
     });
 }
@@ -522,6 +570,18 @@ mod tests {
         assert!(!worth_saving(true, true));
         assert!(!worth_saving(false, false));
         assert!(!worth_saving(false, true));
+    }
+
+    #[test]
+    fn a_close_while_full_screen_owes_the_save_until_the_window_settles() {
+        let save = OwedSave(AtomicBool::new(false));
+        assert!(!save.is_owed());
+        save.owe();
+        // Each move and resize as the window leaves full screen is saved at once.
+        assert!(save.is_owed());
+        assert!(save.is_owed());
+        save.settle();
+        assert!(!save.is_owed());
     }
 
     #[test]

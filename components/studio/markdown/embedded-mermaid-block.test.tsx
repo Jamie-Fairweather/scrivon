@@ -109,10 +109,19 @@ describe('EmbeddedMermaidBlock', () => {
 
         it('scales the diagram down to fit the height it is given as well as its width', () => {
             width = 2032
-            // 232px less 32px of padding leaves 200px for a 400px-tall diagram, though the width would fit it whole.
-            render(slideBlock(232))
+            // 234px less 32px of padding and the 2px border leaves 200px for a 400px-tall diagram, though the width
+            // would fit it whole.
+            render(slideBlock(234))
 
             expect(seen.scales.at(-1)).toBe('scale(0.5)')
+        })
+
+        it('keeps its padding in pixels, so a slide’s larger text spacing doesn’t push the fitted diagram past its box', () => {
+            const { container } = render(slideBlock(234))
+
+            const padded = container.querySelector('[data-testid="diagram"]')?.closest('.justify-center')
+            expect(padded).toHaveClass('px-[16px]', 'pt-[16px]', 'pb-[16px]')
+            expect(padded?.className).not.toMatch(/(px|pt|pb)-4/)
         })
 
         it('still fits the width when that is the tighter of the two', () => {

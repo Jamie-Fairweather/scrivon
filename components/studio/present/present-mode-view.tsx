@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { focusEditorNow } from '@/components/studio/editor/editor-focus'
 import { useFrameSyncedValue } from '@/components/studio/hooks/use-frame-synced-value'
 import { DiagramHeightLimitContext } from '@/components/studio/markdown/embedded-mermaid-block'
 import { useMarkdownPreviewMemory } from '@/components/studio/markdown/markdown-expand-context'
@@ -25,22 +26,42 @@ const LARGE_PREVIEW_DELAY_MS = 200
 
 /** The slide's padding above and below the text (py-12), outside the text's own scaled spacing. */
 const SLIDE_PADDING_Y = 96
+/** A diagram's margin above and below it (my-4), in the text's spacing: times the slide's text scale. */
+const DIAGRAM_MARGIN_Y = 32
+
+const PRESENT_POPUP = '[data-slot="present-popup"]'
 
 export type SlideKeyAction = 'next' | 'previous' | 'first' | 'last' | 'exit'
 
-/** Keys on a button or link that are its own: Space and Enter press it, rather than moving to the next slide. */
+/**
+ * Space on something Tab reaches is its own: it presses a button, follows a link or opens a <details>, rather than
+ * moving to the next slide. The slides' own box (tabindex -1) isn't one of them.
+ */
+const PRESSABLE = [
+    'button',
+    'a[href]',
+    'summary',
+    'input',
+    'select',
+    'textarea',
+    '[role="button"]',
+    '[role="link"]',
+    '[role="checkbox"]',
+    '[tabindex]:not([tabindex^="-"])',
+].join(', ')
+
 function isPressable(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest('button, a[href], [role="button"], input, select, textarea') !== null
+    return target instanceof Element && target.closest(PRESSABLE) !== null
 }
+
+type SlideKey = { key: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean; target: EventTarget | null }
 
 /**
  * What a key does in present mode, or null to leave it alone: Right, Down, Page Down and Space go forward; Left, Up
  * and Page Up go back; Home and End go to the first and last slide; Esc leaves. Keys held with Ctrl, Alt or the
  * Windows key are the app's (zoom) or the system's, and Space on a button presses the button.
  */
-export function slideKeyAction(
-    event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'altKey' | 'metaKey'> & { target: EventTarget | null }
-): SlideKeyAction | null {
+export function slideKeyAction(event: SlideKey): SlideKeyAction | null {
     if (event.key === 'Escape') return 'exit'
     if (event.ctrlKey || event.altKey || event.metaKey) return null
     switch (event.key) {
@@ -97,6 +118,9 @@ function PresentSlides({ tab, onExit }: PresentSlidesProps) {
     const [index, setIndex] = useState(0)
     const [count, setCount] = useState(0)
     const [size, setSize] = useState({ width: 0, height: 0 })
+    /** How tall the current slide is without its diagrams, so a diagram fits in the space the rest leaves. */
+    const [slideRest, setSlideRest] = useState(0)
+    const shownIndexRef = useRef(index)
     /** What a screen reader hears when the slide changes; empty until it first does. */
     const [announcement, setAnnouncement] = useState('')
 
@@ -108,10 +132,38 @@ function PresentSlides({ tab, onExit }: PresentSlidesProps) {
         setIndex((current) => Math.min(current, Math.max(0, slides - 1)))
     }, [source])
 
-    // Each slide starts at its top.
+    // Each slide starts at its top. Focus left on the slide before (a link, a Copy button) is hidden with it, and the
+    // browser would drop it on the page, so the slides take it: Tab then starts from the new slide.
     useLayoutEffect(() => {
-        if (viewportRef.current) viewportRef.current.scrollTop = 0
+        const viewport = viewportRef.current
+        if (!viewport || shownIndexRef.current === index) return
+        shownIndexRef.current = index
+        viewport.scrollTop = 0
+        const active = document.activeElement
+        if (!active || active === document.body || active.matches(PRESENT_POPUP) || active.closest('section[hidden]')) {
+            viewport.focus({ preventScroll: true })
+        }
     }, [index])
+
+    // Measured on the page, as the slide's text and images take the space they take. The diagrams' own height is left
+    // out, so the answer doesn't change as they are scaled.
+    useLayoutEffect(() => {
+        const section = viewportRef.current?.querySelector<HTMLElement>('section[data-slide]:not([hidden])')
+        if (!section) {
+            setSlideRest(0)
+            return
+        }
+        const update = () => {
+            let diagrams = 0
+            for (const block of section.querySelectorAll('[data-mermaid-block-id]')) diagrams += block.getBoundingClientRect().height
+            setSlideRest(Math.max(0, Math.round(section.getBoundingClientRect().height - diagrams)))
+        }
+        update()
+        if (typeof ResizeObserver === 'undefined') return
+        const observer = new ResizeObserver(update)
+        observer.observe(section)
+        return () => observer.disconnect()
+    }, [index, count, source])
 
     useLayoutEffect(() => {
         const viewport = viewportRef.current
@@ -140,17 +192,34 @@ function PresentSlides({ tab, onExit }: PresentSlidesProps) {
         [count, index]
     )
 
-    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-        if (event.defaultPrevented || event.nativeEvent.isComposing) return
+    const onKey = (event: KeyboardEvent) => {
+        if (event.defaultPrevented || event.isComposing) return
+        // Wherever focus is in present mode: on the popup itself (after a click on the counter), or nowhere.
+        const popup = viewportRef.current?.closest(PRESENT_POPUP)
+        const target = event.target
+        const inPresentMode =
+            target === document.body || target === document.documentElement || (target instanceof Node && popup?.contains(target) === true)
+        if (!inPresentMode) return
         const action = slideKeyAction(event)
-        if (!action) return
+        // Esc is the dialog's own, wherever focus is: it closes it, through exit.
+        if (!action || action === 'exit') return
         event.preventDefault()
-        if (action === 'exit') onExit()
-        else if (action === 'next') goTo(index + 1)
+        if (action === 'next') goTo(index + 1)
         else if (action === 'previous') goTo(index - 1)
         else if (action === 'first') goTo(0)
         else goTo(count - 1)
     }
+    const onKeyRef = useRef(onKey)
+    useLayoutEffect(() => {
+        onKeyRef.current = onKey
+    })
+    // On the document, as it is taken on the way in: the dialog stops keys going further out than its own popup, and
+    // a key pressed with focus nowhere (the slide that had it has gone) never reaches the popup at all.
+    useEffect(() => {
+        const listener = (event: KeyboardEvent) => onKeyRef.current(event)
+        document.addEventListener('keydown', listener, true)
+        return () => document.removeEventListener('keydown', listener, true)
+    }, [])
 
     // Only web links are followed. Links to a heading, a footnote or a file do nothing on a slide.
     const onLinkClick = useCallback(
@@ -162,13 +231,15 @@ function PresentSlides({ tab, onExit }: PresentSlidesProps) {
     )
 
     const scale = slideTextScale(size.width, size.height, previewFontSize)
-    // A diagram fits on the slide whole: the slide's height less its padding and the diagram's own margin (my-4).
-    const diagramHeight = size.height > 0 ? Math.max(120, size.height - SLIDE_PADDING_Y - 32 * scale) : null
+    // A diagram fits on the slide whole: in the slide's height, less its padding and the diagram's own margin, and less
+    // the rest of the slide (a heading above it, say). Never under half the slide: a long text above it scrolls instead.
+    const slideHeight = size.height - SLIDE_PADDING_Y - DIAGRAM_MARGIN_Y * scale
+    const diagramHeight = size.height > 0 ? Math.max(120, slideHeight - slideRest, slideHeight / 2) : null
     const atStart = index === 0
     const atEnd = count === 0 || index === count - 1
 
     return (
-        <div className="relative flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
+        <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={viewportRef}
                 data-slot="present-viewport"
@@ -249,7 +320,7 @@ function PresentSlides({ tab, onExit }: PresentSlidesProps) {
  * it. Lives in the layout, inside the preview's per-tab memory, so web images follow the tab's "Load images" choice.
  */
 export function PresentModeView() {
-    const { presentingTabId, exit } = usePresentMode()
+    const { presentingTabId, exit, takeReturnFocus } = usePresentMode()
     const { tabs } = useDocumentTabs()
     const tab = presentingTabId === null ? undefined : tabs.find((t) => t.id === presentingTabId)
     const open = tab !== undefined
@@ -297,6 +368,10 @@ export function PresentModeView() {
 
     const onExit = useCallback(() => void exit(), [exit])
 
+    // Back to where focus was before presenting. Present chosen from a menu or the palette goes back to what had focus
+    // before them, as those have closed. When that has gone too (its tab closed, say), the editor takes it.
+    const finalFocus = useCallback(() => takeReturnFocus() ?? !focusEditorNow(), [takeReturnFocus])
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogPortal>
@@ -306,6 +381,7 @@ export function PresentModeView() {
                     data-slot="present-popup"
                     className="fixed inset-0 z-50 flex flex-col bg-background text-foreground outline-none"
                     initialFocus={() => document.querySelector<HTMLElement>('[data-slot="present-viewport"]') ?? true}
+                    finalFocus={finalFocus}
                 >
                     <DialogPrimitive.Title lang="en" className="sr-only">
                         {tab ? `Presenting ${tab.name}` : 'Present mode'}
