@@ -98,8 +98,10 @@ function skipSpaces(text: string, at: number): number {
 // ---------------------------------------------------------------------------------------------------------------
 // Flowcharts, as beautiful-mermaid's parser reads them (its parser.ts)
 
-const ARROW = /^(<)?(-->|-.->|==>|---|-\.-|===)(?:\|([^|]*)\|)?/
-const TEXT_ARROW = /^(<)?(--|-\.|==)\s+(.+?)\s+(-->|---|\.\->|-\.\-|==>|===)/
+// The same patterns as beautiful-mermaid's ARROW_REGEX and TEXT_ARROW_REGEX, with `-->` written as `-{2}>` (it matches
+// the same text), so code scanning doesn't read the arrow as the end of an HTML comment.
+const ARROW = /^(<)?(-{2}>|-.->|==>|---|-\.-|===)(?:\|([^|]*)\|)?/
+const TEXT_ARROW = /^(<)?(--|-\.|==)\s+(.+?)\s+(-{2}>|---|\.\->|-\.\-|==>|===)/
 const NODE_SHAPES: readonly RegExp[] = [
     /^([\w-]+)\(\(\((.+?)\)\)\)/,
     /^([\w-]+)\(\[(.+?)\]\)/,
