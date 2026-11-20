@@ -108,6 +108,15 @@ describe('readDiagramTargets', () => {
             expect(locateDiagramTarget(source, target), `${target.kind} ${target.id || `${target.from}>${target.to}`}`).not.toBeNull()
     })
 
+    it('picks each node and participant of a real picture at its centre', () => {
+        for (const source of [FLOWCHART, STATE, SEQUENCE]) {
+            const { targets } = readDiagramTargets(renderMermaidDiagram(source, 'scrivon-light'))
+            for (const target of targets.filter((t) => t.kind === 'node' || t.kind === 'actor')) {
+                expect(targetAtPoint(targets, center(target), 1), target.id).toBe(target)
+            }
+        }
+    })
+
     it('works each picture out once, and the canvas and palette share it', () => {
         const svg = renderMermaidDiagram(FLOWCHART, 'tokyo-night')
         const parse = vi.spyOn(DOMParser.prototype, 'parseFromString')

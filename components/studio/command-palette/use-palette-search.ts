@@ -10,6 +10,7 @@ import type { OutlineHeading } from '@/lib/markdown/document-outline'
 import { documentKind } from '@/lib/workspace/file-types'
 import { flattenSupportedFilePaths } from '@/lib/workspace/flatten-file-tree'
 import { commandToPaletteItem } from '@/components/studio/command-palette/command-items'
+import { diagramPartRows, type DiagramPartRows } from '@/components/studio/command-palette/diagram-part-items'
 import { foldText } from '@/components/studio/command-palette/fold-text'
 import { goToLineHint, goToLineItem, headingItems, helpItems, type PaletteFile } from '@/components/studio/command-palette/palette-prefixes'
 import { parsePaletteQuery, type PaletteQueryKind } from '@/components/studio/command-palette/parse-palette-query'
@@ -31,6 +32,7 @@ import { useCommands } from '@/components/studio/commands/command-registry'
 import { jumpToHeading } from '@/components/studio/outline/jump-to-heading'
 import { useMarkdownOutline } from '@/components/studio/outline/use-markdown-outline'
 import { useDocumentTabs, useStudioLayout, useWorkspaceCoordinator, useWorkspaceSession } from '@/components/studio/workspace/workspace-provider'
+import { useAppTheme } from '@/components/theme/app-theme-provider'
 
 function buildWorkspaceItems(recentWorkspaces: string[], query: string): PaletteGroup | null {
     // Folded like the other matchers, so a name stored the macOS way (or with Turkish İ) is found as typed.
@@ -86,11 +88,15 @@ function buildPrefixGroups(
     kind: Exclude<PaletteQueryKind, 'search' | 'commands'>,
     query: string,
     file: PaletteFile | null,
-    headings: OutlineHeading[] | null
+    headings: OutlineHeading[] | null,
+    diagramParts: DiagramPartRows | null
 ): PaletteGroup[] {
     if (kind === 'line') {
         const item = file ? goToLineItem(file, query) : null
         return item ? [{ id: 'line', label: 'Go to Line', items: [item] }] : NO_GROUPS
+    }
+    if (kind === 'heading' && diagramParts) {
+        return diagramParts.items.length > 0 ? [{ id: 'diagram-parts', label: 'Diagram Parts', items: diagramParts.items }] : NO_GROUPS
     }
     if (kind === 'heading') {
         const items = file && headings ? headingItems(headings, file.path, query) : []
@@ -101,12 +107,19 @@ function buildPrefixGroups(
 }
 
 /** What ':', '@' and '?' say when they list nothing. Null for a search or commands, whose messages the dialog has. */
-function prefixHint(kind: PaletteQueryKind, file: PaletteFile | null, isMarkdown: boolean, headings: OutlineHeading[] | null): string | null {
+function prefixHint(
+    kind: PaletteQueryKind,
+    file: PaletteFile | null,
+    isMarkdown: boolean,
+    headings: OutlineHeading[] | null,
+    diagramParts: DiagramPartRows | null
+): string | null {
     switch (kind) {
         case 'line':
             return goToLineHint(file)
         case 'heading':
-            if (!file) return 'Open a Markdown file to jump to its headings.'
+            if (!file) return 'Open a Markdown file to jump to its headings, or a diagram to jump to its parts.'
+            if (diagramParts) return diagramParts.hint
             if (!isMarkdown) return 'Only Markdown files have headings.'
             if (headings === null) return 'Reading headings…'
             if (headings.length === 0) return 'No headings yet. Start a line with # to add one.'
@@ -217,6 +230,18 @@ export function usePaletteSearch(
     const wantsHeadings = enabled && parsedQueryState.kind === 'heading' && isMarkdown
     const headings = useMarkdownOutline(wantsHeadings ? activeTab.id : null, wantsHeadings ? activeTab.content : null)
 
+    // In a diagram, '@' lists the parts of the picture the canvas shows, read from the canvas's render cache.
+    const { themeId } = useAppTheme()
+    const previewOpen = layout.previewOpen
+    const wantsDiagramParts = enabled && parsedQueryState.kind === 'heading' && activeTab !== null && documentKind(activeTab.name) === 'mermaid'
+    const diagramParts = useMemo(
+        () =>
+            wantsDiagramParts && activeTab
+                ? diagramPartRows({ file: activeTab, tabId: activeTab.id, themeId, previewOpen, query: parsedQueryState.query })
+                : null,
+        [wantsDiagramParts, activeTab, themeId, previewOpen, parsedQueryState.query]
+    )
+
     // While a new search runs, the last hits stay in place (so the list doesn't jump on every key)
     // but can't be opened until the new hits replace them.
     const textGroups = useMemo((): PaletteGroup[] => {
@@ -302,7 +327,7 @@ export function usePaletteSearch(
             return result
         }
 
-        if (kind !== 'search') return buildPrefixGroups(kind, parsedQuery, activeTab, headings)
+        if (kind !== 'search') return buildPrefixGroups(kind, parsedQuery, activeTab, headings, diagramParts)
 
         const commandGroup = mode === 'all' ? buildMixedCommandGroup(allActions, parsedQuery, Boolean(workspaceRoot)) : null
 
@@ -357,6 +382,7 @@ export function usePaletteSearch(
         tabs,
         activeTab,
         headings,
+        diagramParts,
         liveRecentFiles,
         filePaths,
         textGroups,
@@ -367,7 +393,7 @@ export function usePaletteSearch(
     const onlyEmptyMatches = useMemo(() => textMatcher !== null && canMatchEmptyText(textMatcher), [textMatcher])
     const replaceHint = replaceActive && textResolved && !textStop && onlyEmptyMatches ? EMPTY_MATCH_REPLACE_HINT : null
     // Only worked out when the list is empty: ':' counts the open file's lines for it.
-    const emptyHint = groups.length === 0 ? (replaceHint ?? prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings)) : null
+    const emptyHint = groups.length === 0 ? (replaceHint ?? prefixHint(parsedQueryState.kind, activeTab, isMarkdown, headings, diagramParts)) : null
 
     // The query as typed, without the spaces a regular expression keeps: what the search effect compares.
     const typedQuery = parsePaletteQuery(query, mode).query
@@ -497,6 +523,11 @@ export function usePaletteSearch(
                 case 'line':
                     setEditorOpen(true)
                     coordinator.revealInEditor.current(item.path, item.line, item.column)
+                    break
+                // Like a line: the setting for double-clicks has no say here.
+                case 'diagram-part':
+                    setEditorOpen(true)
+                    coordinator.revealInEditor.current(item.path, item.line, item.column, item.length)
                     break
                 case 'heading':
                     jumpToHeading(coordinator, item.path, { id: item.headingId, line: item.line }, editorOpen)

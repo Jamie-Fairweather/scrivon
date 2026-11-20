@@ -89,7 +89,7 @@ export function headingItems(headings: readonly OutlineHeading[], path: string, 
 const PREFIXES: ReadonlyArray<{ prefix: string; label: string }> = [
     { prefix: '>', label: 'Run a command' },
     { prefix: ':', label: 'Go to a line in the open file' },
-    { prefix: '@', label: 'Jump to a heading in the open Markdown file' },
+    { prefix: '@', label: 'Jump to a heading in the open Markdown file, or to a part of the open diagram' },
 ]
 
 /** The prefixes, for '?'. Each typed word must appear in the prefix or in what it does. */

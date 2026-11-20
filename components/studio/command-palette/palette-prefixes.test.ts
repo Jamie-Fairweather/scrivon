@@ -101,12 +101,13 @@ describe('helpItems', () => {
         expect(helpItems('').map((item) => [item.prefix, item.label])).toEqual([
             ['>', 'Run a command'],
             [':', 'Go to a line in the open file'],
-            ['@', 'Jump to a heading in the open Markdown file'],
+            ['@', 'Jump to a heading in the open Markdown file, or to a part of the open diagram'],
         ])
     })
 
     it.each([
         ['heading', '@'],
+        ['diagram', '@'],
         ['LINE', ':'],
         ['>', '>'],
     ])('finds a prefix by what it does or by the prefix itself (%s)', (query, prefix) => {

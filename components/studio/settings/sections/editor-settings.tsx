@@ -121,7 +121,7 @@ export function EditorSettings() {
 
             <SwitchSetting
                 label="Double-click the preview to jump to the editor"
-                description="Double-clicking the Markdown preview puts the editor's cursor on that line. Turn off to select words in the preview by double-clicking."
+                description="Double-clicking the Markdown preview puts the editor's cursor on that line, and double-clicking a part of a diagram (a node, link, state, participant or message) selects its text. Turn off to select words in the preview by double-clicking."
                 checked={settings.editor.jumpFromPreview}
                 onChange={(jumpFromPreview) => setEditor({ jumpFromPreview })}
             />

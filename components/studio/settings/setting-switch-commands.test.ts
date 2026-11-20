@@ -89,6 +89,7 @@ describe('buildSettingSwitchCommands', () => {
         ['status bar', 'toggle-status-bar'],
         ['scroll', 'toggle-scroll-sync'],
         ['double click', 'toggle-jump-from-preview'],
+        ['diagram jump', 'toggle-jump-from-preview'],
         ['dim', 'toggle-dim-other-paragraphs'],
         ['fade paragraph', 'toggle-dim-other-paragraphs'],
     ])('is found in the palette by typing "%s"', (query, id) => {

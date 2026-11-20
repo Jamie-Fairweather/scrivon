@@ -318,6 +318,20 @@ function PaletteItemRow({
         )
     }
 
+    if (item.kind === 'diagram-part') {
+        return (
+            <CommandItem onClick={handleClick} value={item.value}>
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <NetworkIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <span dir="auto" className="truncate">
+                        {item.type}: {item.name}
+                    </span>
+                </span>
+                <span className="ms-2 shrink-0 text-xs text-muted-foreground in-data-highlighted:text-accent-foreground">Line {item.line}</span>
+            </CommandItem>
+        )
+    }
+
     if (item.kind === 'prefix') {
         return (
             <CommandItem onClick={handleClick} value={item.value}>
