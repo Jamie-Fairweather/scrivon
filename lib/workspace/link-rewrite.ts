@@ -42,6 +42,11 @@ export type LinkRewriteContext = {
      * change; a target that isn't there is a broken link, and stays as it is written.
      */
     targetExists: (oldTarget: string) => boolean | Promise<boolean>
+    /**
+     * Gives the UI a turn (createYielder): called every few hundred links, so a file with thousands of them never
+     * holds up typing while it is planned.
+     */
+    yieldToUi?: () => Promise<void>
 }
 
 const WINDOWS_ABSOLUTE = /^[a-zA-Z]:([\\/]|%5c)/i
@@ -63,19 +68,14 @@ function fileTarget(url: string, documentPath: string, workspaceRoot: string): s
     return normalizePath(target.path)
 }
 
-/** The line `offset` is on, from 1. */
-function lineAt(text: string, offset: number): number {
-    let line = 1
-    for (let i = 0; i < offset; i++) {
-        const c = text.charCodeAt(i)
-        // `\r\n` is one break, as the editor counts it.
-        if (c === 10 || (c === 13 && text.charCodeAt(i + 1) !== 10)) line++
-    }
-    return line
-}
+/** How many links are planned between turns given to the UI (`yieldToUi`), in a file with very many. */
+const LINKS_PER_TURN = 256
+
+/** A rewrite before its line is known: the lines are worked out once for the whole file (planLinkRewrites). */
+type PlannedRewrite = Omit<LinkRewrite, 'line'>
 
 /** The rewrite one link needs, or null when the move leaves it working (or it is left alone). */
-async function rewriteFor(text: string, link: DocumentLink, context: LinkRewriteContext, newFilePath: string): Promise<LinkRewrite | null> {
+async function rewriteFor(text: string, link: DocumentLink, context: LinkRewriteContext, newFilePath: string): Promise<PlannedRewrite | null> {
     // A reference's address is in its definition, which is rewritten (once) on its own.
     if (!link.address || link.kind === 'reference') return null
     const written = text.slice(link.address.start, link.address.end)
@@ -111,7 +111,6 @@ async function rewriteFor(text: string, link: DocumentLink, context: LinkRewrite
         text: path,
         oldAddress: written,
         newAddress: `${path}${suffix}`,
-        line: lineAt(text, start),
     }
 }
 
@@ -128,12 +127,18 @@ export async function planLinkRewrites(
     links: DocumentLinks = readDocumentLinks(text)
 ): Promise<LinkRewrite[]> {
     const newFilePath = normalizePath(remapPathAfterRename(context.oldFilePath, context.move.oldPath, context.move.newPath))
-    const rewrites: LinkRewrite[] = []
-    for (const link of links.links) {
+    const planned: PlannedRewrite[] = []
+    for (const [i, link] of links.links.entries()) {
+        if (context.yieldToUi && i > 0 && i % LINKS_PER_TURN === 0) await context.yieldToUi()
         const rewrite = await rewriteFor(text, link, context, newFilePath)
-        if (rewrite) rewrites.push(rewrite)
+        if (rewrite) planned.push(rewrite)
     }
-    return rewrites
+    // Each line is worked out once for the file (a binary search per link), not counted from the start each time.
+    const ranges = rangesOfOffsets(
+        text,
+        planned.map((rewrite) => rewrite.span)
+    )
+    return planned.map((rewrite, i) => ({ ...rewrite, line: ranges[i]!.startLineNumber }))
 }
 
 /**

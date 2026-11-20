@@ -1,16 +1,21 @@
 import { createYielder, findOpenTab } from '@/components/studio/command-palette/replace-content'
 import { MAX_FILE_BYTES, openTabText, READ_CONCURRENCY } from '@/components/studio/command-palette/search-content'
+import { relativePath } from '@/components/studio/command-palette/search-files'
+import type { DocumentLinks } from '@/lib/markdown/document-links'
 import {
     comparablePath,
     createLimit,
     DiskChangedError,
     getBaseName,
+    getParentPath,
     isFileMissingError,
     isMarkdownFile,
     normalizePath,
+    samePath,
     type TextFileRead,
     type WriteWorkspaceFileOptions,
 } from '@/lib/tauri/fs'
+import { displayPath } from '@/lib/workspace/display-path'
 import { isLargeFile } from '@/lib/workspace/document-tab'
 import { buildLinkIndex, lookupLinkTarget } from '@/lib/workspace/link-index'
 import {
@@ -123,11 +128,19 @@ export type ScanLinkUpdatesOptions = {
     readTextFile: (path: string) => Promise<TextFileRead>
     /** The file's size and modified time; null when it can't be looked at (or isn't there). */
     readStamp: (path: string) => Promise<FileStamp | null>
+    /**
+     * Reads a file's links (the links reader, createLinksReader, so a long file is parsed off the UI thread). When
+     * it isn't given, the links are read here (readDocumentLinks).
+     */
+    readLinks?: ReadLinks
     signal?: AbortSignal
     maxFileBytes?: number
     concurrency?: number
     yieldToUi?: () => Promise<void>
 }
+
+/** Reads the links in a Markdown file's text: LinksReader.read. */
+export type ReadLinks = (text: string) => Promise<DocumentLinks>
 
 /** Why a file can't be changed even though it has links to change, or null when it can. */
 function tabBlock(tab: LinkUpdateTab): LinkUpdateSkipReason | null {
@@ -175,6 +188,7 @@ export async function scanLinkUpdates(opts: ScanLinkUpdatesOptions): Promise<Lin
         getTabs,
         readTextFile,
         readStamp,
+        readLinks,
         signal,
         maxFileBytes = MAX_FILE_BYTES,
         concurrency = READ_CONCURRENCY,
@@ -182,6 +196,9 @@ export async function scanLinkUpdates(opts: ScanLinkUpdatesOptions): Promise<Lin
     } = opts
     const targetExists = createTargetCheck(move, readStamp, concurrency)
     const movedName = getBaseName(move.oldPath)
+    // A rename in place leaves every relative path that doesn't name the moved item leading where it did, even from
+    // a file inside a renamed folder: only a move to another folder can break a moved file's own links.
+    const inPlace = samePath(getParentPath(move.oldPath), getParentPath(move.newPath))
     const oldPaths = [...collectFilePaths(move.tree as FileNode[])].filter((path) => isMarkdownFile(path))
     const scan: LinkUpdateScan = {
         move,
@@ -215,9 +232,11 @@ export async function scanLinkUpdates(opts: ScanLinkUpdatesOptions): Promise<Lin
                 return 'unchecked'
             }
         }
-        // A file that didn't move can only break by naming the moved item; most files are passed over unparsed.
-        if (!moved && !mightLinkTo(text, movedName)) return null
-        const rewrites = await planLinkRewrites(text, { workspaceRoot: move.root, oldFilePath: oldPath, move, targetExists })
+        // A file that didn't move (or was only renamed in place) can only break by naming the moved item; most files
+        // are passed over unparsed.
+        if ((!moved || inPlace) && !mightLinkTo(text, movedName)) return null
+        const links = readLinks ? await readLinks(text) : undefined
+        const rewrites = await planLinkRewrites(text, { workspaceRoot: move.root, oldFilePath: oldPath, move, targetExists, yieldToUi }, links)
         if (rewrites.length === 0) return null
         return { file: { path, oldPath, rewrites, signature: rewriteSignature(rewrites) }, block }
     }
@@ -256,7 +275,10 @@ export type ApplyLinkUpdatesOptions = {
     keepVersion?: (path: string, text: string) => Promise<unknown>
     /** A file that isn't open was just written. */
     onWritten?: (path: string) => void
+    /** As for scanLinkUpdates: reads a file's links off the UI thread. */
+    readLinks?: ReadLinks
     maxFileBytes?: number
+    yieldToUi?: () => Promise<void>
 }
 
 export type LinkUpdateOutcome = {
@@ -270,7 +292,18 @@ export type LinkUpdateOutcome = {
  * now, otherwise the disk's): a file whose links aren't the ones shown is left alone, never edited at old places.
  */
 export async function applyLinkUpdates(opts: ApplyLinkUpdatesOptions): Promise<LinkUpdateOutcome> {
-    const { scan, getTabs, applyTabEdits, readTextFile, writeTextFile, keepVersion, onWritten, maxFileBytes = MAX_FILE_BYTES } = opts
+    const {
+        scan,
+        getTabs,
+        applyTabEdits,
+        readTextFile,
+        writeTextFile,
+        keepVersion,
+        onWritten,
+        readLinks,
+        maxFileBytes = MAX_FILE_BYTES,
+        yieldToUi = createYielder(),
+    } = opts
     const { move, targetExists } = scan
     const outcome: LinkUpdateOutcome = { updated: [], skipped: scan.blocked.map(({ path, reason }) => ({ path, reason })) }
     const skip = (path: string, reason: LinkUpdateSkipReason, detail?: string) =>
@@ -278,7 +311,8 @@ export async function applyLinkUpdates(opts: ApplyLinkUpdatesOptions): Promise<L
 
     /** The file's rewrites in `text`, or null when they aren't the ones shown. */
     const replan = async (file: LinkUpdateFile, text: string): Promise<LinkRewrite[] | null> => {
-        const rewrites = await planLinkRewrites(text, { workspaceRoot: move.root, oldFilePath: file.oldPath, move, targetExists })
+        const links = readLinks ? await readLinks(text) : undefined
+        const rewrites = await planLinkRewrites(text, { workspaceRoot: move.root, oldFilePath: file.oldPath, move, targetExists, yieldToUi }, links)
         return rewriteSignature(rewrites) === file.signature ? rewrites : null
     }
 
@@ -342,11 +376,29 @@ function plural(count: number, one: string, many = `${one}s`): string {
     return `${count.toLocaleString('en-GB')} ${count === 1 ? one : many}`
 }
 
-/** Each skipped file with why: 'old.md (it is open read-only)'. */
-function skipList(skipped: readonly LinkUpdateSkip[], max = 5): string {
-    const shown = skipped.slice(0, max).map((s) => `${getBaseName(s.path)} (${describeLinkSkip(s)})`)
-    const rest = skipped.length - shown.length
-    return rest > 0 ? `${shown.join('; ')}; and ${plural(rest, 'other')}` : shown.join('; ')
+/**
+ * How many files the notice names that weren't updated. More would fill the screen: the rest are counted, and the
+ * notice's Copy List copies every one (LinkUpdateNotice.list).
+ */
+export const MAX_NAMED_SKIPS = 10
+
+/** A file as the notice and the dialog name it: its path in the open folder, so two README.md files are told apart. */
+export function linkUpdatePath(root: string, path: string): string {
+    return displayPath(relativePath(root, path))
+}
+
+/** Each skipped file with why: 'notes\old.md (it is open read-only)'. */
+function skipEntries(root: string, skipped: readonly LinkUpdateSkip[]): string[] {
+    return skipped.map((s) => `${linkUpdatePath(root, s.path)} (${describeLinkSkip(s)})`)
+}
+
+/** The skipped files for the notice, the first MAX_NAMED_SKIPS by name, and every one for Copy List when that is fewer. */
+function skipList(root: string, skipped: readonly LinkUpdateSkip[]): { text: string; list?: string } {
+    const entries = skipEntries(root, skipped)
+    const shown = entries.slice(0, MAX_NAMED_SKIPS)
+    const rest = entries.length - shown.length
+    if (rest === 0) return { text: shown.join('; ') }
+    return { text: `${shown.join('; ')}; and ${plural(rest, 'other')} (Copy List copies them all)`, list: entries.join('\n') }
 }
 
 /** Why some files weren't looked at, for the dialog and the notice; null when every file was. */
@@ -357,10 +409,18 @@ export function uncheckedNote(scan: Pick<LinkUpdateScan, 'unchecked' | 'partialT
     return reasons.length > 0 ? `Some files weren't checked: ${reasons.join(', and ')}.` : null
 }
 
-export type LinkUpdateNotice = { kind: 'success' | 'warning'; title: string; description?: string }
+export type LinkUpdateNotice = {
+    kind: 'success' | 'warning' | 'info'
+    title: string
+    description?: string
+    /** Every file that wasn't updated, one a line with why, when the description doesn't name them all: for Copy List. */
+    list?: string
+}
+
+type NoticeScan = Pick<LinkUpdateScan, 'unchecked' | 'partialTree'> & { move: Pick<LinkMove, 'root' | 'newPath'> }
 
 /** What the notice after Update Links says: how many files were updated, and which weren't and why. */
-export function describeLinkUpdateOutcome(outcome: LinkUpdateOutcome, scan: Pick<LinkUpdateScan, 'unchecked' | 'partialTree'>): LinkUpdateNotice {
+export function describeLinkUpdateOutcome(outcome: LinkUpdateOutcome, scan: NoticeScan): LinkUpdateNotice {
     const files = outcome.updated.length
     const links = outcome.updated.reduce((sum, file) => sum + file.links, 0)
     const title =
@@ -370,23 +430,37 @@ export function describeLinkUpdateOutcome(outcome: LinkUpdateOutcome, scan: Pick
               ? `Updated ${plural(links, 'link')} in ${getBaseName(outcome.updated[0]!.path)}`
               : `Updated ${plural(links, 'link')} in ${plural(files, 'file')}`
     const details: string[] = []
-    if (outcome.skipped.length > 0) details.push(`Not updated: ${skipList(outcome.skipped)}.`)
+    const skips = outcome.skipped.length > 0 ? skipList(scan.move.root, outcome.skipped) : null
+    if (skips) details.push(`Not updated: ${skips.text}.`)
     const unchecked = uncheckedNote(scan)
     if (unchecked) details.push(unchecked)
     return {
         kind: outcome.skipped.length > 0 || files === 0 ? 'warning' : 'success',
         title,
         ...(details.length > 0 ? { description: details.join(' ') } : {}),
+        ...(skips?.list ? { list: skips.list } : {}),
     }
 }
 
 /** The notice when every file that links to the moved item can't be changed, so there is nothing to ask. */
-export function describeBlockedOnly(scan: LinkUpdateScan): LinkUpdateNotice {
+export function describeBlockedOnly(scan: NoticeScan & Pick<LinkUpdateScan, 'blocked'>): LinkUpdateNotice {
     const name = getBaseName(scan.move.newPath)
     const unchecked = uncheckedNote(scan)
+    const skips = skipList(scan.move.root, scan.blocked)
     return {
         kind: 'warning',
         title: `Links to ${name} weren't updated`,
-        description: [`Not updated: ${skipList(scan.blocked)}.`, unchecked].filter(Boolean).join(' '),
+        description: [`Not updated: ${skips.text}.`, unchecked].filter(Boolean).join(' '),
+        ...(skips.list ? { list: skips.list } : {}),
     }
+}
+
+/**
+ * The notice when no file that was checked links to the moved item, but some files weren't checked (too big,
+ * unreadable, or not in the tree): they may still have links the move broke. Null when every file was checked.
+ */
+export function describeNothingFound(scan: NoticeScan): LinkUpdateNotice | null {
+    const unchecked = uncheckedNote(scan)
+    if (!unchecked) return null
+    return { kind: 'info', title: `No links to ${getBaseName(scan.move.newPath)} needed updating`, description: unchecked }
 }

@@ -47,6 +47,7 @@ import {
     setLastWorkspace,
     setWorkspaceTabSession,
 } from '@/lib/tauri/store'
+import { writeClipboardText } from '@/lib/tauri/clipboard'
 import type { FileNode } from '@/lib/workspace/types'
 import { gitRowMark, NO_GIT_CHANGES } from '@/lib/workspace/git-status'
 import { GIT_REFRESH_WAIT_MS } from '@/lib/workspace/git-status-refresh'
@@ -114,6 +115,8 @@ vi.mock('@/lib/notify', async (importOriginal) => ({
     notifySuccess: vi.fn(() => 'toast'),
     dismissNotification: vi.fn(),
 }))
+
+vi.mock('@/lib/tauri/clipboard', () => ({ writeClipboardText: vi.fn(async () => {}) }))
 
 vi.mock('@/lib/tauri/dialog', () => ({
     pickWorkspaceFolder: vi.fn(async () => null),
@@ -4288,7 +4291,18 @@ describe('offering to update links after a rename or move', () => {
 
         await moveSetup(result)
         const dialog = await screen.findByRole('alertdialog')
-        expect(dialog).toHaveAccessibleDescription(/legacy\.md links to it too, but won't change: it isn't saved as UTF-8 or UTF-16/)
+        expect(dialog).toHaveAccessibleDescription(/2 more files link to it too, but won't change\. They are listed below\./)
+        const wontChange = within(dialog).getByRole('list', { name: "Files that won't change" })
+        expect(
+            within(wontChange)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent)
+        ).toEqual(
+            expect.arrayContaining([
+                "legacy.md: it isn't saved as UTF-8 or UTF-16, so Scrivon only reads it.",
+                "open-legacy.md: it isn't saved as UTF-8 or UTF-16, so Scrivon only reads it.",
+            ])
+        )
         fireEvent.click(within(dialog).getByRole('button', { name: 'Update Links' }))
         await waitFor(() => expect(notifyWarning).toHaveBeenCalledWith('Updated 2 links in 2 files', expect.anything()))
         const description = vi.mocked(notifyWarning).mock.calls.at(-1)![1]!.description!
@@ -4359,5 +4373,52 @@ describe('offering to update links after a rename or move', () => {
         expect(await disk.read('C:\\ws\\many\\n0.md')).toBe('Number 0: [setup](../guides/deep/setup.md)')
         expect(await disk.read('C:\\ws\\many\\n29.md')).toBe('Number 29: [setup](../guides/deep/setup.md)')
         expect((await disk.read('C:\\ws\\big.md')).startsWith('[setup](docs/setup.md)\n')).toBe(true)
+    })
+
+    it('says some files weren’t checked when no file it could check needs a change', async () => {
+        // The only file that links to notes.md is too big to look at.
+        await disk.write('C:\\ws\\big.md', `[notes](notes.md)\n${'x'.repeat(1_100_000)}`)
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        await act(async () => {
+            await result.current.session.renameEntry('C:\\ws\\notes.md', 'todo.md', false)
+        })
+
+        await waitFor(() =>
+            expect(notifyInfo).toHaveBeenCalledWith('No links to todo.md needed updating', {
+                description: "Some files weren't checked: 1 file was too big or couldn't be read.",
+            })
+        )
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+        expect((await disk.read('C:\\ws\\big.md')).startsWith('[notes](notes.md)\n')).toBe(true)
+    })
+
+    it('names every file it couldn’t update by its place in the folder, with Copy List for those the notice leaves out', async () => {
+        for (let i = 0; i < 12; i++) await disk.write(`C:\\ws\\legacy\\n${i}\\README.md`, 'x')
+        vi.mocked(readFile).mockImplementation(async (path) => {
+            if (/legacy\\n\d+\\README\.md$/i.test(String(path)))
+                return new Uint8Array([...new TextEncoder().encode('[s](../../docs/setup.md) caf'), 0xe9])
+            return disk.readBytes(path)
+        })
+        settingsState.workspace = { maxRecentFolders: 10, offerLinkUpdates: true }
+        await disk.write(README, 'No links.')
+        await disk.write(SETUP, 'No links either.')
+        const { result } = renderHook(useHarness, { wrapper: createLinkWrapper() })
+        await openFolder(result)
+        await moveSetup(result)
+
+        // Every file that links to it can't be changed: nothing to ask, so a notice says why.
+        await waitFor(() => expect(notifyWarning).toHaveBeenCalledWith("Links to setup.md weren't updated", expect.anything()))
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+        const options = vi.mocked(notifyWarning).mock.calls.at(-1)![1]!
+        expect(options.description).toMatch(/^Not updated: legacy\\n\d+\\README\.md \(it isn't saved as UTF-8/)
+        expect(options.description).toMatch(/; and 2 others \(Copy List copies them all\)\.$/)
+        expect(options).toMatchObject({ timeout: 0, action: { label: 'Copy List' } })
+
+        act(() => options.action!.onClick())
+        await waitFor(() => expect(writeClipboardText).toHaveBeenCalledTimes(1))
+        const copied = vi.mocked(writeClipboardText).mock.calls[0]![0].split('\n')
+        expect(copied).toHaveLength(12)
+        expect(copied).toContain("legacy\\n11\\README.md (it isn't saved as UTF-8 or UTF-16, so Scrivon only reads it)")
     })
 })

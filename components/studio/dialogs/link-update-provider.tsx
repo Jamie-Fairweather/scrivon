@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { relativePath } from '@/components/studio/command-palette/search-files'
 import { useAppSettings } from '@/components/studio/settings/settings-provider'
 import { registerCoordinatorRefs } from '@/components/studio/workspace/register-coordinator-refs'
 import type { WorkspaceCoordinatorRefs } from '@/components/studio/workspace/workspace-coordinator'
@@ -16,7 +15,9 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { notifySuccess, notifyWarning, type NotifyOptions } from '@/lib/notify'
+import { createLinksReader } from '@/lib/markdown/links-reader'
+import { notifyError, notifyInfo, notifySuccess, notifyWarning, type NotifyOptions } from '@/lib/notify'
+import { writeClipboardText } from '@/lib/tauri/clipboard'
 import { recordFileVersion } from '@/lib/tauri/file-history'
 import { getBaseName, getParentPath, readStamp, readWorkspaceTextFile, samePath, writeWorkspaceFile } from '@/lib/tauri/fs'
 import { displayPath } from '@/lib/workspace/display-path'
@@ -26,15 +27,21 @@ import {
     describeBlockedOnly,
     describeLinkSkip,
     describeLinkUpdateOutcome,
+    describeNothingFound,
+    linkUpdatePath,
     scanLinkUpdates,
     uncheckedNote,
     type LinkMove,
     type LinkUpdateNotice,
     type LinkUpdateScan,
+    type ReadLinks,
 } from '@/lib/workspace/link-update'
 
-/** More links than anyone reads in a dialog: the rest are counted. Every one is still updated. */
-const MAX_LISTED_LINKS = 200
+/**
+ * More links than anyone reads in a dialog: past these, a file's links are counted under its name. Every file is
+ * still named, and every link is still updated.
+ */
+export const MAX_LISTED_LINKS = 200
 
 function plural(count: number, one: string, many = `${one}s`): string {
     return `${count.toLocaleString('en-GB')} ${count === 1 ? one : many}`
@@ -42,21 +49,30 @@ function plural(count: number, one: string, many = `${one}s`): string {
 
 function notify(notice: LinkUpdateNotice): void {
     const options: NotifyOptions = notice.description ? { description: notice.description } : {}
+    // A notice that can't name every file that wasn't updated lets the whole list be copied.
+    const list = notice.list
+    if (list) {
+        options.action = {
+            label: 'Copy List',
+            onClick: () => void writeClipboardText(list).catch((err: unknown) => notifyError("Couldn't copy the list", err)),
+        }
+    }
     if (notice.kind === 'success') notifySuccess(notice.title, options)
-    else notifyWarning(notice.title, { ...options, timeout: 10_000 })
+    else if (notice.kind === 'info') notifyInfo(notice.title, options)
+    // Kept until closed when it has a list to copy, so there is time to reach Copy List.
+    else notifyWarning(notice.title, { ...options, timeout: list ? 0 : 10_000 })
 }
 
-/** The files and links the dialog lists: the first MAX_LISTED_LINKS links, in order. */
-function listedRewrites(files: LinkUpdateScan['files']): Array<{ file: LinkUpdateScan['files'][number]; shown: LinkRewrite[] }> {
-    const listing: Array<{ file: LinkUpdateScan['files'][number]; shown: LinkRewrite[] }> = []
+type ListedFile = { file: LinkUpdateScan['files'][number]; shown: LinkRewrite[] }
+
+/** Every file the dialog lists, each with its links up to MAX_LISTED_LINKS in all, in order. */
+function listedRewrites(files: LinkUpdateScan['files']): ListedFile[] {
     let room = MAX_LISTED_LINKS
-    for (const file of files) {
-        if (room <= 0) break
-        const shown = file.rewrites.slice(0, room)
+    return files.map((file) => {
+        const shown = file.rewrites.slice(0, Math.max(0, room))
         room -= shown.length
-        listing.push({ file, shown })
-    }
-    return listing
+        return { file, shown }
+    })
 }
 
 /** Lets the explorer finish showing the move (and putting focus on the moved row) before anything else happens. */
@@ -79,7 +95,7 @@ export function LinkUpdateDialog({ open, scan, onAnswer, finalFocus }: LinkUpdat
     const files = scan?.files.length ?? 0
     const unchecked = scan ? uncheckedNote(scan) : null
     const listing = scan ? listedRewrites(scan.files) : []
-    const listed = listing.reduce((sum, entry) => sum + entry.shown.length, 0)
+    const blocked = scan?.blocked ?? []
 
     return (
         <AlertDialog open={open} onOpenChange={(next) => !next && onAnswer(false)}>
@@ -92,14 +108,12 @@ export function LinkUpdateDialog({ open, scan, onAnswer, finalFocus }: LinkUpdat
                             {renamed ? 'Renaming' : 'Moving'} <span className="font-medium text-foreground">{displayPath(name)}</span> breaks{' '}
                             {plural(links, 'link')} in {plural(files, 'file')}. Update {links === 1 ? 'it' : 'them'} to the new place?
                         </p>
-                        {scan && scan.blocked.length > 0 ? (
+                        {/* One line however many there are: the files are named in the list below, which scrolls. */}
+                        {blocked.length > 0 ? (
                             <p>
-                                {scan.blocked
-                                    .map(
-                                        (skip) =>
-                                            `${displayPath(relativePath(move!.root, skip.path))} links to it too, but won't change: ${describeLinkSkip(skip)}.`
-                                    )
-                                    .join(' ')}
+                                {blocked.length === 1
+                                    ? `${linkUpdatePath(move!.root, blocked[0]!.path)} links to it too, but won't change: ${describeLinkSkip(blocked[0]!)}.`
+                                    : `${plural(blocked.length, 'more file')} link to it too, but won't change. They are listed below.`}
                             </p>
                         ) : null}
                         {unchecked ? <p>{unchecked}</p> : null}
@@ -116,34 +130,54 @@ export function LinkUpdateDialog({ open, scan, onAnswer, finalFocus }: LinkUpdat
                     >
                         <ul className="flex flex-col gap-3">
                             {listing.map(({ file, shown }) => {
+                                const more = file.rewrites.length - shown.length
                                 return (
                                     <li key={file.path}>
-                                        <p className="font-medium wrap-anywhere text-foreground">
-                                            {displayPath(relativePath(scan.move.root, file.path))}
-                                        </p>
-                                        <ul className="mt-1 flex flex-col gap-1">
-                                            {shown.map((rewrite) => (
-                                                <li
-                                                    key={rewrite.span.start}
-                                                    className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-muted-foreground"
-                                                >
-                                                    <span className="text-xs">Line {rewrite.line}:</span>
-                                                    <code className="rounded bg-muted px-1 font-mono text-xs wrap-anywhere text-foreground">
-                                                        {rewrite.oldAddress}
-                                                    </code>
-                                                    <span aria-hidden="true">→</span>
-                                                    <span className="sr-only">becomes</span>
-                                                    <code className="rounded bg-muted px-1 font-mono text-xs wrap-anywhere text-foreground">
-                                                        {rewrite.newAddress}
-                                                    </code>
-                                                </li>
-                                            ))}
-                                        </ul>
+                                        <p className="font-medium wrap-anywhere text-foreground">{linkUpdatePath(scan.move.root, file.path)}</p>
+                                        {shown.length > 0 ? (
+                                            <ul className="mt-1 flex flex-col gap-1">
+                                                {shown.map((rewrite) => (
+                                                    <li
+                                                        key={rewrite.span.start}
+                                                        className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-muted-foreground"
+                                                    >
+                                                        <span className="text-xs">Line {rewrite.line}:</span>
+                                                        <code className="rounded bg-muted px-1 font-mono text-xs wrap-anywhere text-foreground">
+                                                            {rewrite.oldAddress}
+                                                        </code>
+                                                        <span aria-hidden="true">→</span>
+                                                        <span className="sr-only">becomes</span>
+                                                        <code className="rounded bg-muted px-1 font-mono text-xs wrap-anywhere text-foreground">
+                                                            {rewrite.newAddress}
+                                                        </code>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : null}
+                                        {more > 0 ? (
+                                            <p className="mt-1 text-muted-foreground">
+                                                {shown.length > 0
+                                                    ? `And ${plural(more, 'more link')} in this file.`
+                                                    : `${plural(more, 'link')} to update in this file.`}
+                                            </p>
+                                        ) : null}
                                     </li>
                                 )
                             })}
                         </ul>
-                        {links > listed ? <p className="mt-3 text-muted-foreground">And {plural(links - listed, 'more link')}.</p> : null}
+                        {blocked.length > 1 ? (
+                            <>
+                                <p className="mt-4 font-medium text-foreground">Won&apos;t change</p>
+                                <ul className="mt-1 flex flex-col gap-1" aria-label="Files that won't change">
+                                    {blocked.map((skip) => (
+                                        <li key={skip.path} className="wrap-anywhere text-muted-foreground">
+                                            <span className="text-foreground">{linkUpdatePath(scan.move.root, skip.path)}</span>:{' '}
+                                            {describeLinkSkip(skip)}.
+                                        </li>
+                                    ))}
+                                </ul>
+                            </>
+                        ) : null}
                     </div>
                 ) : null}
                 <AlertDialogFooter>
@@ -187,17 +221,16 @@ export function LinkUpdateHost({ coordinator, children }: { coordinator: Workspa
 
     const isOpen = useCallback((root: string) => rootRef.current !== null && samePath(rootRef.current, root), [])
 
-    const offerOne = useCallback(
-        async (move: LinkMove) => {
-            if (!offerRef.current) return
-            await nextTask()
-            if (!isOpen(move.root)) return
+    const scanAskAndApply = useCallback(
+        async (move: LinkMove, readLinks: ReadLinks) => {
             const getTabs = () => coordinator.getTabs.current()
-            const scan = await scanLinkUpdates({ move, getTabs, readTextFile: readWorkspaceTextFile, readStamp })
+            const scan = await scanLinkUpdates({ move, getTabs, readTextFile: readWorkspaceTextFile, readStamp, readLinks })
             if (!isOpen(move.root) || !offerRef.current) return
             if (scan.files.length === 0) {
-                // Nothing to ask about, but the user should know why links to it still break.
-                if (scan.blocked.length > 0) notify(describeBlockedOnly(scan))
+                // Nothing to ask about, but the user should know why links to it still break, or that some files
+                // weren't looked at and may still have links the move broke.
+                const notice = scan.blocked.length > 0 ? describeBlockedOnly(scan) : describeNothingFound(scan)
+                if (notice) notify(notice)
                 return
             }
 
@@ -227,10 +260,28 @@ export function LinkUpdateHost({ coordinator, children }: { coordinator: Workspa
                 // The old text is kept in Local History, when it is on, so a file written here can still be got back.
                 keepVersion: keepHistoryRef.current ? (path, text) => recordFileVersion(path, text, 'before-first-write') : undefined,
                 onWritten: (path) => coordinator.fileSaved.current(path),
+                readLinks,
             })
             notify(describeLinkUpdateOutcome(outcome, scan))
         },
         [coordinator, isOpen]
+    )
+
+    const offerOne = useCallback(
+        async (move: LinkMove) => {
+            if (!offerRef.current) return
+            await nextTask()
+            if (!isOpen(move.root)) return
+            // Its own links reader, so a long file is parsed off the UI thread, and the editor's link checks (on the
+            // app's shared reader) never wait behind a scan of the whole folder.
+            const reader = createLinksReader()
+            try {
+                await scanAskAndApply(move, (text) => reader.read(text))
+            } finally {
+                reader.dispose()
+            }
+        },
+        [isOpen, scanAskAndApply]
     )
 
     const offerLinkUpdates = useCallback(

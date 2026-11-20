@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readDocumentLinks } from '@/lib/markdown/document-links'
 import { DiskChangedError, type TextFileRead } from '@/lib/tauri/fs'
 import {
     applyLinkUpdates,
     describeBlockedOnly,
     describeLinkUpdateOutcome,
+    describeNothingFound,
     scanLinkUpdates,
     uncheckedNote,
     type LinkMove,
+    type LinkUpdateSkip,
     type LinkUpdateTab,
 } from '@/lib/workspace/link-update'
 import { applyTextEdits, type TextEdit } from '@/lib/workspace/text-edits'
@@ -313,5 +316,104 @@ describe('applyLinkUpdates', () => {
             { path: 'C:\\ws\\README.md', reason: 'read-only' },
             { path: 'C:\\ws\\old.md', reason: 'binary' },
         ])
+    })
+})
+
+describe('the notices after a link update', () => {
+    const scanned = { move: { root: ROOT, newPath: 'C:\\ws\\guides\\setup.md' }, unchecked: 0, partialTree: false }
+
+    it('names each file that wasn’t updated by its place in the folder, so two README.md files are told apart', () => {
+        const notice = describeLinkUpdateOutcome(
+            {
+                updated: [{ path: 'C:\\ws\\notes.md', links: 1 }],
+                skipped: [
+                    { path: 'C:\\ws\\docs\\README.md', reason: 'read-only' },
+                    { path: 'C:\\ws\\blog\\README.md', reason: 'encoding' },
+                ],
+            },
+            scanned
+        )
+        expect(notice).toEqual({
+            kind: 'warning',
+            title: 'Updated 1 link in notes.md',
+            description:
+                "Not updated: docs\\README.md (it is open read-only); blog\\README.md (it isn't saved as UTF-8 or UTF-16, so Scrivon only reads it).",
+        })
+    })
+
+    it('names the first ten files that weren’t updated, and gives every one, with why, for Copy List', () => {
+        const skipped: LinkUpdateSkip[] = Array.from({ length: 12 }, (_, i) => ({
+            path: `C:\\ws\\notes\\n${i}.md`,
+            reason: i % 2 ? 'disk-changed' : 'read-only',
+        }))
+        const notice = describeLinkUpdateOutcome({ updated: [], skipped }, scanned)
+        expect(notice.description).toContain('notes\\n9.md (it was changed or deleted outside Scrivon); and 2 others (Copy List copies them all).')
+        expect(notice.description).not.toContain('notes\\n10.md')
+        const list = notice.list!.split('\n')
+        expect(list).toHaveLength(12)
+        expect(list[10]).toBe('notes\\n10.md (it is open read-only)')
+        expect(list[11]).toBe('notes\\n11.md (it was changed or deleted outside Scrivon)')
+
+        const blocked = skipped.map((s) => ({ ...s, file: { path: s.path, oldPath: s.path, rewrites: [], signature: '' } }))
+        expect(describeBlockedOnly({ ...scanned, blocked }).list!.split('\n')).toHaveLength(12)
+        // Ten or fewer are all named, with nothing more to copy.
+        expect(describeLinkUpdateOutcome({ updated: [], skipped: skipped.slice(0, 10) }, scanned)).not.toHaveProperty('list')
+    })
+
+    it('says some files weren’t checked when none of those checked needs a change', () => {
+        expect(describeNothingFound(scanned)).toBeNull()
+        expect(describeNothingFound({ ...scanned, unchecked: 1 })).toEqual({
+            kind: 'info',
+            title: 'No links to setup.md needed updating',
+            description: "Some files weren't checked: 1 file was too big or couldn't be read.",
+        })
+        expect(describeNothingFound({ ...scanned, partialTree: true })?.description).toBe(
+            "Some files weren't checked: Scrivon didn't list every file in this folder."
+        )
+    })
+})
+
+describe('reading links for a link update', () => {
+    it('reads each file’s links with the reader it is given, in the scan and again on Update Links', async () => {
+        const disk = movedDisk()
+        const readLinks = vi.fn(async (text: string) => readDocumentLinks(text))
+        const result = await scanLinkUpdates({
+            move: MOVE,
+            getTabs: () => [],
+            readTextFile: disk.readTextFile,
+            readStamp: disk.readStamp,
+            readLinks,
+            yieldToUi: async () => {},
+        })
+        expect(result.files).toHaveLength(3)
+        expect(readLinks).toHaveBeenCalledWith('[Setup](docs/setup.md) and [other](docs/other.md).')
+        readLinks.mockClear()
+
+        const outcome = await applyLinkUpdates({
+            scan: result,
+            getTabs: () => [],
+            applyTabEdits: vi.fn(),
+            readTextFile: disk.readTextFile,
+            writeTextFile: disk.writeTextFile,
+            readLinks,
+            yieldToUi: async () => {},
+        })
+        expect(outcome.updated).toHaveLength(3)
+        expect(readLinks).toHaveBeenCalledTimes(3)
+    })
+
+    it('passes over the files inside a folder renamed in place that don’t name it, without parsing them', async () => {
+        const tree: FileNode[] = [folder('C:\\ws\\docs', [file('C:\\ws\\docs\\a.md'), file('C:\\ws\\docs\\b.md')]), file('C:\\ws\\README.md')]
+        const move: LinkMove = { root: ROOT, oldPath: 'C:\\ws\\docs', newPath: 'C:\\ws\\manual', isDirectory: true, tree }
+        const disk = createDisk({
+            'C:\\ws\\manual\\a.md': 'See [readme](../README.md) and [b](b.md).',
+            'C:\\ws\\manual\\b.md': 'Up to [a](../docs/a.md).',
+            'C:\\ws\\README.md': 'Nothing to change.',
+        })
+        const readLinks = vi.fn(async (text: string) => readDocumentLinks(text))
+        const result = await scanLinkUpdates({ move, getTabs: () => [], readTextFile: disk.readTextFile, readStamp: disk.readStamp, readLinks })
+        expect(result.files.map((f) => [f.path, f.rewrites.map((r) => r.newAddress)])).toEqual([['C:\\ws\\manual\\b.md', ['a.md']]])
+        // a.md's links still work from the renamed folder, and it doesn't name it: never parsed.
+        expect(readLinks).toHaveBeenCalledExactlyOnceWith('Up to [a](../docs/a.md).')
     })
 })

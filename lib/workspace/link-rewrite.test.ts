@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readDocumentLinks } from '@/lib/markdown/document-links'
 import {
     applyRewrites,
     mightLinkTo,
@@ -120,6 +121,32 @@ describe('links to a moved file', () => {
         // As editor edits, on the same CRLF text.
         expect(applyTextEdits(source, rewriteEdits(source, rewrites))).toBe(text)
         expect(rewriteEdits(source, rewrites)[0]!.range).toMatchObject({ startLineNumber: 5, startColumn: 13, endLineNumber: 5, endColumn: 26 })
+    })
+
+    it('plans a long file with thousands of links quickly, giving the UI a turn every few hundred links', async () => {
+        // Mixed line breaks: `\r\n`, `\r` and `\n` each count as one, as the editor counts them.
+        const breaks = ['\n', '\r\n', '\r']
+        const source = Array.from({ length: 3000 }, (_, i) => `${'Some words. '.repeat(20)}![shot ${i}](docs/setup.md#s${i})${breaks[i % 3]}`).join(
+            ''
+        )
+        const yieldToUi = vi.fn(async () => {})
+        // Parsed first (the scan does that in a worker), so only the planning is timed.
+        const links = readDocumentLinks(source)
+        const started = performance.now()
+        const context: LinkRewriteContext = {
+            workspaceRoot: ROOT,
+            oldFilePath: 'C:\\ws\\README.md',
+            move: moveSetup,
+            targetExists: () => true,
+            yieldToUi,
+        }
+        const rewrites = await planLinkRewrites(source, context, links)
+        // Counting each link's line from the top of the file made this take many seconds.
+        expect(performance.now() - started).toBeLessThan(1500)
+        expect(rewrites).toHaveLength(3000)
+        expect(rewrites.map((r) => r.line)).toEqual(Array.from({ length: 3000 }, (_, i) => i + 1))
+        expect(rewrites[2999]).toMatchObject({ oldAddress: 'docs/setup.md#s2999', newAddress: 'guides/setup.md#s2999' })
+        expect(yieldToUi).toHaveBeenCalledTimes(Math.floor(2999 / 256))
     })
 
     it('matches Windows paths that differ in letter case and separators, writing the target as it is spelt now', async () => {

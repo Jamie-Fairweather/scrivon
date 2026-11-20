@@ -96,11 +96,43 @@ describe('LinkUpdateDialog', () => {
         )
     })
 
-    it('lists at most 200 links and counts the rest', async () => {
+    it('lists at most 200 links and counts the rest under their file', async () => {
         const many = Array.from({ length: 250 }, (_, i) => rewrite(`a${i}.md`, `b/a${i}.md`, i + 1))
         const { dialog } = await show(scanOf({ files: [fileWith('C:\\ws\\index.md', many)] }))
         expect(within(dialog).getAllByText('becomes')).toHaveLength(200)
-        expect(dialog).toHaveTextContent('And 50 more links.')
+        expect(dialog).toHaveTextContent('And 50 more links in this file.')
+    })
+
+    it('names every file that would change, also those past the 200 links it lists', async () => {
+        const files = Array.from({ length: 250 }, (_, i) => fileWith(`C:\\ws\\notes\\n${i}.md`, [rewrite('../docs/setup.md', '../guides/setup.md')]))
+        const { dialog } = await show(scanOf({ files }))
+        const list = within(dialog).getByRole('region', { name: 'Links to update' })
+        expect(within(list).getAllByText('becomes')).toHaveLength(200)
+        // The 250th file has no rows, but is named, with its link counted.
+        const last = within(list).getByText('notes\\n249.md').closest('li')!
+        expect(last).toHaveTextContent('notes\\n249.md1 link to update in this file.')
+        expect(within(list).getByText('notes\\n200.md')).toBeInTheDocument()
+        expect(within(list).getByText('notes\\n199.md').closest('li')).toHaveTextContent('Line 1:../docs/setup.md')
+    })
+
+    it('keeps many files that won’t change out of the summary, and lists them with why in the list, which scrolls', async () => {
+        const blocked = Array.from({ length: 40 }, (_, i) => ({
+            path: `C:\\ws\\legacy\\old${i}.md`,
+            reason: 'encoding' as const,
+            file: fileWith(`C:\\ws\\legacy\\old${i}.md`, [rewrite('../docs/setup.md', '../guides/setup.md')]),
+        }))
+        const { dialog } = await show(scanOf({ blocked }))
+        expect(dialog).toHaveAccessibleDescription(
+            "Moving setup.md breaks 3 links in 2 files. Update them to the new place? 40 more files link to it too, but won't change. They are listed below."
+        )
+        const list = within(dialog).getByRole('region', { name: 'Links to update' })
+        const wontChange = within(list).getByRole('list', { name: "Files that won't change" })
+        expect(within(wontChange).getAllByRole('listitem')).toHaveLength(40)
+        expect(within(wontChange).getAllByRole('listitem')[39]).toHaveTextContent(
+            "legacy\\old39.md: it isn't saved as UTF-8 or UTF-16, so Scrivon only reads it."
+        )
+        // The buttons are still there, after the list, not pushed away by the summary.
+        expect(within(dialog).getByRole('button', { name: 'Update Links' })).toBeInTheDocument()
     })
 
     it('works from the keyboard: the list can take focus to scroll, and each button answers', async () => {
