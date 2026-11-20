@@ -380,6 +380,38 @@ describe('WorkspaceSessionProvider on Windows paths', () => {
         expect(result.current.tabs.activeTabId).toBe('C:\\ws\\sub\\a.mmd')
     })
 
+    it('restores a split editor: both groups, the tab each showed, the focused group and the divider', async () => {
+        await disk.write('C:\\ws\\sub\\b.mmd', 'graph LR')
+        vi.mocked(getWorkspaceTabSession).mockResolvedValueOnce({
+            tabIds: ['C:\\ws\\sub\\a.mmd', 'C:\\ws\\sub\\b.mmd', 'C:\\ws\\sub\\gone.mmd'],
+            activeTabId: 'C:\\ws\\sub\\b.mmd',
+            // Stored ids written another way still find their tab, once per group.
+            groups: [
+                { tabIds: ['c:/ws/sub/a.mmd', 'C:\\ws\\sub\\gone.mmd'], activeTabId: 'c:/ws/sub/a.mmd' },
+                { tabIds: ['C:/WS/SUB/B.MMD', 'C:\\ws\\sub\\a.mmd', 'c:\\ws\\sub\\b.mmd'], activeTabId: 'C:\\ws\\sub\\b.mmd' },
+            ],
+            focusedGroup: 1,
+            groupRatio: 0.4,
+        })
+        const { result } = renderHook(useHarness, { wrapper: createWrapper() })
+
+        await act(async () => {
+            await result.current.session.openWorkspace('C:\\ws')
+        })
+
+        await waitFor(() => expect(result.current.tabs.groups.groups).toHaveLength(2))
+        const { groups } = result.current.tabs
+        expect(groups.groups.map((g) => [g.tabIds, g.activeTabId])).toEqual([
+            [['C:\\ws\\sub\\a.mmd'], 'C:\\ws\\sub\\a.mmd'],
+            [['C:\\ws\\sub\\b.mmd', 'C:\\ws\\sub\\a.mmd'], 'C:\\ws\\sub\\b.mmd'],
+        ])
+        expect(groups.focused).toBe(1)
+        expect(groups.ratio).toBe(0.4)
+        expect(result.current.tabs.activeTabId).toBe('C:\\ws\\sub\\b.mmd')
+        // One tab per file, whatever the groups show.
+        expect(result.current.tabs.tabs.map((t) => t.id)).toEqual(['C:\\ws\\sub\\a.mmd', 'C:\\ws\\sub\\b.mmd'])
+    })
+
     it('reopens a saved tab for a file that is not UTF-8 as read-only, and says why', async () => {
         vi.mocked(getWorkspaceTabSession).mockResolvedValueOnce({ tabIds: ['C:\\ws\\sub\\a.mmd'], activeTabId: 'C:\\ws\\sub\\a.mmd' })
         vi.mocked(readFile).mockResolvedValueOnce(new Uint8Array([0x43, 0x61, 0x66, 0xe9]))

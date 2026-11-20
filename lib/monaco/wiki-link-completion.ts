@@ -201,7 +201,8 @@ export function registerWikiLinkCompletion(monaco: CompletionMonaco): IDisposabl
 type SuggestEditor = Pick<
     editor.ICodeEditor,
     'onDidChangeModelContent' | 'onDidCompositionStart' | 'onDidCompositionEnd' | 'getModel' | 'getPosition' | 'trigger'
->
+> &
+    Partial<Pick<editor.ICodeEditor, 'hasTextFocus'>>
 
 /** What typing one key puts in: `[` (or `[]`, when Monaco closes the bracket) or `#`. */
 const TYPED = new Set(['[', '[]', '#'])
@@ -224,6 +225,8 @@ export function bindWikiLinkSuggest(codeEditor: SuggestEditor, isMarkdown: () =>
             if (composing || event.isUndoing || event.isRedoing || event.isFlush || event.changes.length !== 1) return
             const [change] = event.changes
             if (!change || change.rangeLength !== 0 || !TYPED.has(change.text) || !isMarkdown()) return
+            // With the file open in both editor groups, both editors hear the typing; only the one typed in opens the list.
+            if (codeEditor.hasTextFocus?.() === false) return
             const opened = change.text === '#' ? '[[#' : '[['
             // The caret moves just after the content does, so the list is opened once it has.
             queueMicrotask(() => {

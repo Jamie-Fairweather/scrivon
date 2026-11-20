@@ -87,6 +87,21 @@ describe('keybind registry', () => {
         expect(matchKeybind(ctrlS, bindings)).toBe('document.save')
     })
 
+    it('splits the editor with Ctrl+\\ and leaves the other group commands for the user to bind', () => {
+        const keybinds = createDefaultKeybinds(false)
+        const shown = (id: Parameters<typeof formatKeybindForAction>[0]) => formatKeybindForAction(id, keybinds, false)
+        expect(shown('view.splitEditor')).toBe('Ctrl+\\')
+        expect(formatKeybindForAction('view.splitEditor', createDefaultKeybinds(true), true)).toBe('⌘\\')
+        expect(keybinds['view.moveTabToOtherGroup']).toEqual([])
+        expect(keybinds['view.focusOtherGroup']).toEqual([])
+        expect(keybinds['view.joinGroups']).toEqual([])
+        expect(
+            KEYBIND_ACTIONS.filter((action) => action.id.endsWith('Group') || action.id.endsWith('Groups') || action.id === 'view.splitEditor').map(
+                (a) => a.label
+            )
+        ).toEqual(['Split editor', 'Move tab to other group', 'Focus other group', 'Join editor groups'])
+    })
+
     it('has tab shortcuts like other tabbed editors, listed under Tabs', () => {
         const keybinds = createDefaultKeybinds(false)
         const shown = (id: Parameters<typeof formatKeybindForAction>[0]) => formatKeybindForAction(id, keybinds, false)

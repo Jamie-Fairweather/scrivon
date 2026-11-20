@@ -222,6 +222,33 @@ describe('bindWikiLinkSuggest', () => {
         expect(heading.fake.trigger).toHaveBeenCalledTimes(1)
     })
 
+    it('opens the list only in the editor typed in, when both editor groups show the file', async () => {
+        registerWikiLinkSource({ index, documentPath: TODAY })
+        const typedIn = editorWith('See [')
+        const other = editorWith('See [')
+        bindWikiLinkSuggest({ ...typedIn.fake, hasTextFocus: () => true } as unknown as editor.ICodeEditor, () => true)
+        const otherFake = { ...other.fake, hasTextFocus: () => false }
+        bindWikiLinkSuggest(otherFake as unknown as editor.ICodeEditor, () => true)
+        await typedIn.type('[]')
+        await other.type('[]')
+        expect(typedIn.fake.trigger).toHaveBeenCalledTimes(1)
+        expect(other.fake.trigger).not.toHaveBeenCalled()
+    })
+
+    it('gives each editor the notes and folder of its own file', () => {
+        const left = registerWikiLinkSource({ index, documentPath: TODAY, modelUri: 'inmemory://scrivon/document-1' })
+        const right = registerWikiLinkSource({ index: null, documentPath: null, modelUri: 'inmemory://scrivon/document-2' })
+        const at = (uri: string) =>
+            provideWikiLinkCompletions(
+                { getLineContent: () => '[[', getValue: () => '[[', uri: { toString: () => uri } },
+                { lineNumber: 1, column: 3 }
+            )
+        expect(at('inmemory://scrivon/document-1')?.suggestions.length).toBeGreaterThan(0)
+        expect(at('inmemory://scrivon/document-2')?.suggestions ?? []).toEqual([])
+        right()
+        left()
+    })
+
     it('opens nothing when there is nothing to offer, so no “No suggestions.” box covers the prose', async () => {
         // No folder open: an example, a file on its own, an untitled tab.
         const noFolder = editorWith('See [')
