@@ -1394,7 +1394,7 @@ describe('moving tabs', () => {
 
         expect(ids(result.current.tabs)).toEqual(['/ws/b.md', '/ws/c.md', '/ws/a.md'])
         expect(result.current.activeTabId).toBe('/ws/b.md')
-        expect(result.current.lastTabMove).toEqual({ id: '/ws/a.md' })
+        expect(result.current.lastTabMove).toEqual({ id: '/ws/a.md', groupId: 'group-1' })
         expect(setWorkspaceTabSession).toHaveBeenCalledExactlyOnceWith('/ws', {
             tabIds: ['/ws/b.md', '/ws/c.md', '/ws/a.md'],
             activeTabId: '/ws/b.md',

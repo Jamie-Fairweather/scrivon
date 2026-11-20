@@ -178,11 +178,12 @@ export function showTab(state: EditorGroups, tabId: string, groupIndex?: number)
 }
 
 /**
- * Split Editor: shows the tab in the other group and focuses it. With one group, the other group is made first, to
- * the right. With two, the other one is used, so there are never more than two.
+ * Split Editor: shows the tab in the group other than `from` (the focused one, unless a tab's menu says otherwise)
+ * and focuses it. With one group, the other group is made first, to the right. With two, the other one is used, so
+ * there are never more than two.
  */
-export function splitEditor(state: EditorGroups, tabId: string, newId: string = unusedGroupId(state)): EditorGroups {
-    const other = otherGroupIndex(state)
+export function splitEditor(state: EditorGroups, tabId: string, from: number = state.focused, newId: string = unusedGroupId(state)): EditorGroups {
+    const other = otherGroupIndex(state, from)
     if (other !== null) return showInGroup(state, tabId, other)
     return { ...state, groups: [...state.groups, { id: newId, tabIds: [tabId], activeTabId: tabId }], focused: state.groups.length }
 }
