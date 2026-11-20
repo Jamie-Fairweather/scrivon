@@ -498,6 +498,14 @@ function emptyMessageFor(hasWorkspace: boolean, mode: PaletteMode, query: string
     return 'No results found. Try a shorter query.'
 }
 
+/**
+ * Whether a key was pressed in the palette itself. The Replace All dialog is drawn in its own layer (a portal) but
+ * is the palette's child, so its keys pass through the palette's handlers too; they must not act behind it.
+ */
+function isInPopup(event: KeyboardEvent<HTMLElement>): boolean {
+    return event.target instanceof Node && event.currentTarget.contains(event.target)
+}
+
 function paletteItemToStringValue(itemValue: unknown): string {
     if (!itemValue) return ''
     if (typeof itemValue === 'string') return itemValue
@@ -604,7 +612,8 @@ export function CommandPaletteDialog({
     // On the popup, so the keys work from the search box and from a toggle alike.
     const handlePopupKeyDown = useCallback(
         (event: KeyboardEvent<HTMLDivElement>) => {
-            if (!searchOptionsApply) return
+            // Not from the Replace All dialog, which is drawn elsewhere but whose keys still pass through here.
+            if (!searchOptionsApply || !isInPopup(event)) return
             const option = workspaceSearchOptionForKey(event.nativeEvent, isMac)
             if (!option) return
             event.preventDefault()
@@ -628,6 +637,8 @@ export function CommandPaletteDialog({
             if (!action) return
             event.preventDefault()
             event.stopPropagation()
+            // Pressed in the Replace All dialog: nothing is replaced behind it, and it already runs Replace All.
+            if (!isInPopup(event)) return
             if (action === 'replaceAll') {
                 void replace.startReplaceAll()
                 return

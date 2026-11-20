@@ -96,6 +96,12 @@ export type WorkspaceCoordinatorRefs = {
      */
     applyTabEdits: MutableRefObject<(tabId: string, edits: readonly TextEdit[]) => boolean>
     /**
+     * Whether the editor has a buffer (a Monaco model) for the open tab, so applyTabEdits makes its edits an
+     * undo step. A tab the editor hasn't shown has none, and one opened a moment ago has none until the editor
+     * has loaded: applyTabEdits then changes its text with nothing to undo.
+     */
+    hasTabBuffer: MutableRefObject<(tabId: string) => boolean>
+    /**
      * The open tabs as they are at this moment, with any edit or newly opened file not yet drawn: for work that
      * must decide what is open right when it acts (Replace in Workspace), not as of the last render.
      */
@@ -135,6 +141,7 @@ export function createWorkspaceCoordinatorRefs(): WorkspaceCoordinatorRefs {
         revealInEditor: { current: () => {} },
         replaceEditorText: { current: () => {} },
         applyTabEdits: { current: () => false },
+        hasTabBuffer: { current: () => false },
         getTabs: { current: () => [] },
         getEditorSelectedText: { current: () => null },
     }

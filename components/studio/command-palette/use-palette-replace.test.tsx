@@ -43,6 +43,8 @@ function workspace(tabs: DocumentTab[]) {
                 return true
             }),
         },
+        // Every open tab has an editor buffer unless a test says otherwise.
+        hasTabBuffer: { current: vi.fn((tabId: string) => state.tabs.some((t) => t.id === tabId)) },
         fileSaved: { current: vi.fn() },
     }
     return { state, coordinator }
@@ -137,6 +139,41 @@ describe('usePaletteReplace, one match and one file', () => {
         expect(writeWorkspaceFile).not.toHaveBeenCalled()
     })
 
+    it('waits for the editor to load and make the buffer of a file it opened, so Ctrl+Z undoes the change', async () => {
+        disk = { '/w/b.md': 'cat' }
+        const { result, state, coordinator } = setup([])
+        // The editor (loaded for the first time) has the buffer only a few frames after the tab opens.
+        const calls: string[] = []
+        coordinator.hasTabBuffer.current.mockImplementation(() => {
+            calls.push('has buffer?')
+            return calls.length > 4
+        })
+        const edit = coordinator.applyTabEdits.current.getMockImplementation()!
+        coordinator.applyTabEdits.current.mockImplementation((tabId, edits) => {
+            calls.push('edit')
+            return edit(tabId, edits)
+        })
+
+        await act(() => result.current.replaceMatch(hitAt('/w/b.md', 1, 1, 3)))
+
+        // Edited only once the buffer is there.
+        expect(calls.indexOf('edit')).toBeGreaterThan(4)
+        expect(state.tabs[0]!.content).toBe('dog')
+        expect(result.current.notice).toEqual({ message: 'Replaced 1 match in b.md.', details: [] })
+    })
+
+    it("still changes a file whose editor doesn't load in time, and says Ctrl+Z can't undo it", async () => {
+        disk = { '/w/b.md': 'cat' }
+        const { result, state, coordinator } = setup([], { editorWaitMs: 40 })
+        coordinator.hasTabBuffer.current.mockReturnValue(false)
+
+        await act(() => result.current.replaceMatch(hitAt('/w/b.md', 1, 1, 3)))
+
+        expect(state.tabs[0]!.content).toBe('dog')
+        expect(writeWorkspaceFile).not.toHaveBeenCalled()
+        expect(result.current.notice?.details).toEqual(["Ctrl+Z can't undo this in b.md, because the editor hadn't loaded it yet."])
+    })
+
     it('finds the open tab however the folder listing spells its path', async () => {
         const { result, state, coordinator } = setup([tab('C:\\Notes\\A.md', 'cat')])
 
@@ -226,6 +263,33 @@ describe('usePaletteReplace, Replace All', () => {
         expect(writeWorkspaceFile).toHaveBeenCalledTimes(1)
         expect(result.current.notice?.message).toBe('Replace All stopped after 1 file of 3. Replaced 1 match.')
         expect(result.current.notice?.details).toEqual(['Already replaced in a.md.'])
+    })
+
+    it('names the files the count left alone in the notice afterwards, not only in the question', async () => {
+        disk = { '/w/a.md': 'cat' }
+        const { result } = setup([tab('/w/ro.md', 'cat', { readOnly: true })])
+        await act(() => result.current.startReplaceAll())
+        expect(result.current.replaceAll).toMatchObject({ phase: 'confirm', plan: { skipped: [{ path: '/w/ro.md', reason: 'read-only' }] } })
+
+        await act(() => result.current.confirmReplaceAll())
+
+        expect(result.current.notice).toEqual({
+            message: 'Replaced 1 match in a.md.',
+            details: ['Skipped 1 file: ro.md (it is open read-only).'],
+        })
+    })
+
+    it('replaces nothing else while it asks, so the totals it asks about stay true', async () => {
+        disk = { '/w/a.md': 'x' }
+        const { result, coordinator } = setup([tab('/w/open.md', 'cat')])
+        await act(() => result.current.startReplaceAll())
+        expect(result.current.replaceAll.phase).toBe('confirm')
+
+        await act(() => result.current.replaceMatch(hitAt('/w/open.md', 1, 1, 3)))
+        await act(() => result.current.replaceFile('/w/open.md'))
+
+        expect(coordinator.applyTabEdits.current).not.toHaveBeenCalled()
+        expect(result.current.replaceAll.phase).toBe('confirm')
     })
 
     it('says there is nothing to replace, and why files were left alone, without asking', async () => {

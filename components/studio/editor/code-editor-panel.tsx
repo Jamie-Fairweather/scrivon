@@ -595,32 +595,46 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
      * leaves the buffer and its undo history as they are. A tab the editor hasn't shown has no buffer yet, and a
      * background tab whose buffer is out of date has the wrong one: both get the edited text straight away.
      */
+    /** The tab's buffer when it is the one to edit, and whether it is on screen; null when the tab's text is. */
+    const editableBuffer = useCallback((tab: DocumentTab) => {
+        const monaco = monacoRef.current
+        const key = modelKeysRef.current.keys.get(tab.path)
+        const model = monaco && key ? monaco.editor.getModel(monaco.Uri.parse(key)) : null
+        if (!monaco || !model) return null
+        const editor = editorRef.current
+        const onScreen = editor !== null && editor.getModel() === model && activeTabIdRef.current === tab.id
+        // A background tab's buffer doesn't follow text the tab gets from elsewhere (a reload from disk); it
+        // catches up when the tab is shown (syncEditorWithActiveTab). Until then the tab's text is the one to
+        // edit, and the buffer's undo history is of text the tab no longer has. The buffer on screen is kept
+        // up to date straight away, so it is always the one to edit.
+        const current = onScreen || model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content)
+        return current ? { model, editor: onScreen ? editor : null } : null
+    }, [])
+
+    const hasTabBuffer = useCallback(
+        (tabId: string): boolean => {
+            const tab = tabsRef.current.find((t) => t.id === tabId)
+            return tab !== undefined && editableBuffer(tab) !== null
+        },
+        [editableBuffer]
+    )
+
     const applyTabEdits = useCallback(
         (tabId: string, edits: readonly TextEdit[]): boolean => {
             const tab = tabsRef.current.find((t) => t.id === tabId)
             if (!tab || tab.readOnly) return false
             if (edits.length === 0) return true
-            const monaco = monacoRef.current
-            const key = modelKeysRef.current.keys.get(tab.path)
-            const model = monaco && key ? monaco.editor.getModel(monaco.Uri.parse(key)) : null
-            const editor = editorRef.current
-            const onScreen = model !== null && editor !== null && editor.getModel() === model && activeTabIdRef.current === tabId
-            // A background tab's buffer doesn't follow text the tab gets from elsewhere (a reload from disk); it
-            // catches up when the tab is shown (syncEditorWithActiveTab). Until then the tab's text is the one to
-            // edit, and the buffer's undo history is of text the tab no longer has. The buffer on screen is kept
-            // up to date straight away, so it is always the one to edit.
-            const current =
-                model !== null &&
-                monaco !== null &&
-                (onScreen || model.getValue(monaco.editor.EndOfLinePreference.LF) === normalizeEditorText(tab.content))
-            if (!model || !current) {
+            const buffer = editableBuffer(tab)
+            if (!buffer) {
                 updateTabContent(tabId, applyTextEdits(tab.content, edits))
                 return true
             }
+            const { model, editor } = buffer
+            const onScreen = editor !== null
             const operations = edits.map((edit) => ({ range: edit.range, text: edit.text }))
             const edit = () => {
                 model.pushStackElement()
-                model.pushEditOperations(onScreen ? editor.getSelections() : [], operations, () => null)
+                model.pushEditOperations(editor ? editor.getSelections() : [], operations, () => null)
                 model.pushStackElement()
             }
             if (onScreen) {
@@ -636,12 +650,12 @@ export function CodeEditorPanel({ open = true, fill = false, width, onWidthChang
             updateTabContent(tabId, model.getValue())
             return true
         },
-        [updateTabContent]
+        [updateTabContent, editableBuffer]
     )
 
     useEffect(() => {
-        registerCoordinatorRefs(coordinator, { replaceEditorText, applyTabEdits })
-    }, [coordinator, replaceEditorText, applyTabEdits])
+        registerCoordinatorRefs(coordinator, { replaceEditorText, applyTabEdits, hasTabBuffer })
+    }, [coordinator, replaceEditorText, applyTabEdits, hasTabBuffer])
 
     // Free the buffers of tabs that are no longer open.
     useEffect(() => {

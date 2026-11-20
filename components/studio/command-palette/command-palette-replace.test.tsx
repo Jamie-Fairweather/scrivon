@@ -300,6 +300,28 @@ describe('Replace All dialog', () => {
         expect(replace.cancelReplaceAll).toHaveBeenCalled()
     })
 
+    it('never replaces or switches an option behind it from keys pressed in it', async () => {
+        const onSearchOptionsChange = vi.fn()
+        const { replace } = renderReplace(
+            { replaceAll: { phase: 'confirm', plan, matcher: null as never, replacement: 'dog' } },
+            { onSearchOptionsChange }
+        )
+        const dialog = await screen.findByRole('alertdialog')
+        // A match is highlighted in the results behind the dialog (hidden from screen readers while it shows).
+        fireEvent.keyDown(screen.getByRole('combobox', { name: 'Find in workspace', hidden: true }), { key: 'ArrowDown' })
+        const button = within(dialog).getByRole('button', { name: 'Replace All' })
+
+        const replaceOne = pressKey(button, { key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true })
+        pressKey(button, { key: 'Enter', ctrlKey: true, altKey: true })
+        pressKey(button, { key: 'c', code: 'KeyC', altKey: true })
+
+        expect(replace.replaceMatch).not.toHaveBeenCalled()
+        expect(replace.startReplaceAll).not.toHaveBeenCalled()
+        expect(onSearchOptionsChange).not.toHaveBeenCalled()
+        // Still kept from the app's own keys while the palette is open.
+        expect(replaceOne.defaultPrevented).toBe(true)
+    })
+
     it('keeps the Replace box and results usable around it: no dialog while idle', () => {
         renderState({ phase: 'idle' })
         expect(screen.queryByRole('alertdialog')).toBeNull()

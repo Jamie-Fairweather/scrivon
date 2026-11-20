@@ -38,6 +38,13 @@ const IDLE: ReplaceAllState = { phase: 'idle' }
 /** How long to wait for the editor to take a tab that was just opened, before its text is changed some other way. */
 const EDITOR_WAIT_FRAMES = 30
 
+/**
+ * How long to wait for the editor to make a buffer for a file just opened to be changed. The first file opened
+ * in a session waits for the editor itself to load, which takes a moment; without a buffer the change can't be
+ * undone with Ctrl+Z.
+ */
+const EDITOR_BUFFER_WAIT_MS = 5000
+
 /** The notice when one file was left alone. */
 function skipped(path: string, reason: ReplaceSkipReason): ReplaceNotice {
     return { message: `Nothing was replaced in ${getBaseName(path)}: ${describeSkip({ reason })}.`, details: [] }
@@ -62,12 +69,14 @@ export type UsePaletteReplaceOptions = {
     refresh: () => void
     /** Stands for the query and its options: a change of either clears the last notice. */
     queryKey: string
-    /** The open tabs, the editor and the open path: getTabs, openFile, applyTabEdits and fileSaved. */
-    coordinator: Pick<WorkspaceCoordinatorRefs, 'getTabs' | 'openFile' | 'applyTabEdits' | 'fileSaved'>
+    /** The open tabs, the editor and the open path: getTabs, openFile, applyTabEdits, hasTabBuffer and fileSaved. */
+    coordinator: Pick<WorkspaceCoordinatorRefs, 'getTabs' | 'openFile' | 'applyTabEdits' | 'hasTabBuffer' | 'fileSaved'>
     /** Shows the editor, so a file opened to be changed gets a buffer whose undo takes the change back. */
     showEditor: () => void
     /** Whether Local History is on: a file written by Replace All then keeps its old text there first. */
     keepHistory: boolean
+    /** How long a file just opened to be changed waits for its editor buffer (EDITOR_BUFFER_WAIT_MS). */
+    editorWaitMs?: number
 }
 
 /**
@@ -86,6 +95,7 @@ export function usePaletteReplace({
     coordinator,
     showEditor,
     keepHistory,
+    editorWaitMs = EDITOR_BUFFER_WAIT_MS,
 }: UsePaletteReplaceOptions) {
     const [busy, setBusy] = useState(false)
     const busyRef = useRef(false)
@@ -135,14 +145,19 @@ export function usePaletteReplace({
                 await coordinator.openFile.current(path)
                 tab = findOpenTab(getTabs(), path)
                 if (!tab) return 'not-opened'
-                // Lets the editor make the tab's buffer before it is edited, so Ctrl+Z can take the change back.
-                await nextFrame()
-                await nextFrame()
-                tab = findOpenTab(getTabs(), path) ?? tab
+                // Waits for the editor to make the tab's buffer (and, the first time, to load), so the change is
+                // an undo step there. Without it the tab's text would change with nothing for Ctrl+Z to take back.
+                const deadline = Date.now() + editorWaitMs
+                while (!tab.readOnly && !coordinator.hasTabBuffer.current(tab.id) && Date.now() < deadline) {
+                    await nextFrame()
+                    const now = findOpenTab(getTabs(), path)
+                    if (!now) return 'not-opened'
+                    tab = now
+                }
             }
             return tabSkipReason(tab, isExampleTabId) ?? tab
         },
-        [coordinator, getTabs, showEditor]
+        [coordinator, getTabs, showEditor, editorWaitMs]
     )
 
     const run = useCallback(
@@ -183,33 +198,44 @@ export function usePaletteReplace({
             // The tab's text may have moved on while a regex was worked out in the worker.
             const now = findOpenTab(getTabs(), path)
             if (!now || now.id !== tab.id || now.content !== tab.content) return skipped(path, 'changed')
+            // A tab the editor hasn't shown, or one it didn't load in time, has no buffer: its text changes as an
+            // unsaved edit all the same, but Ctrl+Z can't take it back, which the notice says.
+            const undoable = coordinator.hasTabBuffer.current(tab.id)
             if (!(await editTab(tab.id, replacementEdits(tab.content, chosen)))) return skipped(path, 'read-only')
             // The true number replaced, however many the results listed, and any long lines a regex left alone.
-            return describeOutcome({
+            const notice = describeOutcome({
                 replaced: [{ path, count: chosen.length, route: 'buffer' }],
                 replacedMatches: chosen.length,
                 skipped: [],
                 longLinesSkipped: at ? 0 : computed.longLinesSkipped,
                 cancelled: false,
             })
+            if (!undoable) {
+                notice.details.push(`Ctrl+Z can't undo this in ${getBaseName(path)}, because the editor hadn't loaded it yet.`)
+            }
+            return notice
         },
-        [matcher, replacement, tabFor, getTabs, editTab]
+        [matcher, replacement, tabFor, getTabs, editTab, coordinator]
     )
+
+    // While Replace All's dialog shows (counting, asking, running), nothing else is replaced: the totals it asks
+    // about must stay true.
+    const replaceAllIdle = replaceAll.phase === 'idle'
 
     const replaceMatch = useCallback(
         (item: TextPaletteItem) => {
-            if (!active || item.disabled) return Promise.resolve()
+            if (!active || item.disabled || !replaceAllIdle) return Promise.resolve()
             return run(() => replaceInTab(item.path, item))
         },
-        [active, run, replaceInTab]
+        [active, replaceAllIdle, run, replaceInTab]
     )
 
     const replaceFile = useCallback(
         (path: string) => {
-            if (!active) return Promise.resolve()
+            if (!active || !replaceAllIdle) return Promise.resolve()
             return run(() => replaceInTab(path, null))
         },
-        [active, run, replaceInTab]
+        [active, replaceAllIdle, run, replaceInTab]
     )
 
     /** Counts every match afresh, with no cap, then asks before anything is replaced. */
